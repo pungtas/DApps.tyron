@@ -1,5 +1,5 @@
 (*
-$TYRON DeFi identity token - Implementation smart contract.
+PST ZRC: profit-sharing token Zilliqa reference contract - Implementation smart contract.
 Tyron Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
 
@@ -18,7 +18,7 @@ scilla_version 0
 
 import BoolUtils IntUtils ListUtils
 
-library TyronImplementation
+library PSTimplementation
 
 let one_msg = fun( msg: Message ) =>
   let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
@@ -43,7 +43,7 @@ type Error =
   | CodeNotMasterMinter
   | CodeNotMinter
   | CodeIsNull
-  | ThrownIfZero
+  | ThrowIfZero
   | CodeIsPaused
   | CodeNotPaused
   | CodeIsBlacklisted
@@ -65,7 +65,7 @@ let make_error = fun( error: Error ) =>
   | CodeNotPaused                     => Int32 -12
   | CodeIsBlacklisted                 => Int32 -13
   | CodeNotBlacklisted                => Int32 -14
-  | ThrownIfZero                        => Int32 -15
+  | ThrowIfZero                       => Int32 -15
   end in { _exception: "Error"; code: result }
 
 let zero = Uint128 0
@@ -75,7 +75,6 @@ let none_uint128 = None{ Uint128 }
 let true = True
 let false = False
 let null_address = 0x0000000000000000000000000000000000000000
-let fifteen_min = Uint128 21
 
 let option_value = tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) =>
   match opt_val with
@@ -103,11 +102,11 @@ let better_subtract = fun( a: Uint128 ) => fun( b: Uint128 ) =>
   | False => zero
   end
 
-contract TyronImplementation(
+contract PSTimplementation(
   initAdmin: ByStr20,
   proxyAddr: ByStr20,
-  initGasGuaranty: Uint128
-  ) 
+  zilswapAddr: ByStr20
+  )
   field admin: ByStr20 = initAdmin
   field pauser: ByStr20 = initAdmin
   field master_minter: ByStr20 = initAdmin
@@ -115,9 +114,9 @@ contract TyronImplementation(
   field blacklister: ByStr20 = initAdmin
   field blacklisted: Map ByStr20 Uint128 = Emp ByStr20 Uint128
   field minter_allowances: Map ByStr20 ( Option Uint128 ) = Emp ByStr20 ( Option Uint128 )
-  field gas_stations: Map String ( Map ByStr32 Uint128 ) = Emp String ( Map ByStr32 Uint128 )
-  field gas_station_guaranty: Uint128 = initGasGuaranty
-  (*to-do: add transition to update gas_station_guaranty*)
+  field zilswap: ByStr20 = zilswapAddr
+  field block_period: Uint128 = zero
+  field deadline_block: BNum = BNum 0
 
 procedure ThrowError(
   err: Error
@@ -125,6 +124,7 @@ procedure ThrowError(
   e = make_error err; throw e
 end
 
+(* Validate given address against _sender *)
 procedure VerifyProxy()
   verified = builtin eq proxyAddr _sender;
   match verified with
@@ -134,7 +134,7 @@ procedure VerifyProxy()
 end
 
 procedure isAdmin(
-  addr: ByStr20 
+  addr: ByStr20
   )
   current_admin <- admin;
   is_admin = builtin eq current_admin addr;
@@ -239,7 +239,7 @@ procedure ThrowIfZero(
   gt_zero = uint128_gt amount zero;
   match gt_zero with
   | True =>
-  | False => err = ThrownIfZero; ThrowError err
+  | False => err = ThrowIfZero; ThrowError err
   end
 end
 
@@ -293,6 +293,23 @@ transition UpdateImplementationAdmin(
   }; event e
 end
 
+transition UpdatePauser(
+  newPauser: ByStr20,
+  initiator: ByStr20
+  )
+  VerifyProxy;
+  isAdmin initiator;
+  isNotNull newPauser;
+  current_pauser <- pauser;
+  isNotSender current_pauser newPauser;
+  pauser := newPauser;
+  e = {
+    _eventname: "PauserUpdated";
+    pauser: newPauser;
+    executor: initiator
+  }; event e
+end
+
 transition Pause(
   initiator: ByStr20
   )
@@ -315,23 +332,6 @@ transition Unpause(
   paused := false;
   e = {
     _eventname: "Unpaused";
-    executor: initiator
-  }; event e
-end
-
-transition UpdatePauser(
-  newPauser: ByStr20,
-  initiator: ByStr20
-  )
-  VerifyProxy;
-  isAdmin initiator;
-  isNotNull newPauser;
-  current_pauser <- pauser;
-  isNotSender current_pauser newPauser;
-  pauser := newPauser;
-  e = {
-    _eventname: "PauserUpdated";
-    pauser: newPauser;
     executor: initiator
   }; event e
 end
@@ -741,48 +741,47 @@ transition TransferFrom(
   send msgs
 end
 
-transition GasStation(
-  network: String,
-  recipient: String,
-  amount: Uint128,
-  fee: Uint128,
-  initiator: ByStr20,
-  fromBal: Uint128
+transition UpdateZilswap(
+  newAddr: ByStr20
   )
-  ThrowIfZero amount;
-  guaranty <- gas_station_guaranty;
-  funds =
-    let added_fee = builtin add amount fee
-    in let guaranty_amount =
-      let amount_percent = builtin div amount hundred
-      in builtin mul amount_percent guaranty
-    in builtin add added_fee guaranty_amount;
-  isSufficientFunds fromBal funds;
-  new_from_bal = builtin sub fromBal funds;
+  VerifyProxy;
+  zilswap := newAddr
+end
+
+procedure UpdateDeadline()
   current_block <- &BLOCKNUMBER;
-  block_limit = builtin badd current_block fifteen_min;
-  hash_lock =
-    let time_lock =
-      let block_limit_hash = builtin sha256hash block_limit
-      in builtin to_string block_limit_hash
-    in let addr = builtin to_string initiator
-    in let merge = builtin concat addr recipient
-    in let merge2 = builtin concat merge time_lock
-    in builtin sha256hash merge2;
-  gas_stations[network][hash_lock] := amount;
-  e = {
-    _eventname: "GasTopUp";
-    network: network;
-    recipient: recipient;
-    amount: amount;
-    fee: fee;
-    blockLimit: block_limit
-  }; event e;
+  blocks <- block_period;
+  deadline = builtin badd current_block blocks;
+  deadline_block := deadline
+end
+
+transition UpdateBlockPeriod(
+  blocks: Uint128
+  )
+  VerifyProxy;
+  block_period := blocks
+end
+
+transition SwapZILForPST(
+  minPstAmount: Uint128
+  )
+  VerifyProxy;
+  zilswap_addr <- zilswap; accept;
+  UpdateDeadline; deadline <- deadline_block;
   msg = let m = {
-    _tag: "GasTopUpCallBack";
-    _recipient: _sender;
-    _amount: zero;
-    initiator: initiator;
-    newFromBal: new_from_bal
+    _tag: "SwapExactZILForTokens";
+    _recipient: zilswap_addr;
+    _amount: _amount;
+    token_address: proxyAddr;
+    min_token_amount: minPstAmount;
+    deadline_block: deadline;
+    recipient_address: _this_address
   } in one_msg m; send msg
+end
+
+transition RecipientAcceptTransfer(
+  sender: ByStr20,
+  recipient: ByStr20,
+  amount: Uint128
+  )
 end

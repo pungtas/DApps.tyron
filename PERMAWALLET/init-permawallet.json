@@ -1,0 +1,9 @@
+{
+    "ssi": "3SW6cE4cTiHMPO0z9ZszgfzjbsgZaMefpNmIy4dFhl0",
+    "ssiComm": "SSI Communication public encryption data.",
+    "trp": {
+        "message": "Travel Rule encrypted IVMS101.",
+        "key": "The passport decryption key (Travel Rule SSI - private - Key), encrypted by the Permaweb SSI Key."
+    },
+    "keys": {}
+}

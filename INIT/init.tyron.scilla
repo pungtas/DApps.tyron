@@ -24,74 +24,40 @@ let one_msg = fun( msg: Message ) =>
 let two_msgs = fun( msg1: Message ) => fun( msg2: Message ) =>
   let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
 
-let tyron = "tyron"
 let zero = Uint128 0
-let hundred = Uint128 100
-let twenty_four = Uint128 24
-let seventy_six = Uint128 76
-let init = "init"
-let dotDid = ".did"
-let dotTyron = ".tyron"
-let dotAgent = ".agent"
-let verify = "verify"
 
 type Error =
-| CodeNotAssociation
-| CodeInsufficientFunds
-| CodeDomainTaken
-| CodeNotAgent
-| CodeNotValid
-| CodeNotRightCaller
-| CodeNotCampaign
+  | CodeDomainTaken
+  | CodeNotValid
+  | CodeNotRightCaller
 
 let make_error = fun( error: Error ) =>
   let result = match error with
-  | CodeNotAssociation      => Int32 -1
-  | CodeInsufficientFunds   => Int32 -2
-  | CodeDomainTaken         => Int32 -3
-  | CodeNotAgent            => Int32 -4
-  | CodeNotValid            => Int32 -5
-  | CodeNotRightCaller      => Int32 -6
-  | CodeNotCampaign         => Int32 -7
+  | CodeDomainTaken            => Int32 -1
+  | CodeNotValid               => Int32 -1
+  | CodeNotRightCaller         => Int32 -3
   end in { _exception: "Error"; code: result }
   
-let option_value = tfun 'A => fun (default: 'A) => fun (opt_val: Option 'A) =>
+let option_value = tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) =>
   match opt_val with
   | Some v => v
   | None => default
   end
   
-let option_uint128_value =
-  let f = @option_value Uint128 in f zero
+let option_uint128_value = let f = @option_value Uint128 in f zero
 
 contract INIT(
-  (* Initial admin of this smart contract *)
   initAdmin: ByStr20
-)
-
-(* Admin of the contract *)
+  )
   field admin: ByStr20 = initAdmin
 
-(* DID-Smart-Contract code by version
+  (* DID-Smart-Contract code by version
   @key: version
   @value: hex-encoded code *)
   field did_code: Map String String = Emp String String
   
-(* The minimum gas price in $ZIL *)
-  field gas_price: Uint128 = Uint128 2000000000
-
-(* Tyron gas
-  @key: operation
-  @value: units of gas *)
-  field gas: Map String Uint128 = Emp String Uint128
-  
-(* SSI Agent's commission
-  @key: agent name
-  @value: max 25% *)
-  field agent_commission: Map String Uint128 = Emp String Uint128
-  
 (* DNS records
-  @key: SsiDomain (e.g. ".did", ".tyron", ".agent")
+  @key: SsiDomain (e.g. ".did", ".agent", ".mapu")
   @value: Map of
     @key: domain name
     @value: address *)
@@ -109,78 +75,8 @@ contract INIT(
 
 procedure ThrowError(
   err: Error
-)
+  )
   e = make_error err; throw e
-end
-
-procedure Liquidity(
-  funds: Uint128
-)
-  proxy_addr <- records[tyron];
-  match proxy_addr with
-  | Some addr =>
-      accept;
-      msg = let m = {
-        _tag: "AddLiquidity";
-        _recipient: addr;
-        _amount: _amount;
-        lp: _sender;
-        amount: funds
-      } in one_msg m; send msg
-  | None => err= CodeNotValid; ThrowError err
-  end
-end
-
-procedure FeeModel(
-  cost: Uint128,
-  agent: String,
-  agentAddr: ByStr20
-)
-  percent = builtin div cost hundred;
-  commission_tmp <- agent_commission[agent];
-  commission = option_uint128_value commission_tmp;
-  ssi = builtin sub seventy_six commission;
-  funds = builtin mul ssi percent;
-  Liquidity funds;
-  agent_amount = builtin mul commission percent;
-  association_amount = builtin mul twenty_four percent;
-  admin_addr <- admin;
-  msgs =
-    let msg_agent = {
-      _tag: "";
-      _recipient: agentAddr;
-      _amount: agent_amount
-    } in
-    let msg_association = {
-      _tag: "";
-      _recipient: admin_addr;
-      _amount: association_amount
-    } in two_msgs msg_agent msg_association; send msgs  
-end
-
-procedure Payment(
-  operation: String,
-  agent: String
-)
-  agent_addr <- dns[dotAgent][agent];
-  match agent_addr with
-  | Some addr =>
-      this_gas <- gas[operation];
-      price <- gas_price;
-      cost =
-        let gas_units = option_uint128_value this_gas in
-        builtin mul price gas_units;
-      ok = builtin lt cost _amount;
-      match ok with
-      | False => err= CodeInsufficientFunds; ThrowError err
-      | True =>
-          accept;
-          FeeModel cost agent addr;
-          funds = builtin sub _amount cost;
-          Liquidity funds
-      end
-  | None => err= CodeNotAgent; ThrowError err
-  end
 end
 
 (* Validate address against _sender *)
@@ -206,7 +102,7 @@ end
 transition SetDidCode(
   version: String,
   code: String
-)
+  )
   admin_addr <- admin; Calling admin_addr;
   did_code[version] := code;
   e = {
@@ -215,42 +111,13 @@ transition SetDidCode(
     code: code
   }; event e
 end
-  
-transition SetGasPrice(
-  price: Uint128
-)
-  admin_addr <- admin; Calling admin_addr;
-  gas_price := price
-end
-
-transition SetGas(
-  operation: String,
-  units: Uint128
-)
-  admin_addr <- admin; Calling admin_addr;
-  gas[operation] := units
-end
-
-transition AgentCommission(
-  agent: String,
-  commission: Uint128
-)
-  agent_addr <- dns[dotAgent][agent];
-  match agent_addr with
-  | Some addr =>
-      Calling addr;
-      agent_commission[agent] := commission   (*to-do make sure about %*)
-  | None => err= CodeNotAgent; ThrowError err
-  end
-end
 
 (* Set a domain name in the DNS *)
 transition SetDomain(
   domain: String,
   username: String,
   agent: String
-)
-  (*Payment domain agent;*)
+  )
   taken <- exists dns[domain][username];
   match taken with
   | True =>
@@ -265,7 +132,7 @@ transition SetRecord(
   token: String,
   proxyAddr: ByStr20,
   implementationAddr: ByStr20
-)
+  )
   admin_addr <- admin; Calling admin_addr;
   records[token] := proxyAddr;
   implementations[proxyAddr] := implementationAddr;
@@ -279,10 +146,8 @@ end
 
 (* Called by a Self-Sovereign Identity to verify token addresses *)
 transition Verify(
-  token: String,
-  agent: String
-)
-  (*Payment verify agent;*)
+  token: String
+  )
   proxy_addr <- records[token];
   match proxy_addr with
   | Some addr =>

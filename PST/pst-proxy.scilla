@@ -1,5 +1,5 @@
 (*
-$TYRON DeFi identity token - Proxy smart contract.
+PST ZRC: profit-sharing token Zilliqa reference contract - Proxy smart contract.
 Tyron Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
 
@@ -18,17 +18,17 @@ scilla_version 0
 
 import BoolUtils IntUtils
 
-library TyronProxy
+library PSTproxy
 
 let one_msg = fun( msg: Message ) =>
   let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
 type Error =
-| CodeWrongCaller
+  | CodeWrongCaller
 
 let make_error = fun( error: Error ) =>
   let result = match error with
-  | CodeWrongCaller            => Int32 -1
+  | CodeWrongCaller           => Int32 -1
   end in { _exception: "Error"; code: result }
 
 let zero = Uint128 0
@@ -39,17 +39,18 @@ let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A ) =>
   | None => default
   end
 
-let option_uint128_value = let f = @option_value Uint128 in f zero
+let option_uint128_value =
+  let f = @option_value Uint128 in f zero
 
-contract TyronProxy(
+contract PSTproxy(
   initAdmin: ByStr20,
   name: String,
   symbol: String,
   decimals: Uint32,
   initSupply: Uint128,
   initImplementation: ByStr20
-)
-with
+  )
+  with
   let string_is_not_empty = fun( s : String ) =>
     let zero = Uint32 0 in
     let s_length = builtin strlen s in
@@ -65,17 +66,16 @@ with
     in let decimals_no_more_than_18 = uint32_le decimals eighteen
     in andb decimals_at_least_6 decimals_no_more_than_18
     in andb name_symbol_ok decimals_ok
-=>
-
-field admin: ByStr20 = initAdmin
-field balances: Map ByStr20 Uint128 = let emp_map = Emp ByStr20 Uint128 in builtin put emp_map initAdmin initSupply
-field total_supply: Uint128 = initSupply
-field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
-field implementation: ByStr20 = initImplementation
+  =>
+  field admin: ByStr20 = initAdmin
+  field balances: Map ByStr20 Uint128 = let emp_map = Emp ByStr20 Uint128 in builtin put emp_map initAdmin initSupply
+  field total_supply: Uint128 = initSupply
+  field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
+  field implementation: ByStr20 = initImplementation
 
 procedure ThrowError(
   err: Error
-)
+  )
   e = make_error err; throw e
 end
 
@@ -92,9 +92,14 @@ procedure VerifyCaller()
   end
 end
 
+(* ZRC-5 add native funds ($ZIL) to the contract's _balance *)
+transition AddFunds()
+  accept
+end
+
 transition UpgradeImplementation(
   newImplementation: ByStr20
-)
+  )
   VerifyCaller;
   implementation := newImplementation;
   e = {
@@ -105,7 +110,7 @@ end
 
 transition UpdateProxyAdmin(
   newAdmin: ByStr20
-)
+  )
   VerifyCaller;
   admin := newAdmin;
   e = {
@@ -116,7 +121,7 @@ end
 
 transition UpdateImplementationAdmin(
   newAdmin: ByStr20
-)
+  )
   VerifyCaller;
   current_impl <- implementation;
   msg = let m = {
@@ -124,6 +129,20 @@ transition UpdateImplementationAdmin(
     _recipient: current_impl;
     _amount: zero;
     newAdmin: newAdmin;
+    initiator: _sender
+  } in one_msg m; send msg
+end
+
+transition UpdatePauser(
+  newPauser: ByStr20
+  )
+  VerifyCaller;
+  current_impl <- implementation;
+  msg = let m = {
+    _tag: "UpdatePauser";
+    _recipient: current_impl;
+    _amount: zero;
+    newPauser: newPauser;
     initiator: _sender
   } in one_msg m; send msg
 end
@@ -150,23 +169,23 @@ transition Unpause()
   } in one_msg m; send msg
 end
 
-transition UpdatePauser(
-  newPauser: ByStr20
-)
+transition UpdateBlacklister(
+  newBlacklister: ByStr20
+  )
   VerifyCaller;
   current_impl <- implementation;
   msg = let m = {
-    _tag: "UpdatePauser";
+    _tag: "UpdateBlacklister";
     _recipient: current_impl;
     _amount: zero;
-    newPauser: newPauser;
+    newBlacklister: newBlacklister;
     initiator: _sender
   } in one_msg m; send msg
 end
 
 transition Blacklist(
   addr: ByStr20
-)
+  )
   VerifyCaller;
   current_impl <- implementation;
   msg = let m = {
@@ -180,7 +199,7 @@ end
 
 transition Unblacklist(
   addr: ByStr20
-)
+  )
   VerifyCaller;
   current_impl <- implementation;
   msg = let m = {
@@ -192,23 +211,9 @@ transition Unblacklist(
   } in one_msg m; send msg
 end
 
-transition UpdateBlacklister(
-  newBlacklister: ByStr20
-)
-  VerifyCaller;
-  current_impl <- implementation;
-  msg = let m = {
-    _tag: "UpdateBlacklister";
-    _recipient: current_impl;
-    _amount: zero;
-    newBlacklister: newBlacklister;
-    initiator: _sender
-  } in one_msg m; send msg
-end
-
 transition UpdateMasterMinter(
   newMasterMinter: ByStr20
-)
+  )
   current_impl <- implementation;
   msg = let m = {
     _tag: "UpdateMasterMinter";
@@ -222,7 +227,7 @@ end
 transition IncreaseMinterAllowance(
   minter: ByStr20,
   amount: Uint128
-)
+  )
   current_impl <- implementation;
   msg = let m = {
     _tag: "IncreaseMinterAllowance";
@@ -237,7 +242,7 @@ end
 transition DecreaseMinterAllowance(
   minter: ByStr20,
   amount: Uint128
-)
+  )
   current_impl <- implementation;
   msg = let m = {
     _tag: "DecreaseMinterAllowance";
@@ -248,10 +253,11 @@ transition DecreaseMinterAllowance(
     initiator: _sender
   } in one_msg m; send msg
 end
+
 transition Mint(
   to: ByStr20,
   amount: Uint128
-)
+  )
   current_impl <- implementation;
   current_supply <- total_supply;
   get_to_bal <- balances[to];
@@ -272,7 +278,7 @@ transition MintCallBack(
   to: ByStr20,
   newToBal: Uint128,
   newSupply: Uint128
-)
+  )
   VerifyCaller;
   balances[to] := newToBal;
   total_supply := newSupply
@@ -280,7 +286,7 @@ end
 
 transition Burn(
   amount: Uint128
-)
+  )
   current_impl <- implementation;
   current_supply <- total_supply;
   get_burn_bal <- balances[_sender];
@@ -300,7 +306,7 @@ transition BurnCallBack(
   initiator: ByStr20,
   newMinterBalance: Uint128,
   newSupply: Uint128
-)
+  )
   VerifyCaller;
   balances[initiator] := newMinterBalance;
   total_supply := newSupply
@@ -308,7 +314,7 @@ end
 
 transition LawEnforcementWipingBurn(
   addr: ByStr20
-)
+  )
   current_impl <- implementation;
   current_supply <- total_supply;
   get_bal <- balances[addr];
@@ -327,7 +333,7 @@ end
 transition LawEnforcementWipingBurnCallBack(
   addr: ByStr20,
   newSupply: Uint128
-)
+  )
   VerifyCaller;
   balances[addr] := zero;
   total_supply := newSupply
@@ -336,7 +342,7 @@ end
 transition IncreaseAllowance(
   spender: ByStr20,
   amount: Uint128
-)
+  )
   current_impl <- implementation;
   option_allowance <- allowances[_sender][spender];
   allowance = option_uint128_value option_allowance;
@@ -354,7 +360,7 @@ end
 transition DecreaseAllowance(
   spender: ByStr20,
   amount: Uint128
-)
+  )
   current_impl <- implementation;
   option_allowance <- allowances[_sender][spender];
   allowance = option_uint128_value option_allowance;
@@ -373,16 +379,48 @@ transition AllowanceCallBack(
   initiator: ByStr20,
   spender: ByStr20,
   newAllowance: Uint128
-)
+  )
   VerifyCaller;
   allowances[initiator][spender] := newAllowance
+end
+
+transition Transfer(
+  to: ByStr20,
+  amount: Uint128
+  )
+  current_impl <- implementation;
+  get_from_bal <- balances[_sender];
+  from_bal = option_uint128_value get_from_bal;
+  get_to_bal <- balances[to];
+  to_bal = option_uint128_value get_to_bal;
+  msg = let m = {
+    _tag: "Transfer";
+    _recipient: current_impl;
+    _amount: zero;
+    to: to;
+    amount: amount;
+    initiator: _sender;
+    fromBal: from_bal;
+    toBal: to_bal
+  } in one_msg m; send msg
+end
+
+transition TransferCallBack(
+  from: ByStr20,
+  newFromBal: Uint128,
+  to: ByStr20,
+  newToBal: Uint128
+  )
+  VerifyCaller;
+  balances[from] := newFromBal;
+  balances[to] := newToBal
 end
 
 transition TransferFrom(
   from: ByStr20, 
   to: ByStr20,
   amount: Uint128
-)
+  )
   current_impl <- implementation;
   get_to_bal <- balances[to];
   to_bal = option_uint128_value get_to_bal;
@@ -409,70 +447,22 @@ transition TransferFromCallBack(
   to: ByStr20,
   newFromBal: Uint128,
   newToBal: Uint128
-)
+  )
   VerifyCaller;
   balances[from] := newFromBal;
   balances[to] := newToBal
 end
 
-transition Transfer(
-  to: ByStr20,
-  amount: Uint128
-)
-  current_impl <- implementation;
-  get_to_bal <- balances[to];
-  to_bal = option_uint128_value get_to_bal;
-  get_from_bal <- balances[_sender];
-  from_bal = option_uint128_value get_from_bal;
-  msg = let m = {
-    _tag: "Transfer";
-    _recipient: current_impl;
-    _amount: zero;
-    to: to;
-    amount: amount;
-    initiator: _sender;
-    fromBal: from_bal;
-    toBal: to_bal
-  } in one_msg m; send msg
-end
-
-transition TransferCallBack(
-  from: ByStr20,
-  newFromBal: Uint128,
-  to: ByStr20,
-  newToBal: Uint128
-)
+transition SwapZILForPST(
+  minPstAmount: Uint128
+  )
   VerifyCaller;
-  balances[from] := newFromBal;
-  balances[to] := newToBal
-end
-
-transition GasStation(
-  network: String,
-  recipient: String,
-  amount: Uint128,
-  fee: Uint128
-)
   current_impl <- implementation;
-  get_from_bal <- balances[_sender];
-  from_bal = option_uint128_value get_from_bal;
+  balance <- _balance;
   msg = let m = {
-    _tag: "GasStation";
+    _tag: "SwapZILforPST";
     _recipient: current_impl;
-    _amount: zero;
-    network: network;
-    recipient: recipient;
-    initiator: _sender;
-    fromBal: from_bal;
-    amount: amount;
-    fee: fee
+    _amount: balance;
+    minPstAmount: minPstAmount
   } in one_msg m; send msg
-end
-
-transition GasTopUpCallBack(
-  initiator: ByStr20,
-  newFromBal: Uint128
-)
-  VerifyCaller;
-  balances[initiator] := newFromBal
 end

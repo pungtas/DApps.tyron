@@ -1,5 +1,5 @@
 (*
-DID.tyron: Decentralized Identifier smart contract.
+DID.tyron: decentralized identifier smart contract.
 Tyron Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
 
@@ -25,74 +25,71 @@ let two_msgs = fun(msg1: Message) => fun(msg2: Message) =>
   let msgs_tmp = one_msg msg2 in Cons{Message} msg1 msgs_tmp
 
 type DIDstatus =
-| Deployed
-| Created
-| Updated
-| Recovered
-| Deactivated
+  | Deployed
+  | Created
+  | Updated
+  | Recovered
+  | Deactivated
 
 type Operation =
-| Recovery
-| Update
+  | Recovery
+  | Update
 
 type Action =
-| Add
-| Remove
+  | Add
+  | Remove
 
 type DataTransferProtocol =
-| Https
-| Git
-| Ssh
+  | Https
+  | Git
+  | Ssh
 
 type ServiceEndpoint =
-| ServiceEndpoint of DataTransferProtocol String
+  | ServiceEndpoint of DataTransferProtocol String
   
 type DidService =
-| DidService of String ServiceEndpoint  (* the type & endpoint *)
+  | DidService of String ServiceEndpoint  (* the type & endpoint *)
   
 type Document =
-| VerificationMethod of Action String ByStr33  (* string: key purpose OR service ID *)
-| Service of Action String DidService
+  | VerificationMethod of Action String ByStr33  (* string: key purpose OR service ID *)
+  | Service of Action String DidService
 
 let recovery = Recovery
 let update = Update
   
 type Error =
-| CodeWrongStatus
-| CodeNotOwner
-| CodeWrongSignature
-| CodeUndefinedKey
-| CodeRepeatedKey
-| CodeNotValid
+  | CodeWrongStatus
+  | CodeNotOwner
+  | CodeWrongSignature
+  | CodeUndefinedKey
+  | ThrownIfSameKey
+  | CodeNotValid
 
-let make_error = fun(error: Error) =>
+let make_error = fun( error: Error ) =>
   let result = match error with
-  | CodeWrongStatus           => Int32 -1
-  | CodeNotOwner              => Int32 -2
-  | CodeWrongSignature        => Int32 -3
-  | CodeUndefinedKey          => Int32 -4
-  | CodeRepeatedKey           => Int32 -5
-  | CodeNotValid              => Int32 -6
-  end in {_exception: "Error"; code: result}
+  | CodeWrongStatus            => Int32 -1
+  | CodeNotOwner               => Int32 -2
+  | CodeWrongSignature         => Int32 -3
+  | CodeUndefinedKey           => Int32 -4
+  | ThrownIfSameKey            => Int32 -5
+  | CodeNotValid               => Int32 -6
+  end in { _exception: "Error"; code: result }
 
 let zero = Uint128 0
 let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
 let zeroByStr64 = 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 
-let option_value = tfun 'A => fun (default: 'A) => fun (opt_val: Option 'A) =>
-  match opt_val with
+let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
+  match input with
   | Some v => v
   | None => default
   end
 
-let option_uint128_value =
-  let f = @option_value Uint128 in f zero
+let option_uint128_value = let f = @option_value Uint128 in f zero
   
-let option_bystr33_value =
-  let f = @option_value ByStr33 in f zeroByStr33
+let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
 
-let option_bystr64_value =
-  let f = @option_value ByStr64 in f zeroByStr64
+let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
 
 let update_methods: forall 'A. List Document -> Map String ByStr33 -> Map String ByStr33 = tfun 'A => fun(l: List Document) => fun(prevMethods: Map String ByStr33) =>
   let foldl = @list_foldl Document Map String ByStr33
@@ -108,8 +105,8 @@ let update_methods: forall 'A. List Document -> Map String ByStr33 -> Map String
     | _ => map
     end in foldl iter prevMethods l
 
-let make_endpoint = fun(i: DidService) =>
-  match i with
+let make_endpoint = fun( input: DidService ) =>
+  match input with
   | DidService t endpoint =>
       match endpoint with
       | ServiceEndpoint transfer e =>
@@ -130,9 +127,9 @@ let make_endpoint = fun(i: DidService) =>
       end
   end
 
-let update_services: forall 'A. List Document -> Map String Pair String String -> Map String Pair String String = tfun 'A => fun(l: List Document) => fun(prevServices: Map String Pair String String) =>
+let update_services: forall 'A. List Document -> Map String Pair String String -> Map String Pair String String = tfun 'A => fun( l: List Document ) => fun( prevServices: Map String Pair String String ) =>
   let foldl = @list_foldl Document Map String Pair String String
-  in let iter = fun(map: Map String Pair String String) => fun(h: Document) =>
+  in let iter = fun( map: Map String Pair String String ) => fun( h: Document ) =>
     match h with
     | Service action id didService =>
         match action with
@@ -146,47 +143,45 @@ let update_services: forall 'A. List Document -> Map String Pair String String -
     end in foldl iter prevServices l
 
 contract DID(
-  (* Initial owner of the DID dapp *)
   initOwner: ByStr20
-)
-
-(* The Self-Sovereign Identity is the owner of the DID *)
+  )
+  (* A self-sovereign identity smart contract is the owner of this DID *)
   field owner: ByStr20 = initOwner
 
-(* The Decentralized Identifier *)
+  (* The Decentralized Identifier *)
   field did: String = ""
   field did_status: DIDstatus = Deployed
 
-(* Verification methods
+  (* Verification methods
   @key: key purpose
   @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
   field verification_methods: Map String ByStr33 = Emp String ByStr33
   
-(* Services
+  (* Services
   @key: ID
   @value: the type & URI *)
   field services: Map String Pair String String = Emp String Pair String String
   
-(* The public key for the next DID Update operation *)
+  (* The public key for the next DID Update operation *)
   field did_update_key: Option ByStr33 = None{ByStr33}
   
-(* The public key for the next DID Recover or Deactivate operation *)
+  (* The public key for the next DID Recover or Deactivate operation *)
   field did_recovery_key: Option ByStr33 = None{ByStr33}
   
-(* The block number when the DID Create operation occurred *)
+  (* The block number when the DID Create operation occurred *)
   field created: BNum = BNum 0
   
-(* The block number when the last DID operation occurred *)  
+  (* The block number when the last DID operation occurred *)  
   field ledger_time: BNum = BNum 0
   
-(* A monotonically increasing number representing the amount of DID operations that have taken place *)
+  (* A monotonically increasing number representing the amount of DID operations that have taken place *)
   field transaction_number: Uint128 = Uint128 0
   
   field proxies: Map ByStr20 ByStr20 = Emp ByStr20 ByStr20
 
 procedure ThrowError(
   err: Error
-)
+  )
   e = make_error err; throw e
 end
 
@@ -211,20 +206,20 @@ end
   
 procedure ByStr33ErrorNone(
   optKey: Option ByStr33
-)
+  )
   match optKey with
   | Some key =>
   | None => err = CodeUndefinedKey; ThrowError err
   end
 end
 
-procedure ErrorSameKey(
+procedure ThrowIfSameKey(
   key1: ByStr33,
   key2: ByStr33
-)
+  )
   is_same_key = builtin eq key1 key2;
   match is_same_key with
-  | True => err= CodeRepeatedKey; ThrowError err
+  | True => err= ThrownIfSameKey; ThrowError err
   | False =>
   end
 end
@@ -233,7 +228,7 @@ procedure DIDkeys(
   operation: Operation,
   recoveryKey: Option ByStr33,
   updateKey: Option ByStr33
-)
+  )
   opt_recovery_key <- did_recovery_key;
   did_recovery = option_bystr33_value opt_recovery_key;
   opt_update_key <- did_update_key;
@@ -244,18 +239,18 @@ procedure DIDkeys(
       ByStr33ErrorNone updateKey;
       recovery_key = option_bystr33_value recoveryKey;
       update_key = option_bystr33_value updateKey;
-      ErrorSameKey recovery_key update_key;
-      ErrorSameKey did_recovery recovery_key;
-      ErrorSameKey did_recovery update_key;
-      ErrorSameKey did_update update_key;
-      ErrorSameKey did_update recovery_key;
+      ThrowIfSameKey recovery_key update_key;
+      ThrowIfSameKey did_recovery recovery_key;
+      ThrowIfSameKey did_recovery update_key;
+      ThrowIfSameKey did_update update_key;
+      ThrowIfSameKey did_update recovery_key;
       did_recovery_key := recoveryKey;
       did_update_key := updateKey
   | Update =>
       ByStr33ErrorNone updateKey;
       update_key = option_bystr33_value updateKey;
-      ErrorSameKey did_update update_key;
-      ErrorSameKey did_recovery update_key;
+      ThrowIfSameKey did_update update_key;
+      ThrowIfSameKey did_recovery update_key;
       did_update_key := updateKey
   end
 end
@@ -265,7 +260,7 @@ procedure IsRightSignature(
   operation: Operation,
   signedData: ByStr,
   signature: Option ByStr64
-)
+  )
   sig = option_bystr64_value signature;
   match operation with
   | Recovery =>
@@ -291,7 +286,7 @@ end
 procedure UpdateDocument(
   operation: Operation,
   document: List Document
-)
+  )
   current_methods <- verification_methods;
   prev_methods =
     match operation with
@@ -310,7 +305,6 @@ procedure UpdateDocument(
   updated_services = update_services document prev_services; services := updated_services
 end
 
-(* Generates a timestamp *)
 procedure Timestamp()
   current_block <- &BLOCKNUMBER; ledger_time := current_block;
   latest_tx_number <- transaction_number;
@@ -321,7 +315,7 @@ end
 
 procedure SetDomain(
   domain: String
-)
+  )
   owner_addr <- owner;
   msg = let m = {
 		_tag: "SetDidDomain";
@@ -333,7 +327,7 @@ end
 
 transition UpdateOwner(
   newOwner: ByStr20
-)
+  )
   VerifyOwner;
   owner := newOwner
 end
@@ -345,11 +339,11 @@ transition DIDcreate(
   signedData: Option ByStr,
   signature: Option ByStr64,
   domain: String
-)
+  )
   VerifyOwner; IsOperational;
   this_did =
-    let did_prefix = "did:tyron:zil:test:" in
-    let did_suffix = builtin to_string _this_address in builtin concat did_prefix did_suffix;
+    let did_prefix = "did:tyron:zil:test:"
+    in let did_suffix = builtin to_string _this_address in builtin concat did_prefix did_suffix;
   did := this_did;
   DIDkeys recovery recoveryKey updateKey;
   match document with
@@ -371,7 +365,7 @@ transition DIDrecover(
   document: Option (List Document),
   signedData: ByStr,
   signature: Option ByStr64
-)
+  )
   VerifyOwner; IsOperational;
   DIDkeys recovery recoveryKey updateKey;
   match document with
@@ -391,7 +385,7 @@ transition DIDupdate(
   document: Option (List Document),
   signedData: ByStr,
   signature: Option ByStr64
-)
+  )
   VerifyOwner; IsOperational;
   DIDkeys update recoveryKey updateKey;
   match document with
@@ -408,7 +402,7 @@ end
 transition DIDdeactivate(
   signedData: ByStr,
   signature: Option ByStr64
-) 
+  ) 
   VerifyOwner; IsOperational;
   IsRightSignature recovery signedData signature;
   deactivated_key = None{ByStr33};
@@ -422,8 +416,7 @@ end
 
 (* Receive native funds ($ZIL) and send them to the SSI *)
 transition AddFunds()
-  IsOperational;
-  accept;
+  IsOperational; accept;
   e = {
     _eventname: "ZIL_received";
     sender: _sender;
@@ -431,7 +424,7 @@ transition AddFunds()
   }; event e;
   owner_addr <- owner;
   msg = let m = {
-    _tag: "ZILin";
+    _tag: "AddFunds";
     _recipient: owner_addr;
     _amount: _amount
   } in one_msg m; send msg
@@ -441,7 +434,7 @@ transition RecipientAcceptTransfer(
   sender : ByStr20,
   recipient : ByStr20,
   amount : Uint128
-)
+  )
   IsOperational;
   e = {
     _eventname: "Transfer_received";
@@ -458,13 +451,12 @@ transition RecipientAcceptTransfer(
     _amount: zero;
     to: owner_addr;
     amount: amount
-  } in one_msg m ; send msg
-  
+  } in one_msg m ; send msg 
 end
 
 transition TransferSuccessCallBack(
   sender: ByStr20, 
   recipient: ByStr20,
   amount : Uint128
-)
+  )
 end

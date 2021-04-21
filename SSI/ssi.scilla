@@ -27,27 +27,25 @@ let two_msgs = fun( msg1: Message ) => fun( msg2: Message ) =>
   let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
 
 type Error =
-| CodeWrongCaller
-| CodeNotValid
-| CodeNotToken
-| CodeNotProxy
-| CodeWrongAmount
-| CodeWrongDomain
-| CodeWrongTag
-| CodeWrongSignature
-| CodeUndefinedKey
+  | CodeWrongCaller
+  | CodeNotValid
+  | CodeNotToken
+  | CodeNotProxy
+  | CodeWrongAmount
+  | CodeWrongDomain
+  | CodeWrongSignature
+  | CodeUndefinedKey
 
 let make_error = fun( error: Error ) =>
   let result = match error with
-  | CodeWrongCaller    => Int32 -1
-  | CodeNotValid       => Int32 -2
-  | CodeNotToken       => Int32 -3
-  | CodeNotProxy       => Int32 -4
-  | CodeWrongAmount    => Int32 -5
-  | CodeWrongDomain    => Int32 -6
-  | CodeWrongTag       => Int32 -7
-  | CodeWrongSignature => Int32 -8
-  | CodeUndefinedKey   => Int32 -9
+  | CodeWrongCaller            => Int32 -1
+  | CodeNotValid               => Int32 -2
+  | CodeNotToken               => Int32 -3
+  | CodeNotProxy               => Int32 -4
+  | CodeWrongAmount            => Int32 -5
+  | CodeWrongDomain            => Int32 -6
+  | CodeWrongSignature         => Int32 -7
+  | CodeUndefinedKey           => Int32 -8
   end in { _exception: "Error"; code: result }
       
 let zero = Uint128 0
@@ -59,11 +57,9 @@ let option_value = tfun 'A => fun( default: 'A ) => fun ( input: Option 'A ) =>
   | None => default
   end
 
-let option_uint128_value =
-  let f = @option_value Uint128 in f zero
+let option_uint128_value = let f = @option_value Uint128 in f zero
 
-let option_bystr33_value =
-  let f = @option_value ByStr33 in f 
+let option_bystr33_value = let f = @option_value ByStr33 in f 
 
 let create = "DIDcreate"
 let recover = "DIDrecover"
@@ -72,27 +68,27 @@ let deactivate = "DIDdeactivate"
 let ssi = "ssi"
 
 type Action =
-| Add
-| Remove
+  | Add
+  | Remove
 
 type DataTransferProtocol =
-| Https
-| Git
-| Ssh
+  | Https
+  | Git
+  | Ssh
 
 type ServiceEndpoint =
-| ServiceEndpoint of DataTransferProtocol String
+  | ServiceEndpoint of DataTransferProtocol String
   
 type DIDservice =
-| DIDservice of String ServiceEndpoint   (* the type & endpoint *)
+  | DIDservice of String ServiceEndpoint   (* the type & endpoint *)
   
 type Document =
-| VerificationMethod of Action String ByStr33   (* string: key purpose OR service ID *)
-| Service of Action String DIDservice
+  | VerificationMethod of Action String ByStr33   (* string: key purpose OR service ID *)
+  | Service of Action String DIDservice
 
 type XDirection =
-| In
-| Out
+  | In
+  | Out
 
 let incoming = In
 let outcoming = Out
@@ -106,12 +102,11 @@ contract SSI(
   
   (* INIT.tyron smart contract *)
   initTyron: ByStr20
-)
-with
-  let init = 0x83715890960608c7d6ca4f31ad288a8d2780d344 in builtin eq init initTyron
-=>
-
-(* Owner of the SSI *)
+  )
+  with
+    let init = 0x83715890960608c7d6ca4f31ad288a8d2780d344 in builtin eq init initTyron
+  =>
+  (* Owner of the SSI *)
   field owner: ByStr20 = initOwner
 
   field ssi: Option ByStr33 = None{ ByStr33 }
@@ -120,23 +115,23 @@ with
 
   field network_addr: String = ""
 
-(* The agent can make meta-transactions and pay the gas *)
+  (* The agent can make meta-transactions and pay the gas *)
   field agent: ByStr20 = initAgent
 
-(* INIT.tyron current implementation *)
+  (* INIT.tyron current implementation *)
   field init: ByStr20 = initTyron
 
-(* Dapp records
+  (* Dapp records
   @key: Domain name
 	@value: Dapp address *)
   field dapp_records: Map String ByStr20 = Emp String ByStr20
 
-(* DID records
+  (* DID records
   @key: Domain name
 	@value: DID address *)
   field did_records: Map String ByStr20 = Emp String ByStr20
 
-(* Token implementations
+  (* Token implementations
   @key: address
   @value: token name *)
   field xWallet: Map ByStr20 String = 
@@ -144,14 +139,14 @@ with
     let implementation_addr = 0xaB3b8a5d9f836DF46f89bE8a537B7cC0d71fc3B5 in
     let xsgd = "xsgd" in builtin put empty_map implementation_addr xsgd
     
-(* Token balances
+  (* Token balances
   @key: token name
   @value: balance *)
   field xBalances: Map String Uint128 = Emp String Uint128
 
 procedure ThrowError(
   err: Error
-)
+  )
   e = make_error err; throw e
 end
 
@@ -179,7 +174,7 @@ end
 (* Update the owner address *)
 transition UpdateOwner(
   newOwner: ByStr20
-)
+  )
   VerifyCaller;
   owner := newOwner
 end
@@ -187,7 +182,7 @@ end
 (* Update the agent address *)
 transition UpdateAgent(
   newAgent: ByStr20
-)
+  )
   VerifyCaller;
   agent := newAgent
 end
@@ -195,7 +190,7 @@ end
 (* Update the INIT.tyron address *)
 transition UpdateINIT(
   newInit: ByStr20
-)
+  )
   VerifyCaller;
   init := newInit
 end
@@ -204,7 +199,7 @@ end
 transition UpdateDIDowner(
   did: String,
   newOwner: ByStr20
-)
+  )
   VerifyCaller;
   did_addr <- dapp_records[did];
   match did_addr with
@@ -222,7 +217,7 @@ end
 (* Set a domain name for the Self-Sovereign Identity *)
 transition SetDomain(
   username: String
-)
+  )
 	VerifyCaller;
   init_addr <- init;
 	accept;
@@ -239,7 +234,7 @@ end
 (* Set a DID domain name in the did_records *)
 transition SetDidDomain(
   domain: String
-)
+  )
   (* WIP: do remote read to verify DID has the SSI as owner *)
   taken <- exists did_records[domain];
   match taken with
@@ -259,7 +254,7 @@ transition CRUD(
   document: Option (List Document),
   signedData: Option ByStr,
   signature: Option ByStr64
-)
+  )
   VerifyCaller;
   did_addr <- did_records[domain];
   match did_addr with
@@ -277,11 +272,10 @@ transition CRUD(
   end
 end
 
-(* WIP: send funds to dapp *)
 transition DIDdapp(
   domain: String,
   tag: String
-)
+  )
   VerifyCaller;
   dapp_addr <- dapp_records[domain];
   match dapp_addr with
@@ -303,7 +297,7 @@ end
 transition SocialRecovery(
   newOwner: ByStr20,
   signature: ByStr64
-)
+  )
   VerifyCaller;
   social_recovery_key <- social_recovery;
   signed_data = builtin to_bystr newOwner;
@@ -318,7 +312,7 @@ end
 procedure XWallet(
   direction: XDirection,
   amount: Uint128
-)
+  )
   this_token <- xWallet[_sender];
   match this_token with
   | Some token =>
@@ -338,7 +332,7 @@ end
 
 procedure Verify(
   token: String
-)
+  )
   init_addr <- init;
   accept;
   msg = let m = {
@@ -354,13 +348,13 @@ transition VerifyCallBack(
   token: String,
   proxy: ByStr20,
   implementation: ByStr20
-)
+  )
   VerifyInit;
   dapp_records[token] := proxy;
   xWallet[implementation] := token
 end
   
-(* Add native funds ($ZIL ) to the xWallet *)
+(* Add native funds ($ZIL) to the xWallet *)
 transition AddFunds()
   accept
 end
@@ -370,7 +364,7 @@ transition ZILout(
   tag: String,
   recipient: ByStr20,
   amount: Uint128
-)
+  )
   VerifyCaller;
   accept;
   msg = let m = {
@@ -385,7 +379,7 @@ transition RecipientAcceptTransfer(
   sender : ByStr20,
   recipient : ByStr20,
   amount : Uint128
-)
+  )
   XWallet incoming amount
 end
 
@@ -394,7 +388,7 @@ transition XTransfer(
   token: String,
   recipient: ByStr20,
   amount: Uint128
-) 
+  ) 
   VerifyCaller;
   this_balance <- xBalances[token];
   balance = option_uint128_value this_balance;
@@ -423,14 +417,14 @@ transition TransferSuccessCallBack(
   sender: ByStr20, 
   recipient: ByStr20,
   amount: Uint128
-)
+  )
   XWallet outcoming amount   
 end
 
 procedure VerifySignature(
   signedData: ByStr,
   signature: ByStr64
-)
+  )
   ssi_key <- ssi;
   match ssi_key with
   | Some key =>
@@ -449,7 +443,7 @@ transition xZIL(
   signedData: ByStr,
   sig: ByStr64,
   beneficiary: String
-)
+  )
   VerifyCaller;
   VerifySignature signedData sig;
   Verify network;
