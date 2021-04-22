@@ -1,17 +1,17 @@
 (*
-$TYRON DeFi identity token - Implementation smart contract.
-Tyron Self-Sovereign Identity Protocol.
-Copyright (C) Tyron Pungtas and its affiliates.
+  $TYRON DeFi identity token - Implementation smart contract.
+  Tyron Self-Sovereign Identity Protocol.
+  Copyright (C) Tyron Pungtas and its affiliates.
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
 *)
 
 scilla_version 0
@@ -20,88 +20,88 @@ import BoolUtils IntUtils ListUtils
 
 library TyronImplementation
 
-let one_msg = fun( msg: Message ) =>
-  let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+  let one_msg = fun( msg: Message ) =>
+    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
-let two_msgs = fun( msg1: Message ) => fun( msg2: Message ) =>
-  let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
+  let two_msgs = fun( msg1: Message ) => fun( msg2: Message ) =>
+    let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
 
-let three_msgs = fun( msg1: Message ) => fun( msg2: Message ) => fun( msg3: Message ) =>
-  let msgs_tmp = two_msgs msg2 msg3 in Cons{ Message } msg1 msgs_tmp
+  let three_msgs = fun( msg1: Message ) => fun( msg2: Message ) => fun( msg3: Message ) =>
+    let msgs_tmp = two_msgs msg2 msg3 in Cons{ Message } msg1 msgs_tmp
 
-let four_msgs = fun( msg1: Message ) => fun( msg2: Message ) => fun( msg3: Message ) => fun( msg4: Message ) =>
-  let msgs_tmp = three_msgs msg2 msg3 msg4 in Cons{ Message } msg1 msgs_tmp
+  let four_msgs = fun( msg1: Message ) => fun( msg2: Message ) => fun( msg3: Message ) => fun( msg4: Message ) =>
+    let msgs_tmp = three_msgs msg2 msg3 msg4 in Cons{ Message } msg1 msgs_tmp
 
-type Error =
-  | CodeNotRightCaller
-  | CodeIsSender
-  | CodeInsufficientFunds
-  | CodeInsufficientAllowance
-  | CodeNotAdmin
-  | CodeNotPauser
-  | CodeNotBlacklister
-  | CodeNotMasterMinter
-  | CodeNotMinter
-  | CodeIsNull
-  | ThrownIfZero
-  | CodeIsPaused
-  | CodeNotPaused
-  | CodeIsBlacklisted
-  | CodeNotBlacklisted
+  type Error =
+    | CodeNotRightCaller
+    | CodeIsSender
+    | CodeInsufficientFunds
+    | CodeInsufficientAllowance
+    | CodeNotAdmin
+    | CodeNotPauser
+    | CodeNotBlacklister
+    | CodeNotMasterMinter
+    | CodeNotMinter
+    | CodeIsNull
+    | ThrownIfZero
+    | CodeIsPaused
+    | CodeNotPaused
+    | CodeIsBlacklisted
+    | CodeNotBlacklisted
 
-let make_error = fun( error: Error ) =>
-  let result = match error with
-  | CodeNotRightCaller                => Int32 -1
-  | CodeIsSender                      => Int32 -2
-  | CodeInsufficientFunds             => Int32 -2
-  | CodeInsufficientAllowance         => Int32 -4
-  | CodeNotAdmin                      => Int32 -5
-  | CodeNotPauser                     => Int32 -6
-  | CodeNotBlacklister                => Int32 -7
-  | CodeNotMasterMinter               => Int32 -8
-  | CodeNotMinter                     => Int32 -9
-  | CodeIsNull                        => Int32 -10
-  | CodeIsPaused                      => Int32 -11
-  | CodeNotPaused                     => Int32 -12
-  | CodeIsBlacklisted                 => Int32 -13
-  | CodeNotBlacklisted                => Int32 -14
-  | ThrownIfZero                        => Int32 -15
-  end in { _exception: "Error"; code: result }
+  let make_error = fun( error: Error ) =>
+    let result = match error with
+    | CodeNotRightCaller                => Int32 -1
+    | CodeIsSender                      => Int32 -2
+    | CodeInsufficientFunds             => Int32 -2
+    | CodeInsufficientAllowance         => Int32 -4
+    | CodeNotAdmin                      => Int32 -5
+    | CodeNotPauser                     => Int32 -6
+    | CodeNotBlacklister                => Int32 -7
+    | CodeNotMasterMinter               => Int32 -8
+    | CodeNotMinter                     => Int32 -9
+    | CodeIsNull                        => Int32 -10
+    | CodeIsPaused                      => Int32 -11
+    | CodeNotPaused                     => Int32 -12
+    | CodeIsBlacklisted                 => Int32 -13
+    | CodeNotBlacklisted                => Int32 -14
+    | ThrownIfZero                        => Int32 -15
+    end in { _exception: "Error"; code: result }
 
-let zero = Uint128 0
-let one  = Uint128 1
-let hundred = Uint128 100
-let none_uint128 = None{ Uint128 }
-let true = True
-let false = False
-let null_address = 0x0000000000000000000000000000000000000000
-let fifteen_min = Uint128 21
+  let zero = Uint128 0
+  let one  = Uint128 1
+  let hundred = Uint128 100
+  let none_uint128 = None{ Uint128 }
+  let true = True
+  let false = False
+  let null_address = 0x0000000000000000000000000000000000000000
+  let fifteen_min = Uint128 21
 
-let option_value = tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) =>
-  match opt_val with
-  | Some v => v
-  | None => default
-  end
+  let option_value = tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) =>
+    match opt_val with
+    | Some v => v
+    | None => default
+    end
 
-let option2_uint128_value = fun( input: Option( Option Uint128 )) =>
-  match input with
-  | Some (Some a) => a
-  | _ => zero
-  end
+  let option2_uint128_value = fun( input: Option( Option Uint128 )) =>
+    match input with
+    | Some (Some a) => a
+    | _ => zero
+    end
 
-let option_uint128 = fun( input: Uint128 ) =>
-  let is_zero = builtin eq input zero in
-  match is_zero with
-  | True => None{ Uint128 }
-  | False => Some{ Uint128 } input
-  end
+  let option_uint128 = fun( input: Uint128 ) =>
+    let is_zero = builtin eq input zero in
+    match is_zero with
+    | True => None{ Uint128 }
+    | False => Some{ Uint128 } input
+    end
 
-let better_subtract = fun( a: Uint128 ) => fun( b: Uint128 ) =>
-  let a_ge_b = uint128_ge a b in
-  match a_ge_b with
-  | True => builtin sub a b
-  | False => zero
-  end
+  let better_subtract = fun( a: Uint128 ) => fun( b: Uint128 ) =>
+    let a_ge_b = uint128_ge a b in
+    match a_ge_b with
+    | True => builtin sub a b
+    | False => zero
+    end
 
 contract TyronImplementation(
   initAdmin: ByStr20,
@@ -125,7 +125,7 @@ procedure ThrowError(
   e = make_error err; throw e
 end
 
-procedure VerifyProxy()
+procedure ThrowIfNotProxy()
   verified = builtin eq proxyAddr _sender;
   match verified with
   | True =>
@@ -280,7 +280,7 @@ transition UpdateImplementationAdmin(
   newAdmin: ByStr20,
   initiator: ByStr20
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isAdmin initiator;
   isNotNull newAdmin;
   current_admin <- admin;
@@ -296,7 +296,7 @@ end
 transition Pause(
   initiator: ByStr20
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isPauser initiator;
   isNotPaused;
   paused := true;
@@ -309,7 +309,7 @@ end
 transition Unpause(
   initiator: ByStr20
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isPauser initiator;
   isPaused;
   paused := false;
@@ -323,7 +323,7 @@ transition UpdatePauser(
   newPauser: ByStr20,
   initiator: ByStr20
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isAdmin initiator;
   isNotNull newPauser;
   current_pauser <- pauser;
@@ -340,7 +340,7 @@ transition UpdateBlacklister(
   newBlacklister: ByStr20, 
   initiator: ByStr20
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isAdmin initiator;
   isNotNull newBlacklister;
   current_blacklister <- blacklister;
@@ -357,7 +357,7 @@ transition Blacklist(
   addr: ByStr20,
   initiator: ByStr20
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isBlacklister initiator;
   isNotNull addr;
   isNotBlacklisted addr;
@@ -373,7 +373,7 @@ transition Unblacklist(
   addr: ByStr20,
   initiator: ByStr20
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isBlacklister initiator;
   isNotNull addr;
   isBlacklisted addr;
@@ -389,7 +389,7 @@ transition UpdateMasterMinter(
   newMasterMinter: ByStr20,
   initiator: ByStr20
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isAdmin initiator;
   isNotNull newMasterMinter;
   current_master_minter <- master_minter;
@@ -407,7 +407,7 @@ transition IncreaseMinterAllowance(
   amount: Uint128,
   initiator: ByStr20
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isMasterMinter initiator;
   isNotNull minter;
   get_minter_allowance <- minter_allowances[minter];
@@ -428,7 +428,7 @@ transition DecreaseMinterAllowance(
   amount: Uint128,
   initiator: ByStr20
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isMasterMinter initiator;
   isNotNull minter;
   get_minter_allowance <- minter_allowances[minter];
@@ -451,7 +451,7 @@ transition Mint(
   currentSupply: Uint128,
   initiator: ByStr20
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isNotPaused;
   isMinter initiator;
   isNotBlacklisted initiator;
@@ -502,7 +502,7 @@ transition Burn(
   initiatorBal: Uint128, 
   currentSupply: Uint128
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isNotPaused;
   isMinter initiator;
   isNotBlacklisted initiator;
@@ -538,7 +538,7 @@ transition LawEnforcementWipingBurn(
   currentSupply: Uint128,
   initiator: ByStr20
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isNotPaused;
   isBlacklisted addr;
   isBlacklister initiator;
@@ -573,7 +573,7 @@ transition IncreaseAllowance(
   currentAllowance: Uint128,
   initiator: ByStr20
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isNotPaused;
   isNotBlacklisted initiator;
   isNotBlacklisted spender;
@@ -601,7 +601,7 @@ transition DecreaseAllowance(
   initiator: ByStr20,
   currentAllowance: Uint128
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isNotPaused;
   isNotBlacklisted initiator;
   isNotBlacklisted spender;
@@ -630,7 +630,7 @@ transition Transfer(
   fromBal: Uint128,
   toBal: Uint128
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isNotPaused;
   isNotBlacklisted initiator;
   isNotBlacklisted to;
@@ -683,7 +683,7 @@ transition TransferFrom(
   spenderAllowance: Uint128,
   toBal: Uint128
   )
-  VerifyProxy;
+  ThrowIfNotProxy;
   isNotPaused;
   isNotBlacklisted initiator;
   isNotBlacklisted to;

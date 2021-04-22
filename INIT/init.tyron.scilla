@@ -1,50 +1,50 @@
 (*
-INIT.tyron: SSI initialization & DNS smart contract.
-Tyron Self-Sovereign Identity Protocol.
-Copyright (C) Tyron Pungtas and its affiliates.
+  INIT.tyron: SSI initialization & DNS smart contract.
+  Tyron Self-Sovereign Identity Protocol.
+  Copyright (C) Tyron Pungtas and its affiliates.
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
 *)
 
 scilla_version 0
 
 library INIT
 
-let one_msg = fun( msg: Message ) =>
-  let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+  let one_msg = fun( msg: Message ) =>
+    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
-let two_msgs = fun( msg1: Message ) => fun( msg2: Message ) =>
-  let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
+  let two_msgs = fun( msg1: Message ) => fun( msg2: Message ) =>
+    let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
 
-let zero = Uint128 0
+  let zero = Uint128 0
 
-type Error =
-  | CodeDomainTaken
-  | CodeNotValid
-  | CodeNotRightCaller
+  type Error =
+    | CodeDomainTaken
+    | CodeNotValid
+    | CodeNotRightCaller
 
-let make_error = fun( error: Error ) =>
-  let result = match error with
-  | CodeDomainTaken            => Int32 -1
-  | CodeNotValid               => Int32 -1
-  | CodeNotRightCaller         => Int32 -3
-  end in { _exception: "Error"; code: result }
-  
-let option_value = tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) =>
-  match opt_val with
-  | Some v => v
-  | None => default
-  end
-  
-let option_uint128_value = let f = @option_value Uint128 in f zero
+  let make_error = fun( error: Error ) =>
+    let result = match error with
+    | CodeDomainTaken            => Int32 -1
+    | CodeNotValid               => Int32 -1
+    | CodeNotRightCaller         => Int32 -3
+    end in { _exception: "Error"; code: result }
+    
+  let option_value = tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) =>
+    match opt_val with
+    | Some v => v
+    | None => default
+    end
+    
+  let option_uint128_value = let f = @option_value Uint128 in f zero
 
 contract INIT(
   initAdmin: ByStr20

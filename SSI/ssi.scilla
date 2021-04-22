@@ -1,17 +1,17 @@
 (*
-SSI.tyron: self-sovereign identity smart contract.
-Tyron Self-Sovereign Identity Protocol.
-Copyright (C) Tyron Pungtas and its affiliates.
+  SSI.tyron: self-sovereign identity smart contract.
+  Tyron Self-Sovereign Identity Protocol.
+  Copyright (C) Tyron Pungtas and its affiliates.
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
 *)
 
 scilla_version 0
@@ -20,78 +20,78 @@ import BoolUtils
 
 library SSI
 
-let one_msg = fun( msg: Message ) =>
-  let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+  let one_msg = fun( msg: Message ) =>
+    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
-let two_msgs = fun( msg1: Message ) => fun( msg2: Message ) =>
-  let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
+  let two_msgs = fun( msg1: Message ) => fun( msg2: Message ) =>
+    let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
 
-type Error =
-  | CodeWrongCaller
-  | CodeNotValid
-  | CodeNotToken
-  | CodeNotProxy
-  | CodeWrongAmount
-  | CodeWrongDomain
-  | CodeWrongSignature
-  | CodeUndefinedKey
+  type Error =
+    | CodeWrongCaller
+    | CodeNotValid
+    | CodeNotToken
+    | CodeNotProxy
+    | CodeWrongAmount
+    | CodeWrongDomain
+    | CodeWrongSignature
+    | CodeUndefinedKey
 
-let make_error = fun( error: Error ) =>
-  let result = match error with
-  | CodeWrongCaller            => Int32 -1
-  | CodeNotValid               => Int32 -2
-  | CodeNotToken               => Int32 -3
-  | CodeNotProxy               => Int32 -4
-  | CodeWrongAmount            => Int32 -5
-  | CodeWrongDomain            => Int32 -6
-  | CodeWrongSignature         => Int32 -7
-  | CodeUndefinedKey           => Int32 -8
-  end in { _exception: "Error"; code: result }
-      
-let zero = Uint128 0
-let zero_bystr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
+  let make_error = fun( error: Error ) =>
+    let result = match error with
+    | CodeWrongCaller            => Int32 -1
+    | CodeNotValid               => Int32 -2
+    | CodeNotToken               => Int32 -3
+    | CodeNotProxy               => Int32 -4
+    | CodeWrongAmount            => Int32 -5
+    | CodeWrongDomain            => Int32 -6
+    | CodeWrongSignature         => Int32 -7
+    | CodeUndefinedKey           => Int32 -8
+    end in { _exception: "Error"; code: result }
+        
+  let zero = Uint128 0
+  let zero_bystr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
 
-let option_value = tfun 'A => fun( default: 'A ) => fun ( input: Option 'A ) =>
-  match input with
-  | Some v => v
-  | None => default
-  end
+  let option_value = tfun 'A => fun( default: 'A ) => fun ( input: Option 'A ) =>
+    match input with
+    | Some v => v
+    | None => default
+    end
 
-let option_uint128_value = let f = @option_value Uint128 in f zero
+  let option_uint128_value = let f = @option_value Uint128 in f zero
 
-let option_bystr33_value = let f = @option_value ByStr33 in f 
+  let option_bystr33_value = let f = @option_value ByStr33 in f 
 
-let create = "DIDcreate"
-let recover = "DIDrecover"
-let update = "DIDupdate"
-let deactivate = "DIDdeactivate"
-let ssi = "ssi"
+  let create = "DIDcreate"
+  let recover = "DIDrecover"
+  let update = "DIDupdate"
+  let deactivate = "DIDdeactivate"
+  let ssi = "ssi"
 
-type Action =
-  | Add
-  | Remove
+  type Action =
+    | Add
+    | Remove
 
-type DataTransferProtocol =
-  | Https
-  | Git
-  | Ssh
+  type DataTransferProtocol =
+    | Https
+    | Git
+    | Ssh
 
-type ServiceEndpoint =
-  | ServiceEndpoint of DataTransferProtocol String
-  
-type DIDservice =
-  | DIDservice of String ServiceEndpoint   (* the type & endpoint *)
-  
-type Document =
-  | VerificationMethod of Action String ByStr33   (* string: key purpose OR service ID *)
-  | Service of Action String DIDservice
+  type ServiceEndpoint =
+    | ServiceEndpoint of DataTransferProtocol String
+    
+  type DIDservice =
+    | DIDservice of String ServiceEndpoint   (* the type & endpoint *)
+    
+  type Document =
+    | VerificationMethod of Action String ByStr33   (* string: key purpose OR service ID *)
+    | Service of Action String DIDservice
 
-type XDirection =
-  | In
-  | Out
+  type XDirection =
+    | In
+    | Out
 
-let incoming = In
-let outcoming = Out
+  let incoming = In
+  let outcoming = Out
 
 contract SSI(
 	(* Initial owner of the self-sovereign identity *)

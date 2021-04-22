@@ -1,146 +1,146 @@
 (*
-DID.tyron: decentralized identifier smart contract.
-Tyron Self-Sovereign Identity Protocol.
-Copyright (C) Tyron Pungtas and its affiliates.
+  DID.tyron: decentralized identifier smart contract.
+  Tyron Self-Sovereign Identity Protocol.
+  Copyright (C) Tyron Pungtas and its affiliates.
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
 *)
 
 scilla_version 0
 
 library DID
 
-let one_msg = fun (msg: Message) =>
-  let nil_msg = Nil{Message} in Cons{Message} msg nil_msg
+  let one_msg = fun (msg: Message) =>
+    let nil_msg = Nil{Message} in Cons{Message} msg nil_msg
 
-let two_msgs = fun(msg1: Message) => fun(msg2: Message) =>
-  let msgs_tmp = one_msg msg2 in Cons{Message} msg1 msgs_tmp
+  let two_msgs = fun(msg1: Message) => fun(msg2: Message) =>
+    let msgs_tmp = one_msg msg2 in Cons{Message} msg1 msgs_tmp
 
-type DIDstatus =
-  | Deployed
-  | Created
-  | Updated
-  | Recovered
-  | Deactivated
+  type DIDstatus =
+    | Deployed
+    | Created
+    | Updated
+    | Recovered
+    | Deactivated
 
-type Operation =
-  | Recovery
-  | Update
+  type Operation =
+    | Recovery
+    | Update
 
-type Action =
-  | Add
-  | Remove
+  type Action =
+    | Add
+    | Remove
 
-type DataTransferProtocol =
-  | Https
-  | Git
-  | Ssh
+  type DataTransferProtocol =
+    | Https
+    | Git
+    | Ssh
 
-type ServiceEndpoint =
-  | ServiceEndpoint of DataTransferProtocol String
-  
-type DidService =
-  | DidService of String ServiceEndpoint  (* the type & endpoint *)
-  
-type Document =
-  | VerificationMethod of Action String ByStr33  (* string: key purpose OR service ID *)
-  | Service of Action String DidService
+  type ServiceEndpoint =
+    | ServiceEndpoint of DataTransferProtocol String
+    
+  type DidService =
+    | DidService of String ServiceEndpoint  (* the type & endpoint *)
+    
+  type Document =
+    | VerificationMethod of Action String ByStr33  (* string: key purpose OR service ID *)
+    | Service of Action String DidService
 
-let recovery = Recovery
-let update = Update
-  
-type Error =
-  | CodeWrongStatus
-  | CodeNotOwner
-  | CodeWrongSignature
-  | CodeUndefinedKey
-  | ThrownIfSameKey
-  | CodeNotValid
+  let recovery = Recovery
+  let update = Update
+    
+  type Error =
+    | CodeWrongStatus
+    | CodeNotOwner
+    | CodeWrongSignature
+    | CodeUndefinedKey
+    | ThrownIfSameKey
+    | CodeNotValid
 
-let make_error = fun( error: Error ) =>
-  let result = match error with
-  | CodeWrongStatus            => Int32 -1
-  | CodeNotOwner               => Int32 -2
-  | CodeWrongSignature         => Int32 -3
-  | CodeUndefinedKey           => Int32 -4
-  | ThrownIfSameKey            => Int32 -5
-  | CodeNotValid               => Int32 -6
-  end in { _exception: "Error"; code: result }
+  let make_error = fun( error: Error ) =>
+    let result = match error with
+    | CodeWrongStatus            => Int32 -1
+    | CodeNotOwner               => Int32 -2
+    | CodeWrongSignature         => Int32 -3
+    | CodeUndefinedKey           => Int32 -4
+    | ThrownIfSameKey            => Int32 -5
+    | CodeNotValid               => Int32 -6
+    end in { _exception: "Error"; code: result }
 
-let zero = Uint128 0
-let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
-let zeroByStr64 = 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+  let zero = Uint128 0
+  let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
+  let zeroByStr64 = 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 
-let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
-  match input with
-  | Some v => v
-  | None => default
-  end
+  let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
+    match input with
+    | Some v => v
+    | None => default
+    end
 
-let option_uint128_value = let f = @option_value Uint128 in f zero
-  
-let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
+  let option_uint128_value = let f = @option_value Uint128 in f zero
+    
+  let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
 
-let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
+  let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
 
-let update_methods: forall 'A. List Document -> Map String ByStr33 -> Map String ByStr33 = tfun 'A => fun(l: List Document) => fun(prevMethods: Map String ByStr33) =>
-  let foldl = @list_foldl Document Map String ByStr33
-  in let iter = fun(map: Map String ByStr33) => fun(h: Document) =>
-    match h with
-    | VerificationMethod action purpose key =>
-        match action with
-          | Add =>
-              builtin put map purpose key
-          | Remove =>
-              builtin remove map purpose
-        end
-    | _ => map
-    end in foldl iter prevMethods l
-
-let make_endpoint = fun( input: DidService ) =>
-  match input with
-  | DidService t endpoint =>
-      match endpoint with
-      | ServiceEndpoint transfer e =>
-          match transfer with
-          | Https =>
-              let prefix = "https://" in
-              let this_uri = builtin concat prefix e in
-              Pair{String String} t this_uri
-          | Git =>
-              let prefix = "git://" in
-              let this_uri = builtin concat prefix e in
-              Pair{String String} t this_uri
-          | Ssh =>
-              let prefix = "ssh://" in
-              let this_uri = builtin concat prefix e in
-              Pair{String String} t this_uri
+  let update_methods: forall 'A. List Document -> Map String ByStr33 -> Map String ByStr33 = tfun 'A => fun(l: List Document) => fun(prevMethods: Map String ByStr33) =>
+    let foldl = @list_foldl Document Map String ByStr33
+    in let iter = fun(map: Map String ByStr33) => fun(h: Document) =>
+      match h with
+      | VerificationMethod action purpose key =>
+          match action with
+            | Add =>
+                builtin put map purpose key
+            | Remove =>
+                builtin remove map purpose
           end
-      end
-  end
+      | _ => map
+      end in foldl iter prevMethods l
 
-let update_services: forall 'A. List Document -> Map String Pair String String -> Map String Pair String String = tfun 'A => fun( l: List Document ) => fun( prevServices: Map String Pair String String ) =>
-  let foldl = @list_foldl Document Map String Pair String String
-  in let iter = fun( map: Map String Pair String String ) => fun( h: Document ) =>
-    match h with
-    | Service action id didService =>
-        match action with
-        | Add =>
-            let endpoint = make_endpoint didService
-            in builtin put map id endpoint
-        | Remove =>
-            builtin remove map id
+  let make_endpoint = fun( input: DidService ) =>
+    match input with
+    | DidService t endpoint =>
+        match endpoint with
+        | ServiceEndpoint transfer e =>
+            match transfer with
+            | Https =>
+                let prefix = "https://" in
+                let this_uri = builtin concat prefix e in
+                Pair{String String} t this_uri
+            | Git =>
+                let prefix = "git://" in
+                let this_uri = builtin concat prefix e in
+                Pair{String String} t this_uri
+            | Ssh =>
+                let prefix = "ssh://" in
+                let this_uri = builtin concat prefix e in
+                Pair{String String} t this_uri
+            end
         end
-    | _ => map
-    end in foldl iter prevServices l
+    end
+
+  let update_services: forall 'A. List Document -> Map String Pair String String -> Map String Pair String String = tfun 'A => fun( l: List Document ) => fun( prevServices: Map String Pair String String ) =>
+    let foldl = @list_foldl Document Map String Pair String String
+    in let iter = fun( map: Map String Pair String String ) => fun( h: Document ) =>
+      match h with
+      | Service action id didService =>
+          match action with
+          | Add =>
+              let endpoint = make_endpoint didService
+              in builtin put map id endpoint
+          | Remove =>
+              builtin remove map id
+          end
+      | _ => map
+      end in foldl iter prevServices l
 
 contract DID(
   initOwner: ByStr20
