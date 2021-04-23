@@ -16,7 +16,7 @@
 
 scilla_version 0
 
-import BoolUtils IntUtils
+import BoolUtils IntUtils PairUtils ListUtils
 
 library PSTproxy
 
@@ -32,15 +32,44 @@ library PSTproxy
     end in { _exception: "Error"; code: result }
 
   let zero = Uint128 0
-
+  let zeroBalance = Pair{ Uint128 Uint128 } zero zero
+  
   let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A ) =>
     match input with
     | Some v => v
     | None => default
     end
-
-  let option_uint128_value =
-    let f = @option_value Uint128 in f zero
+  
+  let option_uint128_value = let f = @option_value Uint128 in f zero
+  
+  let option_balance_pair = let f = @option_value ( Pair Uint128 Uint128 ) in f zeroBalance
+    
+  let option_balance_value = fun( getBal: Option( Pair Uint128 Uint128 ) ) =>
+    let balance_pair = option_balance_pair getBal
+    in let fst_element = @fst Uint128 Uint128
+    in fst_element balance_pair
+    
+  let option_balance_share = fun( getBal: Option( Pair Uint128 Uint128 ) ) =>
+    let balance_pair = option_balance_pair getBal
+    in let snd_element = @snd Uint128 Uint128
+    in snd_element balance_pair
+  
+  let compare_member = fun( addr: ByStr20 ) => fun( member: ByStr20 ) => builtin eq addr member
+  
+  let share_profits: forall 'A. List ByStr20 -> Map ByStr20 ( Pair Uint128 Uint128 ) -> Uint128 -> Map ByStr20 ( Pair Uint128 Uint128 ) 
+    = tfun 'A => fun( l: List ByStr20 ) => fun( prevBalances: Map ByStr20 ( Pair Uint128 Uint128 ) ) => fun( p: Uint128 ) =>
+    let list_foldl = @list_foldl ByStr20 Map ByStr20 ( Pair Uint128 Uint128 )
+    in let iter = fun( balances: Map ByStr20 ( Pair Uint128 Uint128 ) ) => fun( agent: ByStr20 ) =>
+      let new_balance =
+        let get_bal = builtin get balances agent 
+        in let s = option_balance_share get_bal
+        in let profit = builtin mul p s
+        in let balance = option_balance_value get_bal
+        in builtin add balance profit
+      in let new_s = zero
+      in let updated_balance = Pair{ Uint128 Uint128 } new_balance new_s
+      in builtin put balances agent updated_balance
+    in list_foldl iter prevBalances l
 
 contract PSTproxy(
   initAdmin: ByStr20,
@@ -48,7 +77,10 @@ contract PSTproxy(
   symbol: String,
   decimals: Uint32,
   initSupply: Uint128,
-  initImplementation: ByStr20
+  initImplementation: ByStr20,
+  f: Uint128,
+  t: Uint128
+  (* to-do create and update f & t fields *)
   )
   with
     let string_is_not_empty = fun( s : String ) =>
@@ -68,11 +100,12 @@ contract PSTproxy(
       in andb name_symbol_ok decimals_ok
   =>
   field admin: ByStr20 = initAdmin
-  field balances: Map ByStr20 Uint128 = let emp_map = Emp ByStr20 Uint128 in builtin put emp_map initAdmin initSupply
+  field implementation: ByStr20 = initImplementation
+  field balances: Map ByStr20 ( Pair Uint128 Uint128 ) = let emp_map = Emp ByStr20 ( Pair Uint128 Uint128 ) in let init = Pair{ Uint128 Uint128 } initSupply f in builtin put emp_map initAdmin init
   field total_supply: Uint128 = initSupply
   field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
-  field implementation: ByStr20 = initImplementation
-
+  field agents: List ByStr20 = let nil = Nil{ ByStr20 } in Cons{ ByStr20 } initAdmin nil
+    
 procedure ThrowError(
   err: Error
   )
@@ -250,7 +283,7 @@ transition Mint(
   )
   current_impl <- implementation;
   current_supply <- total_supply;
-  get_to_bal <- balances[to]; to_bal = option_uint128_value get_to_bal;
+  get_to_bal <- balances[to]; to_bal = option_balance_value get_to_bal;
   msg = let m = {
     _tag: "Mint";
     _recipient: current_impl;
@@ -263,13 +296,51 @@ transition Mint(
   } in one_msg m; send msg
 end
 
+procedure RegisterBalance(
+  addr: ByStr20,
+  bal: Uint128
+  )
+  not_enough = let n = builtin sub t f in builtin lt bal n;
+  list_mem = @list_mem ByStr20;
+  agents_list <- agents;
+  is_member = list_mem compare_member addr agents_list;
+  match not_enough with
+  | True => 
+      balance = Pair{ Uint128 Uint128 } bal zero;
+      balances[addr] := balance;
+      match is_member with
+      | True =>
+          list_filter = @list_filter ByStr20;
+          remove_member = fun( member: ByStr20 ) =>
+            let is_addr = builtin eq addr member
+            in negb is_addr;
+          agents_updated = list_filter remove_member agents_list;
+          agents := agents_updated
+      | False =>
+      end
+  | False =>
+      balance =
+        let s = 
+          let product = builtin mul bal f
+          in builtin div product t
+        in Pair{ Uint128 Uint128 } bal s;
+      balances[addr] := balance;
+      match is_member with
+      | True =>
+      | False =>
+          agents_updated = Cons{ ByStr20 } addr agents_list;
+          agents := agents_updated
+      end
+  end
+end
+
 transition MintCallBack(
   to: ByStr20,
   newToBal: Uint128,
   newSupply: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  balances[to] := newToBal;
+  RegisterBalance to newToBal;
   total_supply := newSupply
 end
 
@@ -278,7 +349,7 @@ transition Burn(
   )
   current_impl <- implementation;
   current_supply <- total_supply;
-  get_burn_bal <- balances[_sender]; burn_bal = option_uint128_value get_burn_bal;
+  get_burn_bal <- balances[_sender]; burn_bal = option_balance_value get_burn_bal;
   msg = let m = {
     _tag: "Burn";
     _recipient: current_impl;
@@ -296,7 +367,7 @@ transition BurnCallBack(
   newSupply: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  balances[initiator] := newMinterBalance;
+  RegisterBalance initiator newMinterBalance;
   total_supply := newSupply
 end
 
@@ -305,7 +376,7 @@ transition LawEnforcementWipingBurn(
   )
   current_impl <- implementation;
   current_supply <- total_supply;
-  get_bal <- balances[addr]; bal = option_uint128_value get_bal;
+  get_bal <- balances[addr]; bal = option_balance_value get_bal;
   msg = let m = {
     _tag: "LawEnforcementWipingBurn";
     _recipient: current_impl;
@@ -322,7 +393,7 @@ transition LawEnforcementWipingBurnCallBack(
   newSupply: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  balances[addr] := zero;
+  balances[addr] := zeroBalance;
   total_supply := newSupply
 end
 
@@ -374,8 +445,8 @@ transition Transfer(
   amount: Uint128
   )
   current_impl <- implementation;
-  get_from_bal <- balances[_sender]; from_bal = option_uint128_value get_from_bal;
-  get_to_bal <- balances[to]; to_bal = option_uint128_value get_to_bal;
+  get_from_bal <- balances[_sender]; from_bal = option_balance_value get_from_bal;
+  get_to_bal <- balances[to]; to_bal = option_balance_value get_to_bal;
   msg = let m = {
     _tag: "Transfer";
     _recipient: current_impl;
@@ -395,8 +466,8 @@ transition TransferCallBack(
   newToBal: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  balances[from] := newFromBal;
-  balances[to] := newToBal
+  RegisterBalance from newFromBal;
+  RegisterBalance to newToBal
 end
 
 transition TransferFrom(
@@ -406,8 +477,8 @@ transition TransferFrom(
   )
   current_impl <- implementation;
   get_to_bal <- balances[to];
-  to_bal = option_uint128_value get_to_bal;
-  get_from_bal <- balances[from]; from_bal = option_uint128_value get_from_bal;
+  to_bal = option_balance_value get_to_bal;
+  get_from_bal <- balances[from]; from_bal = option_balance_value get_from_bal;
   get_allowance <- allowances[from][_sender]; allowance = option_uint128_value get_allowance;
   msg = let m = {
     _tag: "TransferFrom";
@@ -430,14 +501,13 @@ transition TransferFromCallBack(
   newToBal: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  balances[from] := newFromBal;
-  balances[to] := newToBal
+  RegisterBalance from newFromBal;
+  RegisterBalance to newToBal
 end
 
 transition SwapZILForPST(
   minPstAmount: Uint128
   )
-  current_admin <- admin; VerifyCaller current_admin;
   current_impl <- implementation;
   balance <- _balance;
   msg = let m = {
@@ -448,8 +518,17 @@ transition SwapZILForPST(
   } in one_msg m; send msg
 end
 
+(* to-do perhaps merge SwapZILForPST with ProfitShare *)
+
 transition ProfitShare()
   current_admin <- admin; VerifyCaller current_admin;
   current_impl <- implementation;
-  get_bal <- balances[current_impl]; bal = option_uint128_value get_bal
+  get_bal <- balances[current_impl]; bal = option_balance_value get_bal;
+  p = builtin div bal f;
+  agents_list <- agents;
+  current_balances <- balances;
+  new_balances =
+    let share_profits = @share_profits ByStr20
+    in share_profits agents_list current_balances p;
+  balances := new_balances
 end

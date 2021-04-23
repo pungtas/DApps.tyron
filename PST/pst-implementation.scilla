@@ -447,13 +447,9 @@ transition Mint(
   initiator: ByStr20
   )
   ThrowIfNotProxy;
-  isNotPaused;
-  isMinter initiator;
-  isNotBlacklisted initiator;
-  isNotBlacklisted to;
-  isNotNull to;
-  get_minter_allowance <- minter_allowances[initiator]; minter_allowance = option2_uint128_value get_minter_allowance;
-  isSufficientAllowance minter_allowance amount;
+  isNotPaused; isMinter initiator;
+  isNotBlacklisted initiator; isNotBlacklisted to; isNotNull to;
+  get_minter_allowance <- minter_allowances[initiator]; minter_allowance = option2_uint128_value get_minter_allowance; isSufficientAllowance minter_allowance amount;
   new_supply = builtin add amount currentSupply;
   new_to_bal = builtin add amount toBal;
   new_minter_allowance = better_subtract minter_allowance amount; new_option_minter_allowance = option_uint128 new_minter_allowance;
@@ -612,7 +608,7 @@ transition DecreaseAllowance(
     _amount: zero;
     initiator: initiator;
     spender: spender;
-    new_allowance: new_allowance
+    newAllowance: new_allowance
   } in one_msg m; send msg
 end
 
@@ -759,6 +755,7 @@ transition SwapZILForPST(
   minPstAmount: Uint128
   )
   ThrowIfNotProxy;
+  (* isAdmin _origin *)
   zilswap_addr <- zilswap; accept;
   UpdateDeadline; deadline <- deadline_block;
   msg = let m = {
