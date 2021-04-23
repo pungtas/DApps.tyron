@@ -533,8 +533,8 @@ transition LawEnforcementWipingBurn(
   )
   ThrowIfNotProxy;
   isNotPaused;
-  isBlacklisted addr;
   isBlacklister initiator;
+  isBlacklisted addr;
   isNotBlacklisted initiator;
   e = {
     _eventname: "LawEnforcementWipingBurnt";

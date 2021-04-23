@@ -113,7 +113,6 @@ end
 transition UpdateImplementationAdmin(
   newAdmin: ByStr20
   )
-  current_admin <- admin; VerifyCaller current_admin;
   current_impl <- implementation;
   msg = let m = {
     _tag: "UpdateImplementationAdmin";
@@ -125,7 +124,6 @@ transition UpdateImplementationAdmin(
 end
 
 transition Pause()
-  current_admin <- admin; VerifyCaller current_admin;
   current_impl <- implementation;
   msg = let m = {
     _tag: "Pause";
@@ -136,7 +134,6 @@ transition Pause()
 end
 
 transition Unpause()
-  current_admin <- admin; VerifyCaller current_admin;
   current_impl <- implementation;
   msg = let m = {
     _tag: "Unpause";
@@ -149,7 +146,6 @@ end
 transition UpdatePauser(
   newPauser: ByStr20
   )
-  current_admin <- admin; VerifyCaller current_admin;
   current_impl <- implementation;
   msg = let m = {
     _tag: "UpdatePauser";
@@ -160,10 +156,22 @@ transition UpdatePauser(
   } in one_msg m; send msg
 end
 
+transition UpdateBlacklister(
+  newBlacklister: ByStr20
+  )
+  current_impl <- implementation;
+  msg = let m = {
+    _tag: "UpdateBlacklister";
+    _recipient: current_impl;
+    _amount: zero;
+    newBlacklister: newBlacklister;
+    initiator: _sender
+  } in one_msg m; send msg
+end
+
 transition Blacklist(
   addr: ByStr20
   )
-  current_admin <- admin; VerifyCaller current_admin;
   current_impl <- implementation;
   msg = let m = {
     _tag: "Blacklist";
@@ -177,7 +185,6 @@ end
 transition Unblacklist(
   addr: ByStr20
   )
-  current_admin <- admin; VerifyCaller current_admin;
   current_impl <- implementation;
   msg = let m = {
     _tag: "Unblacklist";
@@ -188,24 +195,9 @@ transition Unblacklist(
   } in one_msg m; send msg
 end
 
-transition UpdateBlacklister(
-  newBlacklister: ByStr20
-  )
-  current_admin <- admin; VerifyCaller current_admin;
-  current_impl <- implementation;
-  msg = let m = {
-    _tag: "UpdateBlacklister";
-    _recipient: current_impl;
-    _amount: zero;
-    newBlacklister: newBlacklister;
-    initiator: _sender
-  } in one_msg m; send msg
-end
-
 transition UpdateMasterMinter(
   newMasterMinter: ByStr20
   )
-  current_admin <- admin; VerifyCaller current_admin;
   current_impl <- implementation;
   msg = let m = {
     _tag: "UpdateMasterMinter";
@@ -220,7 +212,6 @@ transition IncreaseMinterAllowance(
   minter: ByStr20,
   amount: Uint128
   )
-  current_admin <- admin; VerifyCaller current_admin;
   current_impl <- implementation;
   msg = let m = {
     _tag: "IncreaseMinterAllowance";
@@ -236,7 +227,6 @@ transition DecreaseMinterAllowance(
   minter: ByStr20,
   amount: Uint128
   )
-  current_admin <- admin; VerifyCaller current_admin;
   current_impl <- implementation;
   msg = let m = {
     _tag: "DecreaseMinterAllowance";
@@ -252,7 +242,6 @@ transition Mint(
   to: ByStr20,
   amount: Uint128
   )
-  current_admin <- admin; VerifyCaller current_admin;
   current_impl <- implementation;
   current_supply <- total_supply;
   get_to_bal <- balances[to]; to_bal = option_uint128_value get_to_bal;
@@ -281,7 +270,6 @@ end
 transition Burn(
   amount: Uint128
   )
-  current_admin <- admin; VerifyCaller current_admin;
   current_impl <- implementation;
   current_supply <- total_supply;
   get_burn_bal <- balances[_sender]; burn_bal = option_uint128_value get_burn_bal;
@@ -309,17 +297,15 @@ end
 transition LawEnforcementWipingBurn(
   addr: ByStr20
   )
-  current_admin <- admin; VerifyCaller current_admin;
   current_impl <- implementation;
   current_supply <- total_supply;
-  get_bal <- balances[addr];
-  addr_bal = option_uint128_value get_bal;
+  get_bal <- balances[addr]; bal = option_uint128_value get_bal;
   msg = let m = {
     _tag: "LawEnforcementWipingBurn";
     _recipient: current_impl;
     _amount: zero;
     addr: addr;
-    addrBal: addr_bal;
+    addrBal: bal;
     currentSupply: current_supply;
     initiator: _sender
   } in one_msg m; send msg
@@ -377,41 +363,6 @@ transition AllowanceCallBack(
   allowances[initiator][spender] := newAllowance
 end
 
-transition TransferFrom(
-  from: ByStr20, 
-  to: ByStr20,
-  amount: Uint128
-  )
-  current_impl <- implementation;
-  get_to_bal <- balances[to]; to_bal = option_uint128_value get_to_bal;
-  get_from_bal <- balances[from]; from_bal = option_uint128_value get_from_bal;
-  get_allowance <- allowances[from][_sender];
-  spender_allowance = option_uint128_value get_allowance;
-  msg = let m = {
-    _tag: "TransferFrom";
-    _recipient: current_impl;
-    _amount: zero;
-    from: from;
-    to: to;
-    amount: amount;
-    initiator: _sender;
-    fromBal: from_bal;
-    spenderAllowance: spender_allowance;
-    toBal: to_bal
-  } in one_msg m; send msg
-end
-
-transition TransferFromCallBack(
-  from: ByStr20,
-  to: ByStr20,
-  newFromBal: Uint128,
-  newToBal: Uint128
-  )
-  current_impl <- implementation; VerifyCaller current_impl;
-  balances[from] := newFromBal;
-  balances[to] := newToBal
-end
-
 transition Transfer(
   to: ByStr20,
   amount: Uint128
@@ -442,6 +393,40 @@ transition TransferCallBack(
   balances[to] := newToBal
 end
 
+transition TransferFrom(
+  from: ByStr20, 
+  to: ByStr20,
+  amount: Uint128
+  )
+  current_impl <- implementation;
+  get_to_bal <- balances[to]; to_bal = option_uint128_value get_to_bal;
+  get_from_bal <- balances[from]; from_bal = option_uint128_value get_from_bal;
+  get_allowance <- allowances[from][_sender]; allowance = option_uint128_value get_allowance;
+  msg = let m = {
+    _tag: "TransferFrom";
+    _recipient: current_impl;
+    _amount: zero;
+    from: from;
+    to: to;
+    amount: amount;
+    initiator: _sender;
+    fromBal: from_bal;
+    spenderAllowance: allowance;
+    toBal: to_bal
+  } in one_msg m; send msg
+end
+
+transition TransferFromCallBack(
+  from: ByStr20,
+  to: ByStr20,
+  newFromBal: Uint128,
+  newToBal: Uint128
+  )
+  current_impl <- implementation; VerifyCaller current_impl;
+  balances[from] := newFromBal;
+  balances[to] := newToBal
+end
+
 transition GasStation(
   network: String,
   recipient: String,
@@ -449,8 +434,7 @@ transition GasStation(
   fee: Uint128
   )
   current_impl <- implementation;
-  get_from_bal <- balances[_sender];
-  from_bal = option_uint128_value get_from_bal;
+  get_from_bal <- balances[_sender]; from_bal = option_uint128_value get_from_bal;
   msg = let m = {
     _tag: "GasStation";
     _recipient: current_impl;
