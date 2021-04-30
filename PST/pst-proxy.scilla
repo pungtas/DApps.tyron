@@ -55,21 +55,6 @@ library PSTproxy
     in snd_element balance_pair
   
   let compare_member = fun( addr: ByStr20 ) => fun( member: ByStr20 ) => builtin eq addr member
-  
-  let share_profits: forall 'A. List ByStr20 -> Map ByStr20 ( Pair Uint128 Uint128 ) -> Uint128 -> Map ByStr20 ( Pair Uint128 Uint128 ) 
-    = tfun 'A => fun( l: List ByStr20 ) => fun( prevBalances: Map ByStr20 ( Pair Uint128 Uint128 ) ) => fun( p: Uint128 ) =>
-    let list_foldl = @list_foldl ByStr20 Map ByStr20 ( Pair Uint128 Uint128 )
-    in let iter = fun( balances: Map ByStr20 ( Pair Uint128 Uint128 ) ) => fun( agent: ByStr20 ) =>
-      let new_balance =
-        let get_bal = builtin get balances agent 
-        in let s = option_balance_share get_bal
-        in let profit = builtin mul p s
-        in let balance = option_balance_value get_bal
-        in builtin add balance profit
-      in let new_s = zero
-      in let updated_balance = Pair{ Uint128 Uint128 } new_balance new_s
-      in builtin put balances agent updated_balance
-    in list_foldl iter prevBalances l
 
 contract PSTproxy(
   initAdmin: ByStr20,
@@ -77,9 +62,7 @@ contract PSTproxy(
   symbol: String,
   decimals: Uint32,
   initSupply: Uint128,
-  initImplementation: ByStr20,
-  f: Uint128,
-  t: Uint128
+  f: Uint128
   (* to-do create and update f & t fields *)
   )
   with
@@ -100,11 +83,12 @@ contract PSTproxy(
       in andb name_symbol_ok decimals_ok
   =>
   field admin: ByStr20 = initAdmin
-  field implementation: ByStr20 = initImplementation
+  field implementation: ByStr20 = initAdmin
   field balances: Map ByStr20 ( Pair Uint128 Uint128 ) = let emp_map = Emp ByStr20 ( Pair Uint128 Uint128 ) in let init = Pair{ Uint128 Uint128 } initSupply f in builtin put emp_map initAdmin init
   field total_supply: Uint128 = initSupply
   field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
   field agents: List ByStr20 = let nil = Nil{ ByStr20 } in Cons{ ByStr20 } initAdmin nil
+  field p: Uint128 = zero
     
 procedure ThrowError(
   err: Error
@@ -300,7 +284,8 @@ procedure RegisterBalance(
   addr: ByStr20,
   bal: Uint128
   )
-  not_enough = let n = builtin sub t f in builtin lt bal n;
+  t <- total_supply;
+  not_enough = let n = builtin div t f in builtin lt bal n;
   list_mem = @list_mem ByStr20;
   agents_list <- agents;
   is_member = list_mem compare_member addr agents_list;
@@ -320,7 +305,7 @@ procedure RegisterBalance(
       end
   | False =>
       balance =
-        let s = 
+        let s =
           let product = builtin mul bal f
           in builtin div product t
         in Pair{ Uint128 Uint128 } bal s;
@@ -505,30 +490,49 @@ transition TransferFromCallBack(
   RegisterBalance to newToBal
 end
 
-transition SwapZILForPST(
-  minPstAmount: Uint128
+transition SwapZILForPSTAndShare(
+  minPstAmount: Uint128,
+  blockDeadline: Uint128
   )
-  current_impl <- implementation;
-  balance <- _balance;
+  current_impl <- implementation; accept;
   msg = let m = {
-    _tag: "SwapZILforPST";
+    _tag: "SwapZILForPSTAndShare";
     _recipient: current_impl;
-    _amount: balance;
-    minPstAmount: minPstAmount
+    _amount: _amount;
+    minPstAmount: minPstAmount;
+    dao: _sender;
+    blockDeadline: blockDeadline
   } in one_msg m; send msg
 end
 
-(* to-do perhaps merge SwapZILForPST with ProfitShare *)
+procedure UpdateP(
+  newP: Uint128
+  )
+  p := newP
+end
 
-transition ProfitShare()
-  current_admin <- admin; VerifyCaller current_admin;
-  current_impl <- implementation;
-  get_bal <- balances[current_impl]; bal = option_balance_value get_bal;
-  p = builtin div bal f;
+procedure DistributeProfit(
+  agent: ByStr20
+  )
+  get_bal <- balances[agent]; s = option_balance_share get_bal; bal = option_balance_value get_bal;
+  this_p <- p;
+  higher_balance = let profit_share = builtin mul this_p s in builtin add bal profit_share;
+  RegisterBalance agent higher_balance
+end
+
+transition ProfitShareCallBack(
+  dao: ByStr20
+  )
+  current_impl <- implementation; VerifyCaller current_impl;
+  get_bal <- balances[dao]; bal = option_balance_value get_bal;
+  this_p = builtin div bal f;
+  UpdateP this_p;
   agents_list <- agents;
-  current_balances <- balances;
-  new_balances =
-    let share_profits = @share_profits ByStr20
-    in share_profits agents_list current_balances p;
-  balances := new_balances
+  forall agents_list DistributeProfit;
+  get_after_bal <- balances[dao]; after_bal = option_balance_value get_after_bal;
+  burn = builtin sub after_bal bal;
+  balances[dao] := zeroBalance;
+  current_supply <- total_supply;
+  new_supply = builtin sub current_supply burn;
+  total_supply := new_supply
 end

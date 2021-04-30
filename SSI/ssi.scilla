@@ -58,7 +58,6 @@ library SSI
     end
 
   let option_uint128_value = let f = @option_value Uint128 in f zero
-
   let option_bystr33_value = let f = @option_value ByStr33 in f 
 
   let create = "DIDcreate"
@@ -104,7 +103,7 @@ contract SSI(
   initTyron: ByStr20
   )
   with
-    let init = 0x83715890960608c7d6ca4f31ad288a8d2780d344 in builtin eq init initTyron
+    let init = 0xe9fa53331b59e517f6a7bfe1d35522a1e49a2dc0 in builtin eq init initTyron
   =>
   (* Owner of the SSI *)
   field owner: ByStr20 = initOwner
@@ -121,28 +120,20 @@ contract SSI(
   (* INIT.tyron current implementation *)
   field init: ByStr20 = initTyron
 
-  (* Dapp records
-  @key: Domain name
-	@value: Dapp address *)
-  field dapp_records: Map String ByStr20 = Emp String ByStr20
-
   (* DID records
-  @key: Domain name
+  @key: domain name
 	@value: DID address *)
   field did_records: Map String ByStr20 = Emp String ByStr20
 
-  (* Token implementations
-  @key: address
-  @value: token name *)
-  field xWallet: Map ByStr20 String = 
-    let empty_map = Emp ByStr20 String in
-    let implementation_addr = 0xaB3b8a5d9f836DF46f89bE8a537B7cC0d71fc3B5 in
-    let xsgd = "xsgd" in builtin put empty_map implementation_addr xsgd
-    
+  (* Proxy and implementation addresses
+  @key: dapp (implementation) address
+	@value: dapp (proxy) address *)
+  field records: Map ByStr20 ByStr20 = Emp ByStr20 ByStr20
+
   (* Token balances
-  @key: token name
+  @key: token (proxy) address
   @value: balance *)
-  field xBalances: Map String Uint128 = Emp String Uint128
+  field xBalances: Map ByStr20 Uint128 = Emp ByStr20 Uint128
 
 procedure ThrowError(
   err: Error
@@ -171,7 +162,6 @@ procedure VerifyInit()
   end
 end
 
-(* Update the owner address *)
 transition UpdateOwner(
   newOwner: ByStr20
   )
@@ -179,7 +169,6 @@ transition UpdateOwner(
   owner := newOwner
 end
 
-(* Update the agent address *)
 transition UpdateAgent(
   newAgent: ByStr20
   )
@@ -187,7 +176,6 @@ transition UpdateAgent(
   agent := newAgent
 end
 
-(* Update the INIT.tyron address *)
 transition UpdateINIT(
   newInit: ByStr20
   )
@@ -195,26 +183,7 @@ transition UpdateINIT(
   init := newInit
 end
 
-(* Update the owner address in a DID dapp *)
-transition UpdateDIDowner(
-  did: String,
-  newOwner: ByStr20
-  )
-  VerifyCaller;
-  did_addr <- dapp_records[did];
-  match did_addr with
-  | Some addr =>
-      msg = let m = {
-      _tag: "UpdateOwner";
-      _recipient: addr;
-      _amount: zero;
-      newOwner: newOwner
-      } in one_msg m; send msg
-  | None => err= CodeWrongDomain; ThrowError err
-  end
-end
-
-(* Set a domain name for the Self-Sovereign Identity *)
+(* Set a domain name for the self-sovereign identity *)
 transition SetDomain(
   username: String
   )
@@ -238,8 +207,7 @@ transition SetDidDomain(
   (* WIP: do remote read to verify DID has the SSI as owner *)
   taken <- exists did_records[domain];
   match taken with
-  | True =>
-      err = CodeNotValid; ThrowError err
+  | True => err= CodeNotValid; ThrowError err
   | False =>
       did_records[domain] := _sender
   end
@@ -268,26 +236,41 @@ transition CRUD(
         recoveryKey: recoveryKey;
         updateKey: updateKey
       } in one_msg m; send msg
-  | None => err = CodeWrongDomain; ThrowError err
+  | None => err= CodeWrongDomain; ThrowError err
   end
 end
 
 transition DIDdapp(
-  domain: String,
-  tag: String
+  domain: ByStr20,
+  tag: String,
+  addr: ByStr20,
+  amount: Uint128
   )
   VerifyCaller;
-  dapp_addr <- dapp_records[domain];
-  match dapp_addr with
-  | Some addr =>
+  accept;
+  msg = let m = {
+    _tag: tag;
+    _recipient: domain;
+    _amount: _amount;
+    addr: addr;
+    amount: amount
+  } in one_msg m;
+  send msg
+  (*
+  get_dapp <- did_records[domain];
+  match get_dapp with
+  | Some dapp_addr =>
+      accept;
       msg = let m = {
         _tag: tag;
-        _recipient: addr;
-        _amount: zero
+        _recipient: dapp_addr;
+        _amount: _amount;
+        addr: addr;
+        amount: amount
       } in one_msg m;
       send msg
-  | None => err = CodeWrongDomain; ThrowError err
-  end
+  | None => err= CodeWrongDomain; ThrowError err
+  end*)
 end
 
 (*---------*)
@@ -313,45 +296,20 @@ procedure XWallet(
   direction: XDirection,
   amount: Uint128
   )
-  this_token <- xWallet[_sender];
-  match this_token with
-  | Some token =>
-      this_balance <- xBalances[token];
-      balance = option_uint128_value this_balance;
+  dapp_proxy <- records[_sender];
+  match dapp_proxy with
+  | Some proxy =>
+      get_balance <- xBalances[proxy]; balance = option_uint128_value get_balance;
       match direction with
       | In =>
           new_balance = builtin add balance amount;
-          xBalances[token] := new_balance
+          xBalances[proxy] := new_balance
       | Out =>
           new_balance = builtin sub balance amount;
-          xBalances[token] := new_balance
+          xBalances[proxy] := new_balance
       end
   | None => err= CodeNotToken; ThrowError err
   end
-end
-
-procedure Verify(
-  token: String
-  )
-  init_addr <- init;
-  accept;
-  msg = let m = {
-    _tag: "Verify";
-    _recipient: init_addr;
-    _amount: _amount;
-    token: token;
-    agent: _sender
-  } in one_msg m; send msg
-end
-
-transition VerifyCallBack(
-  token: String,
-  proxy: ByStr20,
-  implementation: ByStr20
-  )
-  VerifyInit;
-  dapp_records[token] := proxy;
-  xWallet[implementation] := token
 end
   
 (* Add native funds ($ZIL) to the xWallet *)
@@ -360,7 +318,7 @@ transition AddFunds()
 end
   
 (* Send $ZIL to any recipient that implements the tag (e.g. "AddFunds", "") *)
-transition ZILout(
+transition SendFunds(
   tag: String,
   recipient: ByStr20,
   amount: Uint128
@@ -374,40 +332,40 @@ transition ZILout(
   } in one_msg m; send msg
 end
 
-(* Acceptance transition - must be defined or transfers to this xWallet will fail *)
 transition RecipientAcceptTransfer(
-  sender : ByStr20,
-  recipient : ByStr20,
-  amount : Uint128
+  sender: ByStr20,
+  recipient: ByStr20,
+  amount: Uint128
   )
   XWallet incoming amount
 end
 
-(* Transfer ZRC-2 tokens *)
+transition RecipientAcceptTransferFrom(
+  initiator: ByStr20,
+  sender: ByStr20,
+  recipient: ByStr20,
+  amount: Uint128
+  )
+  XWallet incoming amount
+end
+
 transition XTransfer(
-  token: String,
+  proxyAddr: ByStr20,
   recipient: ByStr20,
   amount: Uint128
   ) 
   VerifyCaller;
-  this_balance <- xBalances[token];
-  balance = option_uint128_value this_balance;
+  get_balance <- xBalances[proxyAddr]; balance = option_uint128_value get_balance;
   is_enough = builtin lt amount balance;
   match is_enough with
   | True =>
-      Verify token;
-      proxy_addr <- dapp_records[token];
-      match proxy_addr with
-      | Some addr =>
-          msg = let m = {
-            _tag: "Transfer";
-            _recipient: addr;
-            _amount: zero;
-            to: recipient;
-            amount: amount
-          } in one_msg m ; send msg
-      | None => err= CodeNotProxy; ThrowError err
-      end
+      msg = let m = {
+        _tag: "Transfer";
+        _recipient: proxyAddr;
+        _amount: zero;
+        to: recipient;
+        amount: amount
+      } in one_msg m ; send msg
   | False => err= CodeWrongAmount; ThrowError err
   end
 end
@@ -436,8 +394,9 @@ procedure VerifySignature(
   | None => err = CodeUndefinedKey; ThrowError err
   end
 end
-  
-transition xZIL(
+
+(* to-do WIP
+transition GasStation(
   network: String,
   amount: Uint128,
   signedData: ByStr,
@@ -446,8 +405,8 @@ transition xZIL(
   )
   VerifyCaller;
   VerifySignature signedData sig;
-  Verify network;
-  proxy_addr <- dapp_records[network];
+  VerifyProxy network;
+  proxy_addr <- records[network];
   originator <- network_addr;
   match proxy_addr with
   | Some addr =>
@@ -461,4 +420,41 @@ transition xZIL(
       } in one_msg m ; send msg
   | None => err= CodeNotProxy; ThrowError err
   end
+end
+*)
+
+procedure InitVerifyRecord(
+  sender: ByStr20
+  )
+  current_init <- init;
+  accept;
+  msg = let m = {
+    _tag: "VerifyRecord";
+    _recipient: current_init;
+    _amount: _amount;
+    sender: sender;
+    did: _sender
+  } in one_msg m; send msg
+end
+
+transition VerifyRecordCallBack(
+  did: ByStr20,
+  implAddr: ByStr20,
+  proxyAddr: ByStr20
+  )
+  VerifyInit;
+  records[implAddr] := proxyAddr;
+  msg = let m = {
+    _tag: "VerifyRecordCallBack";
+    _recipient: did;
+    _amount: zero;
+    implAddr: implAddr;
+    proxyAddr: proxyAddr
+  } in one_msg m; send msg
+end
+
+transition VerifyRecord(
+  sender: ByStr20
+  )
+  InitVerifyRecord sender
 end

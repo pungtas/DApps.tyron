@@ -760,11 +760,11 @@ transition GasStation(
   isSufficientFunds fromBal funds;
   new_from_bal = builtin sub fromBal funds;
   current_block <- &BLOCKNUMBER;
-  block_limit = builtin badd current_block fifteen_min;
+  deadline = builtin badd current_block fifteen_min;
   hash_lock =
     let time_lock =
-      let block_limit_hash = builtin sha256hash block_limit
-      in builtin to_string block_limit_hash
+      let deadline_hash = builtin sha256hash deadline
+      in builtin to_string deadline_hash
     in let addr = builtin to_string initiator
     in let merge = builtin concat addr recipient
     in let merge2 = builtin concat merge time_lock
@@ -776,7 +776,7 @@ transition GasStation(
     recipient: recipient;
     amount: amount;
     fee: fee;
-    blockLimit: block_limit
+    blockLimit: deadline
   }; event e;
   msg = let m = {
     _tag: "GasTopUpCallBack";

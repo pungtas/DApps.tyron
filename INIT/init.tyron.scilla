@@ -24,20 +24,24 @@ library INIT
   let two_msgs = fun( msg1: Message ) => fun( msg2: Message ) =>
     let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
 
-  let zero = Uint128 0
-
   type Error =
     | CodeDomainTaken
-    | CodeNotValid
+    | CodeNotProxy
     | CodeNotRightCaller
 
   let make_error = fun( error: Error ) =>
     let result = match error with
     | CodeDomainTaken            => Int32 -1
-    | CodeNotValid               => Int32 -1
+    | CodeNotProxy            => Int32 -2
     | CodeNotRightCaller         => Int32 -3
     end in { _exception: "Error"; code: result }
-    
+  
+  let zero = Uint128 0
+  
+  type Code =
+    | Ssi
+    | Did
+  
   let option_value = tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) =>
     match opt_val with
     | Some v => v
@@ -51,24 +55,29 @@ contract INIT(
   )
   field admin: ByStr20 = initAdmin
 
-  (* DID-Smart-Contract code by version
+  (* SSI.tyron smart-contract code by version
+  @key: version
+  @value: hex-encoded code *)
+  field ssi_code: Map String String = Emp String String
+  
+  (* DID.tyron smart-contract code by version
   @key: version
   @value: hex-encoded code *)
   field did_code: Map String String = Emp String String
   
-(* DNS records
+  (* DNS records
   @key: SsiDomain (e.g. ".did", ".agent", ".mapu")
   @value: Map of
     @key: domain name
     @value: address *)
   field dns: Map String (Map String ByStr20) = Emp String (Map String ByStr20)
 
-(* Resource records
-  @key: token 
+  (* Proxy and implementation addresses
+  @key: implementation address
   @value: proxy address *)
-  field records: Map String ByStr20 = Emp String ByStr20
+  field records: Map ByStr20 ByStr20 = Emp ByStr20 ByStr20
   
-(* Token implementations
+  (* Implementation records
   @key: proxy address
   @value: implementation address *)
   field implementations: Map ByStr20 ByStr20 = Emp ByStr20 ByStr20
@@ -80,7 +89,7 @@ procedure ThrowError(
 end
 
 (* Validate address against _sender *)
-procedure Calling(
+procedure VerifyCaller(
   check: ByStr20
 )
   is_correct = builtin eq check _sender;
@@ -94,76 +103,82 @@ end
 transition UpdateAdmin(
   newAdmin: ByStr20
 )
-  admin_addr <- admin; Calling admin_addr;
+  current_admin <- admin; VerifyCaller current_admin;
   admin := newAdmin
 end
   
-(* Set the DID-Smart-Contract code *)
-transition SetDidCode(
+(* Set the SSI or DID.tyron code *)
+transition SetCode(
+  tyron: Code,
   version: String,
   code: String
   )
-  admin_addr <- admin; Calling admin_addr;
-  did_code[version] := code;
-  e = {
-    _eventname: "Updated_DID_code";
-    version: version;
-    code: code
-  }; event e
+  current_admin <- admin; VerifyCaller current_admin;
+  match tyron with
+    | Ssi =>
+        ssi_code[version] := code;
+        e = {
+          _eventname: "SSIcodeUpdated";
+          version: version;
+          code: code
+        }; event e
+    | Did =>
+        did_code[version] := code;
+        e = {
+          _eventname: "DIDcodeUpdated";
+          version: version;
+          code: code
+        }; event e
+  end
 end
 
 (* Set a domain name in the DNS *)
 transition SetDomain(
   domain: String,
-  username: String,
-  agent: String
+  username: String
   )
+  
   taken <- exists dns[domain][username];
   match taken with
-  | True =>
-      err = CodeDomainTaken; ThrowError err
-  | False =>
+  | True => err = CodeDomainTaken; ThrowError err
+  | False => 
+      accept;
+      (* to-do payment *)
       dns[domain][username] := _sender
   end
 end
 
 (* Sets the token name, proxy address and implementation address of a token *)
 transition SetRecord(
-  token: String,
-  proxyAddr: ByStr20,
-  implementationAddr: ByStr20
+  implAddr: ByStr20,
+  proxyAddr: ByStr20
   )
-  admin_addr <- admin; Calling admin_addr;
-  records[token] := proxyAddr;
-  implementations[proxyAddr] := implementationAddr;
+  current_admin <- admin; VerifyCaller current_admin;
+  records[implAddr] := proxyAddr;
   e = {
-    _eventname: "Updated_Token";
-    token: token;
-    proxy_address: proxyAddr;
-    implementation_address: implementationAddr
+    _eventname: "RecordUpdated";
+    implementationAddress: implAddr;
+    proxyAddress: proxyAddr
   }; event e
 end
 
-(* Called by a Self-Sovereign Identity to verify token addresses *)
-transition Verify(
-  token: String
+(* Called by an SSI.tyron to verify implementation-proxy addresses *)
+transition VerifyRecord(
+  sender: ByStr20,
+  did: ByStr20
   )
-  proxy_addr <- records[token];
+  proxy_addr <- records[sender];
   match proxy_addr with
   | Some addr =>
-      implementation_addr <- implementations[addr];
-      match implementation_addr with
-      | Some implementation =>
-          msg = let m = {
-            _tag: "VerifyCallBack";
-            _recipient: _sender;
-            _amount: zero;
-            token: token;
-            proxy: addr;
-            implementation: implementation
-          } in one_msg m; send msg
-      | None => err= CodeNotValid; ThrowError err
-      end
-  | None => err= CodeNotValid; ThrowError err
+      (* PST; to-do: accept payment *)
+      msg = let m = {
+        _tag: "VerifyRecordCallBack";
+        _recipient: _sender;
+        _amount: zero;
+        did: did;
+        implAddr: sender;
+        proxyAddr: addr
+      } in one_msg m; send msg
+  | None => err= CodeNotProxy; ThrowError err
   end
 end

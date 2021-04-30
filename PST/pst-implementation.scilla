@@ -53,7 +53,7 @@ library PSTimplementation
     let result = match error with
     | CodeNotRightCaller                => Int32 -1
     | CodeIsSender                      => Int32 -2
-    | CodeInsufficientFunds             => Int32 -2
+    | CodeInsufficientFunds             => Int32 -3
     | CodeInsufficientAllowance         => Int32 -4
     | CodeNotAdmin                      => Int32 -5
     | CodeNotPauser                     => Int32 -6
@@ -110,12 +110,11 @@ contract PSTimplementation(
   field admin: ByStr20 = initAdmin
   field pauser: ByStr20 = initAdmin
   field master_minter: ByStr20 = initAdmin
-  field paused: Bool = True
+  field paused: Bool = False
   field blacklister: ByStr20 = initAdmin
   field blacklisted: Map ByStr20 Uint128 = Emp ByStr20 Uint128
   field minter_allowances: Map ByStr20 ( Option Uint128 ) = Emp ByStr20 ( Option Uint128 )
   field zilswap: ByStr20 = zilswapAddr
-  field block_period: Uint128 = zero
   field deadline_block: BNum = BNum 0
 
 procedure ThrowError(
@@ -638,7 +637,7 @@ transition Transfer(
     _tag: "TransferCallBack";
     _recipient: _sender;
     _amount: zero;
-    from: fromBal;
+    from: initiator;
     newFromBal: new_from_bal;
     to: to;
     newToBal: new_to_bal
@@ -706,7 +705,7 @@ transition TransferFrom(
     _amount: zero;
     initiator: from;
     spender: initiator;
-    new_allowance: new_spender_allowance
+    newAllowance: new_spender_allowance
   };
   msg_to_sender = {
     _tag: "TransferFromSuccessCallBack";
@@ -737,27 +736,23 @@ transition UpdateZilswap(
   zilswap := newAddr
 end
 
-procedure UpdateDeadline()
+procedure UpdateDeadline(
+  blockDeadline: Uint128
+  )
   current_block <- &BLOCKNUMBER;
-  blocks <- block_period;
-  deadline = builtin badd current_block blocks;
+  deadline = builtin badd current_block blockDeadline;
   deadline_block := deadline
 end
 
-transition UpdateBlockPeriod(
-  blocks: Uint128
+transition SwapZILForPSTAndShare(
+  minPstAmount: Uint128,
+  dao: ByStr20,
+  blockDeadline: Uint128
   )
   ThrowIfNotProxy;
-  block_period := blocks
-end
-
-transition SwapZILForPST(
-  minPstAmount: Uint128
-  )
-  ThrowIfNotProxy;
-  (* isAdmin _origin *)
+  UpdateDeadline blockDeadline;
+  deadline <- deadline_block;
   zilswap_addr <- zilswap; accept;
-  UpdateDeadline; deadline <- deadline_block;
   msg = let m = {
     _tag: "SwapExactZILForTokens";
     _recipient: zilswap_addr;
@@ -765,7 +760,13 @@ transition SwapZILForPST(
     token_address: proxyAddr;
     min_token_amount: minPstAmount;
     deadline_block: deadline;
-    recipient_address: _this_address
+    recipient_address: dao
+  } in one_msg m; send msg;
+  msg = let m = {
+    _tag: "ProfitShareCallBack";
+    _recipient: proxyAddr;
+    _amount: zero;
+    dao: dao
   } in one_msg m; send msg
 end
 
