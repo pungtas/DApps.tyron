@@ -129,7 +129,7 @@ transition UpdateProxyAdmin(
   admin := newAdmin;
   e = {
     _eventname: "AdminUpdated";
-    to: newAdmin
+    newAdmin: newAdmin
   }; event e
 end
 
@@ -141,8 +141,7 @@ transition UpdateImplementationAdmin(
     _tag: "UpdateImplementationAdmin";
     _recipient: current_impl;
     _amount: zero;
-    newAdmin: newAdmin;
-    initiator: _sender
+    newAdmin: newAdmin
   } in one_msg m; send msg
 end
 
@@ -154,8 +153,7 @@ transition UpdatePauser(
     _tag: "UpdatePauser";
     _recipient: current_impl;
     _amount: zero;
-    newPauser: newPauser;
-    initiator: _sender
+    newPauser: newPauser
   } in one_msg m; send msg
 end
 
@@ -164,8 +162,7 @@ transition Pause()
   msg = let m = {
     _tag: "Pause";
     _recipient: current_impl;
-    _amount: zero;
-    initiator: _sender
+    _amount: zero
   } in one_msg m; send msg
 end
 
@@ -174,8 +171,7 @@ transition Unpause()
   msg = let m = {
     _tag: "Unpause";
     _recipient: current_impl;
-    _amount: zero;
-    initiator: _sender
+    _amount: zero
   } in one_msg m; send msg
 end
 
@@ -187,8 +183,7 @@ transition UpdateBlacklister(
     _tag: "UpdateBlacklister";
     _recipient: current_impl;
     _amount: zero;
-    newBlacklister: newBlacklister;
-    initiator: _sender
+    newBlacklister: newBlacklister
   } in one_msg m; send msg
 end
 
@@ -200,8 +195,7 @@ transition Blacklist(
     _tag: "Blacklist";
     _recipient: current_impl;
     _amount: zero;
-    addr: addr;
-    initiator: _sender
+    addr: addr
   } in one_msg m; send msg
 end
 
@@ -213,8 +207,7 @@ transition Unblacklist(
     _tag: "Unblacklist";
     _recipient: current_impl;
     _amount: zero;
-    addr: addr;
-    initiator: _sender
+    addr: addr
   } in one_msg m; send msg
 end
 
@@ -226,7 +219,6 @@ transition UpdateMasterMinter(
     _tag: "UpdateMasterMinter";
     _recipient: current_impl;
     _amount: zero;
-    initiator: _sender;
     newMasterMinter: newMasterMinter
   } in one_msg m; send msg
 end
@@ -241,8 +233,7 @@ transition IncreaseMinterAllowance(
     _recipient: current_impl;
     _amount: zero;
     minter: minter;
-    amount: amount;
-    initiator: _sender
+    amount: amount
   } in one_msg m; send msg
 end
 
@@ -256,27 +247,25 @@ transition DecreaseMinterAllowance(
     _recipient: current_impl;
     _amount: zero;
     minter: minter;
-    amount: amount;
-    initiator: _sender
+    amount: amount
   } in one_msg m; send msg
 end
 
 transition Mint(
-  to: ByStr20,
+  beneficiary: ByStr20,
   amount: Uint128
   )
   current_impl <- implementation;
   current_supply <- total_supply;
-  get_to_bal <- balances[to]; to_bal = option_balance_value get_to_bal;
+  get_beneficiary_bal <- balances[beneficiary]; beneficiary_bal = option_balance_value get_beneficiary_bal;
   msg = let m = {
     _tag: "Mint";
     _recipient: current_impl;
     _amount: zero;
-    to: to;
+    beneficiary: beneficiary;
     amount: amount;
-    toBal: to_bal;
-    currentSupply: current_supply;
-    initiator: _sender
+    beneficiaryBal: beneficiary_bal;
+    currentSupply: current_supply
   } in one_msg m; send msg
 end
 
@@ -320,12 +309,12 @@ procedure RegisterBalance(
 end
 
 transition MintCallBack(
-  to: ByStr20,
-  newToBal: Uint128,
+  beneficiary: ByStr20,
+  newBeneficiaryBal: Uint128,
   newSupply: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  RegisterBalance to newToBal;
+  RegisterBalance beneficiary newBeneficiaryBal;
   total_supply := newSupply
 end
 
@@ -334,25 +323,23 @@ transition Burn(
   )
   current_impl <- implementation;
   current_supply <- total_supply;
-  get_burn_bal <- balances[_sender]; burn_bal = option_balance_value get_burn_bal;
+  get_minter_bal <- balances[_sender]; minter_bal = option_balance_value get_minter_bal;
   msg = let m = {
     _tag: "Burn";
     _recipient: current_impl;
     _amount: zero;
     amount: amount;
-    initiator: _sender;
-    initiatorBal: burn_bal;
+    minterBal: minter_bal;
     currentSupply: current_supply
   } in one_msg m; send msg
 end
 
 transition BurnCallBack(
-  initiator: ByStr20,
   newMinterBalance: Uint128,
   newSupply: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  RegisterBalance initiator newMinterBalance;
+  RegisterBalance _origin newMinterBalance;
   total_supply := newSupply
 end
 
@@ -368,8 +355,7 @@ transition LawEnforcementWipingBurn(
     _amount: zero;
     addr: addr;
     addrBal: bal;
-    currentSupply: current_supply;
-    initiator: _sender
+    currentSupply: current_supply
   } in one_msg m; send msg
 end
 
@@ -378,7 +364,7 @@ transition LawEnforcementWipingBurnCallBack(
   newSupply: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  balances[addr] := zeroBalance;
+  delete balances[addr];
   total_supply := newSupply
 end
 
@@ -392,10 +378,10 @@ transition IncreaseAllowance(
     _tag: "IncreaseAllowance";
     _recipient: current_impl;
     _amount: zero;
+    originator: _sender;
     spender: spender;
     amount: amount;
-    currentAllowance: allowance;
-    initiator: _sender
+    currentAllowance: allowance
   } in one_msg m; send msg
 end
 
@@ -409,20 +395,20 @@ transition DecreaseAllowance(
     _tag: "DecreaseAllowance";
     _recipient: current_impl;
     _amount: zero;
+    originator: _sender;
     spender: spender;
     amount: amount;
-    initiator: _sender;
     currentAllowance: allowance
   } in one_msg m; send msg
 end
 
 transition AllowanceCallBack(
-  initiator: ByStr20,
+  originator: ByStr20,
   spender: ByStr20,
   newAllowance: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  allowances[initiator][spender] := newAllowance
+  allowances[originator][spender] := newAllowance
 end
 
 transition Transfer(
@@ -430,29 +416,29 @@ transition Transfer(
   amount: Uint128
   )
   current_impl <- implementation;
-  get_from_bal <- balances[_sender]; from_bal = option_balance_value get_from_bal;
-  get_to_bal <- balances[to]; to_bal = option_balance_value get_to_bal;
+  get_originator_bal <- balances[_sender]; originator_bal = option_balance_value get_originator_bal;
+  get_beneficiary_bal <- balances[to]; beneficiary_bal = option_balance_value get_beneficiary_bal;
   msg = let m = {
     _tag: "Transfer";
     _recipient: current_impl;
     _amount: zero;
-    to: to;
+    originator: _sender;
+    beneficiary: to;
     amount: amount;
-    initiator: _sender;
-    fromBal: from_bal;
-    toBal: to_bal
+    originatorBal: originator_bal;
+    beneficiaryBal: beneficiary_bal
   } in one_msg m; send msg
 end
 
 transition TransferCallBack(
-  from: ByStr20,
-  newFromBal: Uint128,
-  to: ByStr20,
-  newToBal: Uint128
+  originator: ByStr20,
+  beneficiary: ByStr20,
+  newOriginatorBal: Uint128,
+  newBeneficiaryBal: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  RegisterBalance from newFromBal;
-  RegisterBalance to newToBal
+  RegisterBalance originator newOriginatorBal;
+  RegisterBalance beneficiary newBeneficiaryBal
 end
 
 transition TransferFrom(
@@ -461,33 +447,32 @@ transition TransferFrom(
   amount: Uint128
   )
   current_impl <- implementation;
-  get_to_bal <- balances[to];
-  to_bal = option_balance_value get_to_bal;
-  get_from_bal <- balances[from]; from_bal = option_balance_value get_from_bal;
+  get_beneficiary_bal <- balances[to]; beneficiary_bal = option_balance_value get_beneficiary_bal;
+  get_originator_bal <- balances[from]; originator_bal = option_balance_value get_originator_bal;
   get_allowance <- allowances[from][_sender]; allowance = option_uint128_value get_allowance;
   msg = let m = {
     _tag: "TransferFrom";
     _recipient: current_impl;
     _amount: zero;
-    from: from;
-    to: to;
+    originator: from;
+    spender: _sender;
+    beneficiary: to;
     amount: amount;
-    initiator: _sender;
-    fromBal: from_bal;
+    originatorBal: originator_bal;
     spenderAllowance: allowance;
-    toBal: to_bal
+    beneficiaryBal: beneficiary_bal
   } in one_msg m; send msg
 end
 
 transition TransferFromCallBack(
-  from: ByStr20,
-  to: ByStr20,
-  newFromBal: Uint128,
-  newToBal: Uint128
+  originator: ByStr20,
+  beneficiary: ByStr20,
+  newOriginatorBal: Uint128,
+  newBeneficiaryBal: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  RegisterBalance from newFromBal;
-  RegisterBalance to newToBal
+  RegisterBalance originator newOriginatorBal;
+  RegisterBalance beneficiary newBeneficiaryBal
 end
 
 transition SwapZILForPSTAndShare(

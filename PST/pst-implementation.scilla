@@ -131,22 +131,18 @@ procedure ThrowIfNotProxy()
   end
 end
 
-procedure isAdmin(
-  addr: ByStr20
-  )
+procedure isAdmin()
   current_admin <- admin;
-  is_admin = builtin eq current_admin addr;
+  is_admin = builtin eq current_admin _origin;
   match is_admin with
   | True =>
   | False => err = CodeNotAdmin; ThrowError err
   end
 end
 
-procedure isPauser(
-  addr: ByStr20
-  )
+procedure isPauser()
   current_pauser <- pauser;
-  is_pauser = builtin eq current_pauser addr;
+  is_pauser = builtin eq current_pauser _origin;
   match is_pauser with
   | True  =>
   | False => err = CodeNotPauser; ThrowError err
@@ -169,11 +165,9 @@ procedure isNotPaused()
   end
 end
 
-procedure isBlacklister(
-  addr: ByStr20
-  )
+procedure isBlacklister()
   current_blacklister <- blacklister;
-  is_blacklister = builtin eq current_blacklister addr;
+  is_blacklister = builtin eq current_blacklister _origin;
   match is_blacklister with
   | True  =>
   | False => err = CodeNotBlacklister; ThrowError err
@@ -200,21 +194,17 @@ procedure isNotBlacklisted(
   end
 end
 
-procedure isMasterMinter(
-  addr: ByStr20
-  )
+procedure isMasterMinter()
   current_master_minter <- master_minter;
-  is_master_minter = builtin eq current_master_minter addr;
+  is_master_minter = builtin eq current_master_minter _origin;
   match is_master_minter with
   | True  =>
   | False => err = CodeNotMasterMinter; ThrowError err
   end
 end
 
-procedure isMinter(
-  addr: ByStr20
-  )
-  is_minter <- minter_allowances[addr];
+procedure isMinter()
+  is_minter <- minter_allowances[_origin];
   match is_minter with
   | Some( Some allowance )  =>
   | _ => err = CodeNotMinter; ThrowError err
@@ -275,139 +265,111 @@ procedure isSufficientAllowance(
 end
 
 transition UpdateImplementationAdmin(
-  newAdmin: ByStr20,
-  initiator: ByStr20
+  newAdmin: ByStr20
   )
-  ThrowIfNotProxy;
-  isAdmin initiator;
-  isNotNull newAdmin;
+  ThrowIfNotProxy; isAdmin;
+  isNotPaused; isNotNull newAdmin;
   current_admin <- admin;
   isNotSender current_admin newAdmin;
   admin := newAdmin;
   e = {
     _eventname: "AdminUpdated";
-    from: current_admin;
-    to: newAdmin
+    previousAdmin: current_admin;
+    newAdmin: newAdmin
   }; event e
 end
 
 transition UpdatePauser(
-  newPauser: ByStr20,
-  initiator: ByStr20
+  newPauser: ByStr20
   )
-  ThrowIfNotProxy;
-  isAdmin initiator;
-  isNotNull newPauser;
+  ThrowIfNotProxy; isAdmin;
+  isNotPaused; isNotNull newPauser;
   current_pauser <- pauser;
   isNotSender current_pauser newPauser;
   pauser := newPauser;
   e = {
     _eventname: "PauserUpdated";
     pauser: newPauser;
-    executor: initiator
+    admin: _origin
   }; event e
 end
 
-transition Pause(
-  initiator: ByStr20
-  )
-  ThrowIfNotProxy;
-  isPauser initiator;
-  isNotPaused;
-  paused := true;
+transition Pause()
+  ThrowIfNotProxy; isPauser;
+  isNotPaused; paused := true;
   e = {
     _eventname: "Paused";
-    executor: initiator
+    pauser: _origin
   }; event e
 end
 
-transition Unpause(
-  initiator: ByStr20
-  )
-  ThrowIfNotProxy;
-  isPauser initiator;
-  isPaused;
-  paused := false;
+transition Unpause()
+  ThrowIfNotProxy; isPauser;
+  isPaused; paused := false;
   e = {
     _eventname: "Unpaused";
-    executor: initiator
+    pauser: _origin
   }; event e
 end
 
 transition UpdateBlacklister(
-  newBlacklister: ByStr20, 
-  initiator: ByStr20
+  newBlacklister: ByStr20
   )
-  ThrowIfNotProxy;
-  isAdmin initiator;
-  isNotNull newBlacklister;
+  ThrowIfNotProxy; isAdmin;
+  isNotPaused; isNotNull newBlacklister;
   current_blacklister <- blacklister;
-  isNotSender current_blacklister newBlacklister;
-  blacklister:= newBlacklister;
+  isNotSender current_blacklister newBlacklister; blacklister:= newBlacklister;
   e = {
     _eventname: "BlacklisterUpdated";
     blacklister: newBlacklister;
-    executor: initiator
+    admin: _origin
   }; event e
 end
 
 transition Blacklist(
-  addr: ByStr20,
-  initiator: ByStr20
+  addr: ByStr20
   )
-  ThrowIfNotProxy;
-  isBlacklister initiator;
-  isNotNull addr;
-  isNotBlacklisted addr;
-  blacklisted[addr] := one;
+  ThrowIfNotProxy; isBlacklister;
+  isNotPaused; isNotNull addr; isNotBlacklisted addr; blacklisted[addr] := one;
   e = {
     _eventname: "Blacklisted";
     address: addr;
-    executor: initiator
+    blacklister: _origin
   }; event e
 end
 
 transition Unblacklist(
-  addr: ByStr20,
-  initiator: ByStr20
+  addr: ByStr20
   )
-  ThrowIfNotProxy;
-  isBlacklister initiator;
-  isNotNull addr;
-  isBlacklisted addr;
-  delete blacklisted[addr];
+  ThrowIfNotProxy; isBlacklister;
+  isNotPaused; isNotNull addr; isBlacklisted addr; delete blacklisted[addr];
   e = {
     _eventname: "Unblacklisted";
     address: addr;
-    executor: initiator
+    blacklister: _origin
   }; event e
 end
 
 transition UpdateMasterMinter(
-  newMasterMinter: ByStr20,
-  initiator: ByStr20
+  newMasterMinter: ByStr20
   )
-  ThrowIfNotProxy;
-  isAdmin initiator;
-  isNotNull newMasterMinter;
+  ThrowIfNotProxy; isAdmin;
+  isNotPaused; isNotNull newMasterMinter;
   current_master_minter <- master_minter;
-  isNotSender current_master_minter newMasterMinter;
-  master_minter := newMasterMinter;
+  isNotSender current_master_minter newMasterMinter; master_minter := newMasterMinter;
   e = {
     _eventname: "MasterMinterUpdated";
-    masterMinter: newMasterMinter;
-    executor: initiator
+    newMasterMinter: newMasterMinter;
+    admin: _origin
   }; event e
 end
 
 transition IncreaseMinterAllowance(
   minter: ByStr20,
-  amount: Uint128,
-  initiator: ByStr20
+  amount: Uint128
   )
-  ThrowIfNotProxy;
-  isMasterMinter initiator;
-  isNotNull minter;
+  ThrowIfNotProxy; isMasterMinter;
+  isNotPaused; isNotNull minter;
   get_minter_allowance <- minter_allowances[minter]; minter_allowance = option2_uint128_value get_minter_allowance;
   new_minter_allowance = builtin add minter_allowance amount; new_option_minter_allowance = option_uint128 new_minter_allowance;
   minter_allowances[minter] := new_option_minter_allowance;
@@ -415,18 +377,16 @@ transition IncreaseMinterAllowance(
     _eventname: "IncreasedMinterAllowance";
     minter: minter;
     newAllowance: new_minter_allowance;
-    executor: initiator
+    masterMinter: _origin
   }; event e
 end
 
 transition DecreaseMinterAllowance(
   minter: ByStr20,
-  amount: Uint128,
-  initiator: ByStr20
+  amount: Uint128
   )
-  ThrowIfNotProxy;
-  isMasterMinter initiator;
-  isNotNull minter;
+  ThrowIfNotProxy; isMasterMinter;
+  isNotPaused; isNotNull minter;
   get_minter_allowance <- minter_allowances[minter]; minter_allowance = option2_uint128_value get_minter_allowance;
   new_minter_allowance = better_subtract minter_allowance amount; new_option_minter_allowance = option_uint128 new_minter_allowance;
   minter_allowances[minter] := new_option_minter_allowance;
@@ -434,87 +394,80 @@ transition DecreaseMinterAllowance(
     _eventname: "DecreasedMinterAllowance";
     minter: minter;
     newAllowance : new_option_minter_allowance;
-    executor: initiator
+    masterMinter: _origin
   }; event e
 end
 
 transition Mint(
-  to: ByStr20,
+  beneficiary: ByStr20,
   amount: Uint128,
-  toBal: Uint128,
-  currentSupply: Uint128,
-  initiator: ByStr20
+  beneficiaryBal: Uint128,
+  currentSupply: Uint128
   )
-  ThrowIfNotProxy;
-  isNotPaused; isMinter initiator;
-  isNotBlacklisted initiator; isNotBlacklisted to; isNotNull to;
-  get_minter_allowance <- minter_allowances[initiator]; minter_allowance = option2_uint128_value get_minter_allowance; isSufficientAllowance minter_allowance amount;
+  ThrowIfNotProxy; isMinter;
+  isNotPaused; isNotBlacklisted _origin; isNotBlacklisted beneficiary; isNotNull beneficiary;
+  get_minter_allowance <- minter_allowances[_origin]; minter_allowance = option2_uint128_value get_minter_allowance; isSufficientAllowance minter_allowance amount;
   new_supply = builtin add amount currentSupply;
-  new_to_bal = builtin add amount toBal;
+  new_beneficiary_bal = builtin add amount beneficiaryBal;
   new_minter_allowance = better_subtract minter_allowance amount; new_option_minter_allowance = option_uint128 new_minter_allowance;
-  minter_allowances[initiator] := new_option_minter_allowance;
+  minter_allowances[_origin] := new_option_minter_allowance;
   e = {
     _eventname: "Minted";
-    minter: initiator;
+    minter: _origin;
     amount: amount;
-    recipient: to
+    beneficiary: beneficiary
   }; event e;
   msg_to_proxy = {
     _tag: "MintCallBack";
     _recipient: _sender;
     _amount: zero;
-    to: to;
-    newToBal: new_to_bal;
+    beneficiary: beneficiary;
+    newBeneficiaryBal: new_beneficiary_bal;
     newSupply: new_supply
   };
-  msg_to_sender = {
+  msg_to_minter = {
     _tag: "MintSuccessCallBack";
-    _recipient: initiator;
+    _recipient: _origin;
     _amount: zero;
-    recipient: to;
+    beneficiary: beneficiary;
     amount: amount
   };
-  msg_to_recipient = {
+  msg_to_beneficiary = {
     _tag: "RecipientAcceptMint";
-    _recipient: to;
+    _recipient: beneficiary;
     _amount: zero;
-    recipient: to;
+    minter: _origin;
     amount: amount
   };
-  msgs = three_msgs msg_to_proxy msg_to_sender msg_to_recipient; send msgs
+  msgs = three_msgs msg_to_proxy msg_to_minter msg_to_beneficiary; send msgs
 end
 
 transition Burn(
   amount: Uint128,
-  initiator: ByStr20,
-  initiatorBal: Uint128, 
+  minterBal: Uint128, 
   currentSupply: Uint128
   )
-  ThrowIfNotProxy;
-  isNotPaused;
-  isMinter initiator;
-  isNotBlacklisted initiator;
-  isSufficientFunds initiatorBal amount;
-  new_minter_balance = builtin sub initiatorBal amount;
+  ThrowIfNotProxy; isMinter;
+  isNotPaused; isNotBlacklisted _origin;
+  isSufficientFunds minterBal amount;
+  new_minter_balance = builtin sub minterBal amount;
   new_supply = builtin sub currentSupply amount;
   e = {
     _eventname: "Burnt";
-    executor: initiator;
+    minter: _origin;
     amount: amount
   }; event e;
   msg_to_proxy = {
     _tag: "BurnCallBack";
     _recipient: _sender;
     _amount: zero;
-    initiator: initiator;
     newMinterBalance: new_minter_balance;
     newSupply: new_supply
   };
   msg_to_sender = {
     _tag: "BurnSuccessCallBack";
-    _recipient: initiator;
+    _recipient: _origin;
     _amount: zero;
-    sender: initiator;
     amount: amount
   };
   msgs = two_msgs msg_to_proxy msg_to_sender; send msgs
@@ -523,17 +476,13 @@ end
 transition LawEnforcementWipingBurn(
   addr: ByStr20,
   addrBal: Uint128,
-  currentSupply: Uint128,
-  initiator: ByStr20
+  currentSupply: Uint128
   )
-  ThrowIfNotProxy;
-  isNotPaused;
-  isBlacklister initiator;
-  isBlacklisted addr;
-  isNotBlacklisted initiator;
+  ThrowIfNotProxy; isBlacklister;
+  isNotPaused; isBlacklisted addr; isNotBlacklisted _origin;
   e = {
     _eventname: "LawEnforcementWipingBurnt";
-    blacklister: initiator;
+    blacklister: _origin;
     address: addr;
     amount: addrBal
   }; event e;
@@ -547,7 +496,7 @@ transition LawEnforcementWipingBurn(
   };
   msg_to_sender = {
     _tag: "LawEnforcementWipingBurnSuccessCallBack";
-    _recipient: initiator;
+    _recipient: _origin;
     _amount: zero;
     addr: addr
   };
@@ -556,20 +505,17 @@ transition LawEnforcementWipingBurn(
 end
 
 transition IncreaseAllowance(
+  originator: ByStr20,
   spender: ByStr20,
   amount: Uint128,
-  currentAllowance: Uint128,
-  initiator: ByStr20
+  currentAllowance: Uint128
   )
   ThrowIfNotProxy;
-  isNotPaused;
-  isNotBlacklisted initiator;
-  isNotBlacklisted spender;
-  isNotSender initiator spender;
+  isNotPaused; isNotBlacklisted originator; isNotBlacklisted spender; isNotSender originator spender;
   new_allowance = builtin add currentAllowance amount;
   e = {
     _eventname: "IncreasedAllowance";
-    ssi: initiator;
+    originator: originator;
     spender: spender;
     newAllowance : new_allowance
   }; event e;
@@ -577,27 +523,24 @@ transition IncreaseAllowance(
     _tag: "AllowanceCallBack";
     _recipient: _sender;
     _amount: zero;
-    initiator: initiator;
+    originator: originator;
     spender: spender;
     newAllowance: new_allowance
   } in one_msg m; send msg
 end
 
 transition DecreaseAllowance(
+  originator: ByStr20,
   spender: ByStr20,
   amount: Uint128,
-  initiator: ByStr20,
   currentAllowance: Uint128
   )
   ThrowIfNotProxy;
-  isNotPaused;
-  isNotBlacklisted initiator;
-  isNotBlacklisted spender;
-  isNotSender initiator spender;
+  isNotPaused; isNotBlacklisted originator; isNotBlacklisted spender; isNotSender originator spender;
   new_allowance = better_subtract currentAllowance amount;
   e = {
     _eventname: "DecreasedAllowance";
-    ssi: initiator;
+    originator: originator;
     spender: spender;
     newAllowance: new_allowance
   }; event e;
@@ -605,127 +548,115 @@ transition DecreaseAllowance(
     _tag: "AllowanceCallBack";
     _recipient: _sender;
     _amount: zero;
-    initiator: initiator;
+    originator: originator;
     spender: spender;
     newAllowance: new_allowance
   } in one_msg m; send msg
 end
 
 transition Transfer(
-  to: ByStr20,
+  originator: ByStr20,
+  beneficiary: ByStr20,
   amount: Uint128,
-  initiator: ByStr20,
-  fromBal: Uint128,
-  toBal: Uint128
+  originatorBal: Uint128,
+  beneficiaryBal: Uint128
   )
   ThrowIfNotProxy;
-  isNotPaused;
-  isNotBlacklisted initiator;
-  isNotBlacklisted to;
-  isNotSender initiator to;
-  isNotNull to;
-  isSufficientFunds fromBal amount;
-  new_from_bal = builtin sub fromBal amount;
-  new_to_bal = builtin add toBal amount;
+  isNotPaused; isNotBlacklisted originator; isNotNull beneficiary; isNotBlacklisted beneficiary; isNotSender originator beneficiary;
+  isSufficientFunds originatorBal amount;
+  new_originator_bal = builtin sub originatorBal amount;
+  new_beneficiary_bal = builtin add beneficiaryBal amount;
   e = {
     _eventname: "TransferSuccess";
-    originator: initiator;
-    beneficiary: to;
+    originator: originator;
+    beneficiary: beneficiary;
     amount: amount
   }; event e;
   msg_to_proxy = {
     _tag: "TransferCallBack";
     _recipient: _sender;
     _amount: zero;
-    from: initiator;
-    newFromBal: new_from_bal;
-    to: to;
-    newToBal: new_to_bal
+    originator: originator;
+    beneficiary: beneficiary;
+    newOriginatorBal: new_originator_bal;
+    newBeneficiaryBal: new_beneficiary_bal
   };
-  msg_to_sender = {
+  msg_to_originator = {
     _tag: "TransferSuccessCallBack";
-    _recipient: initiator;
+    _recipient: originator;
     _amount: zero;
-    sender: initiator;
-    recipient: to;
+    beneficiary: beneficiary;
     amount: amount
   };
-  msg_to_recipient = {
+  msg_to_beneficiary = {
     _tag: "RecipientAcceptTransfer";
-    _recipient: to;
+    _recipient: beneficiary;
     _amount: zero;
-    sender: initiator;
-    recipient: to;
+    originator: originator;
     amount: amount
   };
-  msgs = three_msgs msg_to_proxy msg_to_sender msg_to_recipient;
+  msgs = three_msgs msg_to_proxy msg_to_originator msg_to_beneficiary;
   send msgs
 end
 
 transition TransferFrom(
-  from: ByStr20,
-  to: ByStr20, 
+  originator: ByStr20,
+  spender: ByStr20,
+  beneficiary: ByStr20, 
   amount: Uint128,
-  initiator: ByStr20,
-  fromBal: Uint128,
+  originatorBal: Uint128,
   spenderAllowance: Uint128,
-  toBal: Uint128
+  beneficiaryBal: Uint128
   )
   ThrowIfNotProxy;
-  isNotPaused;
-  isNotBlacklisted initiator;
-  isNotBlacklisted to;
-  isNotBlacklisted from;
-  isNotSender from to;
-  isNotNull to;
-  isSufficientFunds fromBal amount;
-  isSufficientAllowance spenderAllowance amount;
-  new_from_bal = builtin sub fromBal amount;
-  new_to_bal = builtin add toBal amount;
+  isNotPaused; isNotBlacklisted originator; isNotBlacklisted spender; isNotNull beneficiary; isNotBlacklisted beneficiary; isNotSender originator beneficiary;
+  isSufficientFunds originatorBal amount; isSufficientAllowance spenderAllowance amount;
+  new_originator_bal = builtin sub originatorBal amount;
+  new_beneficiary_bal = builtin add beneficiaryBal amount;
   new_spender_allowance = builtin sub spenderAllowance amount;
   e = {
     _eventname: "TransferFromSuccess";
-    initiator: initiator;
-    sender: from;
-    recipient: to;
+    originator: originator;
+    spender: spender;
+    beneficiary: beneficiary;
     amount: amount
   }; event e;
   msg_to_proxy_balances = {
     _tag: "TransferFromCallBack";
     _recipient: _sender;
     _amount: zero;
-    from: from;
-    to: to;
-    newFromBal: new_from_bal;
-    newToBal: new_to_bal
+    originator: originator;
+    beneficiary: beneficiary;
+    newOriginatorBal: new_originator_bal;
+    newBeneficiaryBal: new_beneficiary_bal
   };
   msg_to_proxy_allowance = {
     _tag: "AllowanceCallBack";
     _recipient: _sender;
     _amount: zero;
-    initiator: from;
-    spender: initiator;
+    originator: originator;
+    spender: spender;
     newAllowance: new_spender_allowance
   };
-  msg_to_sender = {
+  msg_to_spender = {
     _tag: "TransferFromSuccessCallBack";
-    _recipient: initiator;
+    _recipient: spender;
     _amount: zero;
-    initiator: initiator;
-    sender: from;
-    recipient: to;
+    initiator: spender;
+    sender: originator;
+    recipient: beneficiary;
     amount: amount
   };
-  msg_to_recipient = {
+  msg_to_beneficiary = {
     _tag: "RecipientAcceptTransferFrom";
-    _recipient: to;
+    _recipient: beneficiary;
     _amount: zero;
-    initiator: initiator;
-    sender: from;
-    recipient: to;
+    initiator: spender;
+    sender: originator;
+    recipient: beneficiary;
     amount: amount
   };
-  msgs = four_msgs msg_to_proxy_balances msg_to_proxy_allowance msg_to_sender msg_to_recipient;
+  msgs = four_msgs msg_to_proxy_balances msg_to_proxy_allowance msg_to_spender msg_to_beneficiary;
   send msgs
 end
 
@@ -768,11 +699,4 @@ transition SwapZILForPSTAndShare(
     _amount: zero;
     dao: dao
   } in one_msg m; send msg
-end
-
-transition RecipientAcceptTransfer(
-  sender: ByStr20,
-  recipient: ByStr20,
-  amount: Uint128
-  )
 end
