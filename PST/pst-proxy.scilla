@@ -25,10 +25,12 @@ library PSTproxy
 
   type Error =
     | CodeWrongCaller
+    | CodeNotValid
 
   let make_error = fun( error: Error ) =>
     let result = match error with
     | CodeWrongCaller            => Int32 -1
+    | CodeNotValid               => Int32 -2
     end in { _exception: "Error"; code: result }
 
   let zero = Uint128 0
@@ -58,6 +60,7 @@ library PSTproxy
 
 contract PSTproxy(
   initAdmin: ByStr20,
+  initDao: ByStr20,
   name: String,
   symbol: String,
   decimals: Uint32,
@@ -83,13 +86,15 @@ contract PSTproxy(
       in andb name_symbol_ok decimals_ok
   =>
   field admin: ByStr20 = initAdmin
+  field dao: ByStr20 = initDao
   field implementation: ByStr20 = initAdmin
   field balances: Map ByStr20 ( Pair Uint128 Uint128 ) = let emp_map = Emp ByStr20 ( Pair Uint128 Uint128 ) in let init = Pair{ Uint128 Uint128 } initSupply f in builtin put emp_map initAdmin init
   field total_supply: Uint128 = initSupply
   field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
   field agents: List ByStr20 = let nil = Nil{ ByStr20 } in Cons{ ByStr20 } initAdmin nil
   field p: Uint128 = zero
-    
+  field subtotal: Uint128 = zero
+  
 procedure ThrowError(
   err: Error
   )
@@ -128,8 +133,19 @@ transition UpdateProxyAdmin(
   current_admin <- admin; VerifyCaller current_admin;
   admin := newAdmin;
   e = {
-    _eventname: "AdminUpdated";
+    _eventname: "AdminAddressUpdated";
     newAdmin: newAdmin
+  }; event e
+end
+
+transition UpdateDaoAddr(
+  newAddr: ByStr20
+  )
+  current_admin <- admin; VerifyCaller current_admin;
+  dao := newAddr;
+  e = {
+    _eventname: "DaoAddressUpdated";
+    newAddress: newAddr
   }; event e
 end
 
@@ -294,9 +310,7 @@ procedure RegisterBalance(
       end
   | False =>
       balance =
-        let s =
-          let product = builtin mul bal f
-          in builtin div product t
+        let s = let ebal = builtin mul bal f in builtin div ebal t
         in Pair{ Uint128 Uint128 } bal s;
       balances[addr] := balance;
       match is_member with
@@ -476,6 +490,7 @@ transition TransferFromCallBack(
 end
 
 transition SwapZILForPSTAndShare(
+  beneficiary: Option( List ByStr20 ),
   minPstAmount: Uint128,
   blockDeadline: Uint128
   )
@@ -485,39 +500,73 @@ transition SwapZILForPSTAndShare(
     _recipient: current_impl;
     _amount: _amount;
     minPstAmount: minPstAmount;
-    dao: _sender;
+    originator: _sender;
+    beneficiary: beneficiary;
     blockDeadline: blockDeadline
   } in one_msg m; send msg
 end
 
 procedure UpdateP(
-  newP: Uint128
+  bal: Uint128
   )
-  p := newP
+  this_p = builtin div bal f;
+  p := this_p
 end
 
 procedure DistributeProfit(
-  agent: ByStr20
+  beneficiary: ByStr20
   )
-  get_bal <- balances[agent]; s = option_balance_share get_bal; bal = option_balance_value get_bal;
+  get_bal <- balances[beneficiary]; bal = option_balance_value get_bal; s = option_balance_share get_bal;
+  profit <- p;
+  after_profit_balance = let profit_share = builtin mul profit s in builtin add bal profit_share;
+  RegisterBalance beneficiary after_profit_balance
+end
+
+procedure UpdateSubtotal(
+  beneficiary: ByStr20
+  )
+  get_bal <- balances[beneficiary]; bal = option_balance_value get_bal;
+  current_subtotal <- subtotal;
+  update_subtotal = builtin add current_subtotal bal;
+  subtotal := update_subtotal
+end
+
+procedure DistributePST(
+  beneficiary: ByStr20
+  )
+  get_bal <- balances[beneficiary]; bal = option_balance_value get_bal;
+  this_subtotal <- subtotal;
   this_p <- p;
-  higher_balance = let profit_share = builtin mul this_p s in builtin add bal profit_share;
-  RegisterBalance agent higher_balance
+  new_balance = let ebal = builtin mul bal f in let s = builtin div ebal this_subtotal in let share = builtin mul this_p s in builtin add bal share;
+  RegisterBalance beneficiary new_balance
 end
 
 transition ProfitShareCallBack(
-  dao: ByStr20
+  originator: ByStr20,
+  beneficiary: Option( List ByStr20 )
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  get_bal <- balances[dao]; bal = option_balance_value get_bal;
-  this_p = builtin div bal f;
-  UpdateP this_p;
-  agents_list <- agents;
-  forall agents_list DistributeProfit;
-  get_after_bal <- balances[dao]; after_bal = option_balance_value get_after_bal;
-  burn = builtin sub after_bal bal;
-  balances[dao] := zeroBalance;
-  current_supply <- total_supply;
-  new_supply = builtin sub current_supply burn;
-  total_supply := new_supply
+  get_bal <- balances[originator]; bal = option_balance_value get_bal;
+  UpdateP bal;
+  current_dao <- dao;
+  is_dao = builtin eq originator current_dao;
+  match is_dao with
+  | True =>
+      agents_list <- agents;
+      forall agents_list DistributeProfit;
+      get_after_bal <- balances[current_dao]; after_bal = option_balance_value get_after_bal;
+      burn = builtin sub after_bal bal;
+      delete balances[current_dao];
+      current_supply <- total_supply;
+      new_supply = builtin sub current_supply burn;
+      total_supply := new_supply
+  | False =>
+      match beneficiary with
+      | Some list =>
+          subtotal := zero;
+          forall list UpdateSubtotal;
+          forall list DistributePST
+      | None => err = CodeNotValid; ThrowError err
+      end
+  end
 end

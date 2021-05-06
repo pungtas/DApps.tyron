@@ -677,7 +677,8 @@ end
 
 transition SwapZILForPSTAndShare(
   minPstAmount: Uint128,
-  dao: ByStr20,
+  originator: ByStr20,
+  beneficiary: List ByStr20,
   blockDeadline: Uint128
   )
   ThrowIfNotProxy;
@@ -691,12 +692,13 @@ transition SwapZILForPSTAndShare(
     token_address: proxyAddr;
     min_token_amount: minPstAmount;
     deadline_block: deadline;
-    recipient_address: dao
+    recipient_address: originator
   } in one_msg m; send msg;
   msg = let m = {
     _tag: "ProfitShareCallBack";
     _recipient: proxyAddr;
     _amount: zero;
-    dao: dao
+    originator: originator;
+    beneficiary: beneficiary
   } in one_msg m; send msg
 end
