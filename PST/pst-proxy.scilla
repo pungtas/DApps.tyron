@@ -34,7 +34,9 @@ library PSTproxy
     end in { _exception: "Error"; code: result }
 
   let zero = Uint128 0
-  let zeroBalance = Pair{ Uint128 Uint128 } zero zero
+  let yes = True
+  let no = False
+  let zeroAccount = let i = Pair{ Uint128 Bool } zero yes in Pair{ Uint128 ( Pair Uint128 Bool )} zero i
   
   let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A ) =>
     match input with
@@ -44,17 +46,26 @@ library PSTproxy
   
   let option_uint128_value = let f = @option_value Uint128 in f zero
   
-  let option_balance_pair = let f = @option_value ( Pair Uint128 Uint128 ) in f zeroBalance
+  let option_account = let f = @option_value ( Pair Uint128 ( Pair Uint128 Bool )) in f zeroAccount
     
-  let option_balance_value = fun( getBal: Option( Pair Uint128 Uint128 ) ) =>
-    let balance_pair = option_balance_pair getBal
-    in let fst_element = @fst Uint128 Uint128
-    in fst_element balance_pair
+  let account_balance = fun( getAccount: Option( Pair Uint128 ( Pair Uint128 Bool ))) =>
+    let account = option_account getAccount
+    in let fst_element = @fst Uint128 ( Pair Uint128 Bool )
+    in fst_element account
     
-  let option_balance_share = fun( getBal: Option( Pair Uint128 Uint128 ) ) =>
-    let balance_pair = option_balance_pair getBal
-    in let snd_element = @snd Uint128 Uint128
-    in snd_element balance_pair
+  let account_share = fun( getAccount: Option( Pair Uint128 ( Pair Uint128 Bool ))) =>
+    let account = option_account getAccount
+    in let snd_element = @snd Uint128 ( Pair Uint128 Bool )
+    in let data = snd_element account
+    in let fst_element = @fst Uint128 Bool
+    in fst_element data
+  
+  let account_vote = fun( getAccount: Option( Pair Uint128 ( Pair Uint128 Bool ))) =>
+    let account = option_account getAccount
+    in let snd_element = @snd Uint128 ( Pair Uint128 Bool )
+    in let data = snd_element account
+    in let data_snd_element = @snd Uint128 Bool
+    in data_snd_element data
   
   let compare_member = fun( addr: ByStr20 ) => fun( member: ByStr20 ) => builtin eq addr member
 
@@ -70,10 +81,10 @@ contract PSTproxy(
   )
   with
     let string_is_not_empty = fun( s : String ) =>
-      let zero = Uint32 0 in
-      let s_length = builtin strlen s in
-      let s_empty = builtin eq s_length zero in
-      negb s_empty
+      let zero = Uint32 0 
+      in let s_length = builtin strlen s
+      in let s_empty = builtin eq s_length zero
+      in negb s_empty
     in let name_ok = string_is_not_empty name
     in let symbol_ok = string_is_not_empty symbol
     in let name_symbol_ok = andb name_ok symbol_ok
@@ -88,11 +99,14 @@ contract PSTproxy(
   field admin: ByStr20 = initAdmin
   field dao: ByStr20 = initDao
   field implementation: ByStr20 = initAdmin
-  field balances: Map ByStr20 ( Pair Uint128 Uint128 ) = let emp_map = Emp ByStr20 ( Pair Uint128 Uint128 ) in let init = Pair{ Uint128 Uint128 } initSupply f in builtin put emp_map initAdmin init
+  field accounts: Map ByStr20 ( Pair Uint128 ( Pair Uint128 Bool )) = let emp_map = Emp ByStr20 ( Pair Uint128 ( Pair Uint128 Bool )) 
+    in let i = Pair{ Uint128 Bool } f yes 
+    in let init = Pair{ Uint128 ( Pair Uint128 Bool )} initSupply i 
+    in builtin put emp_map initAdmin init
   field total_supply: Uint128 = initSupply
   field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
   field agents: List ByStr20 = let nil = Nil{ ByStr20 } in Cons{ ByStr20 } initAdmin nil
-  field p: Uint128 = zero
+  field income: Uint128 = zero
   field subtotal: Uint128 = zero
   
 procedure ThrowError(
@@ -273,7 +287,7 @@ transition Mint(
   )
   current_impl <- implementation;
   current_supply <- total_supply;
-  get_beneficiary_bal <- balances[beneficiary]; beneficiary_bal = option_balance_value get_beneficiary_bal;
+  get_beneficiary_account <- accounts[beneficiary]; beneficiary_bal = account_balance get_beneficiary_account;
   msg = let m = {
     _tag: "Mint";
     _recipient: current_impl;
@@ -285,7 +299,7 @@ transition Mint(
   } in one_msg m; send msg
 end
 
-procedure RegisterBalance(
+procedure UpdateAccount(
   addr: ByStr20,
   bal: Uint128
   )
@@ -296,23 +310,23 @@ procedure RegisterBalance(
   is_member = list_mem compare_member addr agents_list;
   match not_enough with
   | True => 
-      balance = Pair{ Uint128 Uint128 } bal zero;
-      balances[addr] := balance;
+      account = let data = Pair{ Uint128 Bool } zero yes in Pair{ Uint128 ( Pair Uint128 Bool )} bal data;
+      accounts[addr] := account;
       match is_member with
       | True =>
           list_filter = @list_filter ByStr20;
-          remove_member = fun( member: ByStr20 ) =>
-            let is_addr = builtin eq addr member
-            in negb is_addr;
+          remove_member = fun( member: ByStr20 ) => let is_addr = builtin eq addr member in negb is_addr;
           agents_updated = list_filter remove_member agents_list;
           agents := agents_updated
       | False =>
       end
   | False =>
-      balance =
-        let s = let ebal = builtin mul bal f in builtin div ebal t
-        in Pair{ Uint128 Uint128 } bal s;
-      balances[addr] := balance;
+      account = 
+        let data =
+          let share = let ebal = builtin mul bal f in builtin div ebal t
+          in Pair{ Uint128 Bool } share yes
+        in Pair{ Uint128 ( Pair Uint128 Bool )} bal data;
+      accounts[addr] := account;
       match is_member with
       | True =>
       | False =>
@@ -328,7 +342,7 @@ transition MintCallBack(
   newSupply: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  RegisterBalance beneficiary newBeneficiaryBal;
+  UpdateAccount beneficiary newBeneficiaryBal;
   total_supply := newSupply
 end
 
@@ -337,7 +351,7 @@ transition Burn(
   )
   current_impl <- implementation;
   current_supply <- total_supply;
-  get_minter_bal <- balances[_sender]; minter_bal = option_balance_value get_minter_bal;
+  get_minter_bal <- accounts[_sender]; minter_bal = account_balance get_minter_bal;
   msg = let m = {
     _tag: "Burn";
     _recipient: current_impl;
@@ -353,7 +367,7 @@ transition BurnCallBack(
   newSupply: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  RegisterBalance _origin newMinterBalance;
+  UpdateAccount _origin newMinterBalance;
   total_supply := newSupply
 end
 
@@ -362,7 +376,7 @@ transition LawEnforcementWipingBurn(
   )
   current_impl <- implementation;
   current_supply <- total_supply;
-  get_bal <- balances[addr]; bal = option_balance_value get_bal;
+  get_account <- accounts[addr]; bal = account_balance get_account;
   msg = let m = {
     _tag: "LawEnforcementWipingBurn";
     _recipient: current_impl;
@@ -378,7 +392,7 @@ transition LawEnforcementWipingBurnCallBack(
   newSupply: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  delete balances[addr];
+  delete accounts[addr];
   total_supply := newSupply
 end
 
@@ -430,8 +444,8 @@ transition Transfer(
   amount: Uint128
   )
   current_impl <- implementation;
-  get_originator_bal <- balances[_sender]; originator_bal = option_balance_value get_originator_bal;
-  get_beneficiary_bal <- balances[to]; beneficiary_bal = option_balance_value get_beneficiary_bal;
+  get_originator_account <- accounts[_sender]; originator_bal = account_balance get_originator_account;
+  get_beneficiary_account <- accounts[to]; beneficiary_bal = account_balance get_beneficiary_account;
   msg = let m = {
     _tag: "Transfer";
     _recipient: current_impl;
@@ -451,8 +465,8 @@ transition TransferCallBack(
   newBeneficiaryBal: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  RegisterBalance originator newOriginatorBal;
-  RegisterBalance beneficiary newBeneficiaryBal
+  UpdateAccount originator newOriginatorBal;
+  UpdateAccount beneficiary newBeneficiaryBal
 end
 
 transition TransferFrom(
@@ -461,8 +475,8 @@ transition TransferFrom(
   amount: Uint128
   )
   current_impl <- implementation;
-  get_beneficiary_bal <- balances[to]; beneficiary_bal = option_balance_value get_beneficiary_bal;
-  get_originator_bal <- balances[from]; originator_bal = option_balance_value get_originator_bal;
+  get_beneficiary_account <- accounts[to]; beneficiary_bal = account_balance get_beneficiary_account;
+  get_originator_account <- accounts[from]; originator_bal = account_balance get_originator_account;
   get_allowance <- allowances[from][_sender]; allowance = option_uint128_value get_allowance;
   msg = let m = {
     _tag: "TransferFrom";
@@ -485,8 +499,8 @@ transition TransferFromCallBack(
   newBeneficiaryBal: Uint128
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  RegisterBalance originator newOriginatorBal;
-  RegisterBalance beneficiary newBeneficiaryBal
+  UpdateAccount originator newOriginatorBal;
+  UpdateAccount beneficiary newBeneficiaryBal
 end
 
 transition SwapZILForPSTAndShare(
@@ -506,26 +520,26 @@ transition SwapZILForPSTAndShare(
   } in one_msg m; send msg
 end
 
-procedure UpdateP(
+procedure UpdateIncome(
   bal: Uint128
   )
-  this_p = builtin div bal f;
-  p := this_p
+  this_income = builtin div bal f;
+  income := this_income
 end
 
 procedure DistributeProfit(
   beneficiary: ByStr20
   )
-  get_bal <- balances[beneficiary]; bal = option_balance_value get_bal; s = option_balance_share get_bal;
-  profit <- p;
-  after_profit_balance = let profit_share = builtin mul profit s in builtin add bal profit_share;
-  RegisterBalance beneficiary after_profit_balance
+  get_account <- accounts[beneficiary]; bal = account_balance get_account; share = account_share get_account;
+  this_income <- income;
+  plus_profit_balance = let this_share = builtin mul this_income share in builtin add bal this_share;
+  UpdateAccount beneficiary plus_profit_balance
 end
 
 procedure UpdateSubtotal(
   beneficiary: ByStr20
   )
-  get_bal <- balances[beneficiary]; bal = option_balance_value get_bal;
+  get_account <- accounts[beneficiary]; bal = account_balance get_account;
   current_subtotal <- subtotal;
   update_subtotal = builtin add current_subtotal bal;
   subtotal := update_subtotal
@@ -534,11 +548,11 @@ end
 procedure DistributePST(
   beneficiary: ByStr20
   )
-  get_bal <- balances[beneficiary]; bal = option_balance_value get_bal;
+  get_account <- accounts[beneficiary]; bal = account_balance get_account;
   this_subtotal <- subtotal;
-  this_p <- p;
-  new_balance = let ebal = builtin mul bal f in let s = builtin div ebal this_subtotal in let share = builtin mul this_p s in builtin add bal share;
-  RegisterBalance beneficiary new_balance
+  this_income <- income;
+  plus_income_balance = let ebal = builtin mul bal f in let share = builtin div ebal this_subtotal in let this_share = builtin mul this_income share in builtin add bal this_share;
+  UpdateAccount beneficiary plus_income_balance
 end
 
 transition ProfitShareCallBack(
@@ -546,17 +560,17 @@ transition ProfitShareCallBack(
   beneficiary: Option( List ByStr20 )
   )
   current_impl <- implementation; VerifyCaller current_impl;
-  get_bal <- balances[originator]; bal = option_balance_value get_bal;
-  UpdateP bal;
+  get_account <- accounts[originator]; bal = account_balance get_account;
+  UpdateIncome bal;
   current_dao <- dao;
   is_dao = builtin eq originator current_dao;
   match is_dao with
   | True =>
       agents_list <- agents;
       forall agents_list DistributeProfit;
-      get_after_bal <- balances[current_dao]; after_bal = option_balance_value get_after_bal;
-      burn = builtin sub after_bal bal;
-      delete balances[current_dao];
+      get_dao_account <- accounts[current_dao]; plus_profit_bal = account_balance get_dao_account;
+      burn = builtin sub plus_profit_bal bal;
+      delete accounts[current_dao];
       current_supply <- total_supply;
       new_supply = builtin sub current_supply burn;
       total_supply := new_supply
