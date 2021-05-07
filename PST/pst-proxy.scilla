@@ -32,7 +32,13 @@ library PSTproxy
     | CodeWrongCaller            => Int32 -1
     | CodeNotValid               => Int32 -2
     end in { _exception: "Error"; code: result }
-
+  
+  type VotedYes =
+    | VotedYes of Uint128
+    
+  type VotedNo =
+    | VotedNo of Uint128
+  
   let zero = Uint128 0
   let yes = True
   let no = False
@@ -68,7 +74,7 @@ library PSTproxy
     in data_snd_element data
   
   let compare_member = fun( addr: ByStr20 ) => fun( member: ByStr20 ) => builtin eq addr member
-
+  
 contract PSTproxy(
   initAdmin: ByStr20,
   initDao: ByStr20,
@@ -77,7 +83,7 @@ contract PSTproxy(
   decimals: Uint32,
   initSupply: Uint128,
   f: Uint128
-  (* to-do create and update f & t fields *)
+  (* to-do create and update f field *)
   )
   with
     let string_is_not_empty = fun( s : String ) =>
@@ -108,6 +114,8 @@ contract PSTproxy(
   field agents: List ByStr20 = let nil = Nil{ ByStr20 } in Cons{ ByStr20 } initAdmin nil
   field income: Uint128 = zero
   field subtotal: Uint128 = zero
+  field voted_yes: VotedYes = VotedYes zero
+  field voted_no: VotedNo = VotedNo zero
   
 procedure ThrowError(
   err: Error
@@ -309,22 +317,23 @@ procedure UpdateAccount(
   agents_list <- agents;
   is_member = list_mem compare_member addr agents_list;
   match not_enough with
-  | True => 
-      account = let data = Pair{ Uint128 Bool } zero yes in Pair{ Uint128 ( Pair Uint128 Bool )} bal data;
+  | True =>
+      get_account <- accounts[addr]; vote = account_vote get_account;
+      account = let data = Pair{ Uint128 Bool } zero vote in Pair{ Uint128 ( Pair Uint128 Bool )} bal data;
       accounts[addr] := account;
       match is_member with
       | True =>
-          list_filter = @list_filter ByStr20;
-          remove_member = fun( member: ByStr20 ) => let is_addr = builtin eq addr member in negb is_addr;
+          list_filter = @list_filter ByStr20; remove_member = fun( member: ByStr20 ) => let is_addr = builtin eq addr member in negb is_addr;
           agents_updated = list_filter remove_member agents_list;
           agents := agents_updated
       | False =>
       end
   | False =>
+      get_account <- accounts[addr]; vote = account_vote get_account;
       account = 
         let data =
           let share = let ebal = builtin mul bal f in builtin div ebal t
-          in Pair{ Uint128 Bool } share yes
+          in Pair{ Uint128 Bool } share vote
         in Pair{ Uint128 ( Pair Uint128 Bool )} bal data;
       accounts[addr] := account;
       match is_member with
@@ -351,7 +360,7 @@ transition Burn(
   )
   current_impl <- implementation;
   current_supply <- total_supply;
-  get_minter_bal <- accounts[_sender]; minter_bal = account_balance get_minter_bal;
+  get_minter_account <- accounts[_sender]; minter_bal = account_balance get_minter_account;
   msg = let m = {
     _tag: "Burn";
     _recipient: current_impl;
@@ -527,13 +536,37 @@ procedure UpdateIncome(
   income := this_income
 end
 
+procedure UpdateVoteDecision(
+  vote: Bool,
+  share: Uint128
+  )
+  match vote with
+  | True =>
+      yes <- voted_yes;
+      match yes with
+      | VotedYes amount =>
+          new_amount = builtin add amount share;
+          update_yes = VotedYes new_amount;
+          voted_yes := update_yes
+      end
+  | False =>
+      no <- voted_no;
+      match no with
+      | VotedNo amount =>
+          new_amount = builtin add amount share;
+          update_no = VotedNo new_amount;
+          voted_no := update_no
+      end
+  end
+end
+
 procedure DistributeProfit(
   beneficiary: ByStr20
   )
-  get_account <- accounts[beneficiary]; bal = account_balance get_account; share = account_share get_account;
+  get_account <- accounts[beneficiary]; bal = account_balance get_account; share = account_share get_account; vote = account_vote get_account;
   this_income <- income;
-  plus_profit_balance = let this_share = builtin mul this_income share in builtin add bal this_share;
-  UpdateAccount beneficiary plus_profit_balance
+  plus_profit_bal = let this_share = builtin mul this_income share in builtin add bal this_share;
+  UpdateAccount beneficiary plus_profit_bal; UpdateVoteDecision vote share
 end
 
 procedure UpdateSubtotal(
@@ -548,11 +581,12 @@ end
 procedure DistributePST(
   beneficiary: ByStr20
   )
-  get_account <- accounts[beneficiary]; bal = account_balance get_account;
+  get_account <- accounts[beneficiary]; bal = account_balance get_account; vote = account_vote get_account;
   this_subtotal <- subtotal;
   this_income <- income;
-  plus_income_balance = let ebal = builtin mul bal f in let share = builtin div ebal this_subtotal in let this_share = builtin mul this_income share in builtin add bal this_share;
-  UpdateAccount beneficiary plus_income_balance
+  share = let ebal = builtin mul bal f in builtin div ebal this_subtotal;
+  plus_income_bal = let this_share = builtin mul this_income share in builtin add bal this_share;
+  UpdateAccount beneficiary plus_income_bal; UpdateVoteDecision vote share
 end
 
 transition ProfitShareCallBack(
@@ -562,6 +596,8 @@ transition ProfitShareCallBack(
   current_impl <- implementation; VerifyCaller current_impl;
   get_account <- accounts[originator]; bal = account_balance get_account;
   UpdateIncome bal;
+  zero_yes = VotedYes zero; zero_no = VotedNo zero;
+  voted_yes := zero_yes; voted_no := zero_no;
   current_dao <- dao;
   is_dao = builtin eq originator current_dao;
   match is_dao with
@@ -571,6 +607,9 @@ transition ProfitShareCallBack(
       get_dao_account <- accounts[current_dao]; plus_profit_bal = account_balance get_dao_account;
       burn = builtin sub plus_profit_bal bal;
       delete accounts[current_dao];
+      list_filter = @list_filter ByStr20; remove_dao_from_agents = fun( member: ByStr20 ) => let is_addr = builtin eq current_dao member in negb is_addr;
+      agents_updated = list_filter remove_dao_from_agents agents_list;
+      agents := agents_updated;
       current_supply <- total_supply;
       new_supply = builtin sub current_supply burn;
       total_supply := new_supply
@@ -582,5 +621,21 @@ transition ProfitShareCallBack(
           forall list DistributePST
       | None => err = CodeNotValid; ThrowError err
       end
+  end
+  (* to-do emit event OR send a message to originator with the vote decision *)
+end
+
+transition ChangeVote()
+  get_account <- accounts[_sender];
+  vote = account_vote get_account; bal = account_balance get_account; share = account_share get_account;
+  match vote with
+  | True =>
+      account = let data = Pair{ Uint128 Bool } share no
+        in Pair{ Uint128 ( Pair Uint128 Bool )} bal data;
+      accounts[_sender] := account
+  | False =>
+      account = let data = Pair{ Uint128 Bool } share yes
+        in Pair{ Uint128 ( Pair Uint128 Bool )} bal data;
+      accounts[_sender] := account
   end
 end
