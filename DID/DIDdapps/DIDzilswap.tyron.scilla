@@ -1,6 +1,6 @@
 (*
   DIDzilswap.tyron: decentralized identifier smart contract that interacts with ZilSwap.
-  Tyron Self-Sovereign Identity Protocol.
+  Self-Sovereign Identity Protocol.
   Copyright (C) Tyron Pungtas and its affiliates.
 
   This program is free software: you can redistribute it and/or modify
@@ -61,6 +61,7 @@ library DIDzilswap
   
   let recovery = Recovery
   let update = Update
+  let fifteen_min = Uint128 21
   let zero = Uint128 0
   let zeroByStr20 = 0x0000000000000000000000000000000000000000
   let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
@@ -69,7 +70,6 @@ library DIDzilswap
   let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
   let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
   let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
-  let fifteen_min = Uint128 21
 
   type Action =
     | Add
@@ -141,16 +141,23 @@ library DIDzilswap
       | _ => map
       end in foldl iter prevServices l
 
+  type Beneficiary =
+  | Username of ( Pair String ByStr20 )
+  | Address of ByStr20
+  
 contract DIDzilswap(
   initOwner: ByStr20,
-  initZilswap: ByStr20
+  initZilswap: ByStr20,
+  init_tyron: ByStr20
   )
-  (* A self-sovereign identity smart contract is the owner of this DID *)
-  field owner: ByStr20 = initOwner
-
   (* The decentralized identifier *)
   field did: String = ""
   field did_status: DIDstatus = Deployed
+  
+  field owner: ByStr20 = initOwner
+  field init: ByStr20 = init_tyron
+  field zilswap: ByStr20 = initZilswap
+  field deadline_block: Uint128 = fifteen_min
 
   (* Verification methods
   @key: key purpose
@@ -167,26 +174,21 @@ contract DIDzilswap(
   
   (* The public key for the next DID Recover or Deactivate operation *)
   field did_recovery_key: Option ByStr33 = None{ ByStr33 }
+  (* upgrade did keys into verification methods *)
   
   (* The block number when the DID Create operation occurred *)
-  field created: BNum = BNum 0
+  field did_created: BNum = BNum 0
   
   (* The block number when the last DID operation occurred *)  
   field ledger_time: BNum = BNum 0
   
-  (* A monotonically increasing number representing the amount of DID operations that have taken place *)
-  field transaction_number: Uint128 = Uint128 0
-  
-  field records: Map ByStr20 ByStr20 = Emp ByStr20 ByStr20
-  field zilswap: ByStr20 = initZilswap
+  (* A monotonically increasing number representing the amount of DID CRUD transactions that have taken place *)
+  field crud_tx_number: Uint128 = zero
 
-procedure ThrowError(
-  err: Error
-  )
+procedure ThrowError( err: Error )
   e = make_error err; throw e
 end
 
-(* The DID only accepts orders from its owner *)
 procedure VerifyOwner()
   current_owner <- owner;
   is_owner = builtin eq current_owner _sender;
@@ -196,7 +198,6 @@ procedure VerifyOwner()
   end
 end
 
-(* Verifies that the DID is operational *)
 procedure IsOperational()
   this_status <- did_status;
   match this_status with
@@ -205,9 +206,7 @@ procedure IsOperational()
   end
 end
   
-procedure ByStr33ErrorNone(
-  optKey: Option ByStr33
-  )
+procedure ByStr33ErrorNone( optKey: Option ByStr33 )
   match optKey with
   | Some key =>
   | None => err = CodeUndefinedKey; ThrowError err
@@ -215,10 +214,10 @@ procedure ByStr33ErrorNone(
 end
 
 procedure ThrowIfSameKey(
-  key1: ByStr33,
-  key2: ByStr33
+  key: ByStr33,
+  sndKey: ByStr33
   )
-  is_same_key = builtin eq key1 key2;
+  is_same_key = builtin eq key sndKey;
   match is_same_key with
   | True => err= ThrownIfSameKey; ThrowError err
   | False =>
@@ -230,23 +229,15 @@ procedure DIDkeys(
   recoveryKey: Option ByStr33,
   updateKey: Option ByStr33
   )
-  opt_recovery_key <- did_recovery_key;
-  did_recovery = option_bystr33_value opt_recovery_key;
-  opt_update_key <- did_update_key;
-  did_update = option_bystr33_value opt_update_key;
+  opt_recovery_key <- did_recovery_key; did_recovery = option_bystr33_value opt_recovery_key;
+  opt_update_key <- did_update_key; did_update = option_bystr33_value opt_update_key;
   match operation with
   | Recovery =>
-      ByStr33ErrorNone recoveryKey;
-      ByStr33ErrorNone updateKey;
+      ByStr33ErrorNone recoveryKey; ByStr33ErrorNone updateKey;
       recovery_key = option_bystr33_value recoveryKey;
       update_key = option_bystr33_value updateKey;
-      ThrowIfSameKey recovery_key update_key;
-      ThrowIfSameKey did_recovery recovery_key;
-      ThrowIfSameKey did_recovery update_key;
-      ThrowIfSameKey did_update update_key;
-      ThrowIfSameKey did_update recovery_key;
-      did_recovery_key := recoveryKey;
-      did_update_key := updateKey
+      ThrowIfSameKey recovery_key update_key; ThrowIfSameKey did_recovery recovery_key; ThrowIfSameKey did_recovery update_key; ThrowIfSameKey did_update recovery_key; ThrowIfSameKey did_update update_key;
+      did_recovery_key := recoveryKey; did_update_key := updateKey
   | Update =>
       ByStr33ErrorNone updateKey;
       update_key = option_bystr33_value updateKey;
@@ -257,7 +248,7 @@ procedure DIDkeys(
 end
 
 (* Verify Schnorr signature - signed data must correspond with DID Key *)
-procedure IsRightSignature(
+procedure VerifySignature(
   operation: Operation,
   signedData: ByStr,
   signature: Option ByStr64
@@ -288,50 +279,32 @@ procedure UpdateDocument(
   operation: Operation,
   document: List Document
   )
-  current_methods <- verification_methods;
-  prev_methods =
-    match operation with
-    | Recovery => Emp String ByStr33
-    | Update => current_methods
-    end;
-  update_methods = @update_methods Document;
+  current_methods <- verification_methods; current_services <- services;
+  prev_methods = match operation with
+  | Recovery => Emp String ByStr33
+  | Update => current_methods
+  end;
+  update_methods = @update_methods Document; update_services = @update_services Document;
   updated_methods = update_methods document prev_methods; verification_methods := updated_methods;
-  current_services <- services;
-  prev_services =
-    match operation with
-    | Recovery => Emp String Pair String String
-    | Update => current_services
-    end;
-  update_services = @update_services Document;
+  prev_services = match operation with
+  | Recovery => Emp String Pair String String
+  | Update => current_services
+  end;
   updated_services = update_services document prev_services; services := updated_services
 end
 
 procedure Timestamp()
   current_block <- &BLOCKNUMBER; ledger_time := current_block;
-  latest_tx_number <- transaction_number;
-  new_tx_number =
-    let incrementor = Uint128 1 in builtin add latest_tx_number incrementor;
-  transaction_number := new_tx_number
+  latest_tx_number <- crud_tx_number;
+  new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor; crud_tx_number := new_tx_number
 end
 
-procedure SetDomain(
-  domain: String
-  )
-  current_owner <- owner;
-  msg = let m = {
-		_tag: "SetDidDomain";
-		_recipient: current_owner;
-		_amount: zero;
-		domain: domain
+procedure SubscribeToDns( username_did: Pair String ByStr20 )
+  current_init <- init;
+  accept; msg = let m = {
+		_tag: "SubscribeToDns"; _recipient: current_init; _amount: _amount;
+		username_did: username_did
 	} in one_msg m; send msg
-end
-
-transition UpdateOwner(
-  addr: ByStr20,
-  amount: Uint128
-  )
-  VerifyOwner;
-  owner := addr
 end
 
 transition DIDcreate(
@@ -340,25 +313,21 @@ transition DIDcreate(
   document: Option (List Document),
   signedData: Option ByStr,
   signature: Option ByStr64,
-  domain: String
+  username_did: Pair String ByStr20
   )
-  VerifyOwner; IsOperational;
-  this_did =
-    let did_prefix = "did:tyron:zil:test:"
-    in let did_suffix = builtin to_string _this_address in builtin concat did_prefix did_suffix;
+  IsOperational; VerifyOwner; DIDkeys recovery recoveryKey updateKey;
+  this_did = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address 
+    in builtin concat did_prefix did_suffix;
   did := this_did;
-  DIDkeys recovery recoveryKey updateKey;
   match document with
   | None => err= CodeNotValid; ThrowError err
   | Some doc =>
       UpdateDocument recovery doc;
-      new_status = Created;
-      did_status := new_status;
-      current_block <- &BLOCKNUMBER;
-      created := current_block;
+      new_status = Created; did_status := new_status;
+      current_block <- &BLOCKNUMBER; did_created := current_block;
       Timestamp
   end;
-  SetDomain domain
+  SubscribeToDns username_did
 end
 
 transition DIDrecover(
@@ -368,15 +337,12 @@ transition DIDrecover(
   signedData: ByStr,
   signature: Option ByStr64
   )
-  VerifyOwner; IsOperational;
-  DIDkeys recovery recoveryKey updateKey;
+  IsOperational; VerifyOwner; DIDkeys recovery recoveryKey updateKey;
   match document with
   | None => err= CodeNotValid; ThrowError err
   | Some doc =>
-      IsRightSignature recovery signedData signature;
-      UpdateDocument recovery doc;
-      new_status = Recovered;
-      did_status := new_status;
+      VerifySignature recovery signedData signature; UpdateDocument recovery doc;
+      new_status = Recovered; did_status := new_status;
       Timestamp
   end
 end
@@ -388,15 +354,12 @@ transition DIDupdate(
   signedData: ByStr,
   signature: Option ByStr64
   )
-  VerifyOwner; IsOperational;
-  DIDkeys update recoveryKey updateKey;
+  IsOperational; VerifyOwner; DIDkeys update recoveryKey updateKey;
   match document with
   | None => err= CodeNotValid; ThrowError err
   | Some doc =>
-      IsRightSignature update signedData signature;
-      UpdateDocument update doc;
-      new_status = Updated;
-      did_status := new_status;
+      VerifySignature update signedData signature; UpdateDocument update doc;
+      new_status = Updated; did_status := new_status;
       Timestamp
   end
 end
@@ -405,55 +368,73 @@ transition DIDdeactivate(
   signedData: ByStr,
   signature: Option ByStr64
   ) 
-  VerifyOwner; IsOperational;
-  IsRightSignature recovery signedData signature;
-  deactivated_key = None{ByStr33};
-  did_update_key := deactivated_key;
-  did_recovery_key := deactivated_key;
+  IsOperational; VerifyOwner;
+  VerifySignature recovery signedData signature;
+  deactivated_key = None{ ByStr33 }; did_update_key := deactivated_key; did_recovery_key := deactivated_key;
   deactivated_methods = Emp String ByStr33; verification_methods := deactivated_methods;
-  deactivated_services = Emp String Pair String String; services := deactivated_services;
+  deactivated_services = Emp String ( Pair String String ); services := deactivated_services;
   new_status = Deactivated; did_status := new_status;
   Timestamp
 end
 
-(* Receive native funds ($ZIL) and send them to the SSI *)
+(* Receive native funds ($ZIL) and send to owner *)
 transition AddFunds()
-  IsOperational; accept;
+  IsOperational;
   e = {
     _eventname: "ZILreceived";
     sender: _sender;
     amount: _amount
   }; event e;
   current_owner <- owner;
-  msg = let m = {
+  accept; msg = let m = {
     _tag: "AddFunds";
     _recipient: current_owner;
     _amount: _amount
   } in one_msg m; send msg
 end
 
-procedure VerifyRecord()
-  current_owner <- owner;
-  accept;
-  msg = let m = {
-    _tag: "VerifyRecord";
-    _recipient: current_owner;
-    _amount: _amount;
-    sender: _sender
-  } in one_msg m ; send msg 
+procedure Resolve( username_did: Pair String ByStr20 )
+  current_init <- init
+  (* upgrade remote read *)
 end
 
-transition VerifyRecordCallBack(
-  implAddr: ByStr20,
-  proxyAddr: ByStr20
+(* Send $ZIL to any recipient that implements the tag (e.g. "AddFunds", "") *)
+transition SendFunds(
+  tag: String,
+  beneficiary: Beneficiary,
+  amount: Uint128
   )
-  VerifyOwner;
-  records[implAddr] := proxyAddr
+  IsOperational; VerifyOwner;
+  match beneficiary with
+  | Username username_did => Resolve username_did
+  | Address addr =>
+      accept; msg = let m = {
+        _tag: tag; _recipient: addr; _amount: amount
+      } in one_msg m; send msg
+  end
+  (* upgrade amount _amount *)
+end
+
+transition Transfer(
+  proxyAddr: ByStr20,
+  beneficiary: Beneficiary,
+  amount: Uint128
+  ) 
+  IsOperational; VerifyOwner;
+ match beneficiary with
+  | Username username_did => Resolve username_did
+  | Address addr =>
+      msg = let m = {
+        _tag: "Transfer"; _recipient: proxyAddr; _amount: zero;
+        to: addr;
+        amount: amount
+      } in one_msg m ; send msg
+    end
 end
 
 transition RecipientAcceptTransfer(
   sender: ByStr20,
-  recipient: ByStr20,
+recipient: ByStr20,
   amount: Uint128
   )
   IsOperational
@@ -485,24 +466,25 @@ transition TransferFromSuccessCallBack(
   IsOperational
 end
 
-transition UpdateZilswap(
-  addr: ByStr20,
-  amount: Uint128
-  )
-  VerifyOwner;
-  zilswap := addr
+transition UpdateOwner( addr: ByStr20 )
+  IsOperational; VerifyOwner; owner := addr
+end
+
+transition UpdateZilswap( addr: ByStr20 )
+  IsOperational; VerifyOwner; zilswap := addr
+end
+
+transition UpdateDeadline( amount: Uint128 )
+  IsOperational; VerifyOwner; deadline_block := amount
 end
 
 procedure IncreaseAllowance(
   addr: ByStr20,
   amount: Uint128
   )
-  VerifyOwner;
   zilswap_addr <- zilswap;
   msg = let m = {
-    _tag: "IncreaseAllowance";
-    _recipient: addr;
-    _amount: zero;
+    _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
     spender: zilswap_addr;
     amount: amount
   } in one_msg m ; send msg
@@ -510,21 +492,35 @@ end
 
 transition AddLiquidity(
   addr: ByStr20,
-  amount: Uint128
+  amount: Uint128,
+  sndAmount: Uint128
   )
-  VerifyOwner;
-  IncreaseAllowance addr amount;
-  accept;
-  zilswap_addr <- zilswap;
-  current_block <- &BLOCKNUMBER;
-  deadline = builtin badd current_block fifteen_min;
-  msg = let m = {
-    _tag: "AddLiquidity";
-    _recipient: zilswap_addr;
-    _amount: _amount;
+  IsOperational; VerifyOwner; IncreaseAllowance addr amount;
+  zilswap_addr <- zilswap; current_block <- &BLOCKNUMBER; deadline <- deadline_block;
+  this_deadline = builtin badd current_block deadline;
+  accept; msg = let m = {
+    _tag: "AddLiquidity"; _recipient: zilswap_addr; _amount: _amount;
     token_address: addr;
     min_contribution_amount: amount;
+    max_token_amount: sndAmount;
+    deadline_block: this_deadline
+  } in one_msg m ; send msg
+end
+
+transition SwapTokensForExactZIL(
+  addr: ByStr20,
+  amount: Uint128,
+  sndAmount: Uint128
+  )
+  IsOperational; VerifyOwner; IncreaseAllowance addr amount;
+  zilswap_addr <- zilswap; current_block <- &BLOCKNUMBER; deadline <- deadline_block; current_owner <- owner;
+  this_deadline = builtin badd current_block deadline;
+  msg = let m = {
+    _tag: "SwapTokensForExactZIL"; _recipient: zilswap_addr; _amount: zero;
+    token_address: addr;
     max_token_amount: amount;
-    deadline_block : deadline
+    zil_amount: sndAmount;
+    deadline_block: this_deadline;
+    recipient_address: current_owner
   } in one_msg m ; send msg
 end
