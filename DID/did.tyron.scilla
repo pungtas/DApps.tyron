@@ -89,9 +89,9 @@ library DID
     | VerificationMethod of Action String ByStr33  (* string: key purpose OR service ID *)
     | Service of Action String DidService
 
-  let update_methods: forall 'A. List Document -> Map String ByStr33 -> Map String ByStr33 = tfun 'A => fun(l: List Document) => fun(prevMethods: Map String ByStr33) =>
+  let update_methods: forall 'A. List Document -> Map String ByStr33 -> Map String ByStr33 = tfun 'A => fun( l: List Document ) => fun( prevMethods: Map String ByStr33 ) =>
     let foldl = @list_foldl Document Map String ByStr33
-    in let iter = fun(map: Map String ByStr33) => fun(h: Document) =>
+    in let iter = fun( map: Map String ByStr33 ) => fun( h: Document ) =>
       match h with
       | VerificationMethod action purpose key =>
           match action with
