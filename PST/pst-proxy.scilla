@@ -44,6 +44,7 @@ library PSTproxy
   let no = False
   let zeroAccount = let i = Pair{ Uint128 Bool } zero yes in Pair{ Uint128 ( Pair Uint128 Bool )} zero i
   
+
   let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A ) =>
     match input with
     | Some v => v
@@ -605,14 +606,25 @@ transition ProfitShareCallBack(
       agents_list <- agents;
       forall agents_list DistributeProfit;
       get_dao_account <- accounts[current_dao]; plus_profit_bal = account_balance get_dao_account;
-      burn = builtin sub plus_profit_bal bal;
-      delete accounts[current_dao];
-      list_filter = @list_filter ByStr20; remove_dao_from_agents = fun( member: ByStr20 ) => let is_addr = builtin eq current_dao member in negb is_addr;
-      agents_updated = list_filter remove_dao_from_agents agents_list;
-      agents := agents_updated;
-      current_supply <- total_supply;
-      new_supply = builtin sub current_supply burn;
-      total_supply := new_supply
+      profit = builtin sub plus_profit_bal bal;
+      e = {
+        _eventname: "DAOProfitShare";
+        profit: profit
+      }; event e;
+      yes <- voted_yes;
+      no <- voted_no;
+      e = {
+        _eventname: "PSCVoteDecision";
+        yes: yes;
+        no: no
+      }; event e;
+      msg = let m = {
+        _tag: "VoteDecisionCallBack";
+        _recipient: originator;
+        _amount: zero;
+        yes: yes;
+        no: no
+      } in one_msg m; send msg
   | False =>
       match beneficiary with
       | Some list =>
@@ -620,9 +632,18 @@ transition ProfitShareCallBack(
           forall list UpdateSubtotal;
           forall list DistributePST
       | None => err = CodeNotValid; ThrowError err
-      end
+      end;
+      yes <- voted_yes;
+      no <- voted_no;
+      msg = let m = {
+        _tag: "VoteDecisionCallBack";
+        _recipient: originator;
+        _amount: zero;
+        yes: yes;
+        no: no
+      } in one_msg m; send msg
   end
-  (* to-do emit event OR send a message to originator with the vote decision *)
+  (* to-do DAO.tyron with VoteDecisionCallBack *)
 end
 
 transition ChangeVote()

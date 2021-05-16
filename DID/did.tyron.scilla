@@ -1,6 +1,6 @@
 (*
   DID.tyron: decentralized identifier smart contract.
-  Tyron Self-Sovereign Identity Protocol.
+  Self-Sovereign Identity Protocol.
   Copyright (C) Tyron Pungtas and its affiliates.
 
   This program is free software: you can redistribute it and/or modify
@@ -17,6 +17,18 @@
 scilla_version 0
 
 library DID
+
+  type DIDstatus =
+    | Deployed
+    | Created
+    | Updated
+    | Recovered
+    | Deactivated
+
+  type Operation =
+    | Recovery
+    | Update
+    | Tyron of String
 
   let one_msg = fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
@@ -42,25 +54,15 @@ library DID
     | CodeNotValid               => Int32 -6
     end in { _exception: "Error"; code: result }
   
-  type DIDstatus =
-    | Deployed
-    | Created
-    | Updated
-    | Recovered
-    | Deactivated
-
-  type Operation =
-    | Recovery
-    | Update
-
+  let recovery = Recovery
+  let update = Update
+  
   let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
     match input with
     | Some v => v
     | None => default
     end
 
-  let recovery = Recovery
-  let update = Update
   let zero = Uint128 0
   let zeroByStr20 = 0x0000000000000000000000000000000000000000
   let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
@@ -70,14 +72,16 @@ library DID
   let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
   let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
 
+
   type Action =
-  | Add
-  | Remove
+    | Add
+    | Remove
 
   type TransferProtocol =
     | Https
     | Git
     | Zilliqa
+    | Arweave
 
   type ServiceEndpoint =
     | ServiceEndpoint of TransferProtocol String
@@ -88,10 +92,10 @@ library DID
   type Document =
     | VerificationMethod of Action String ByStr33  (* string: key purpose OR service ID *)
     | Service of Action String DidService
-
-  let update_methods: forall 'A. List Document -> Map String ByStr33 -> Map String ByStr33 = tfun 'A => fun( l: List Document ) => fun( prevMethods: Map String ByStr33 ) =>
+    
+  let update_methods: forall 'A. List Document -> Map String ByStr33 -> Map String ByStr33 = tfun 'A => fun(l: List Document) => fun(prevMethods: Map String ByStr33) =>
     let foldl = @list_foldl Document Map String ByStr33
-    in let iter = fun( map: Map String ByStr33 ) => fun( h: Document ) =>
+    in let iter = fun(map: Map String ByStr33) => fun(h: Document) =>
       match h with
       | VerificationMethod action purpose key =>
           match action with
@@ -105,22 +109,22 @@ library DID
 
   let make_endpoint = fun( input: DidService ) =>
     match input with
-    | DidService t endpoint =>
+    | DidService tipo endpoint =>
         match endpoint with
-        | ServiceEndpoint transfer e =>
-            match transfer with
+        | ServiceEndpoint transfer addr =>
+            match transfer
             | Https =>
-                let prefix = "https://" in
-                let this_uri = builtin concat prefix e in
-                Pair{String String} t this_uri
+                let prefix = "https://" in let uri = builtin concat prefix addr in
+                Pair{ String String } tipo uri
             | Git =>
-                let prefix = "git://" in
-                let this_uri = builtin concat prefix e in
-                Pair{ String String } t this_uri
+                let prefix = "git://" in let uri = builtin concat prefix addr in
+                Pair{String String} tipo uri
             | Zilliqa =>
-                let prefix = "zil://" in
-                let this_uri = builtin concat prefix e in
-                Pair{ String String } t this_uri
+                let prefix = "zil://" in let uri = builtin concat prefix addr in
+                Pair{ String String } tipo uri
+            | Arweave =>
+                let prefix = "ar://" in let uri = builtin concat prefix addr in
+                Pair{ String String } tipo uri
             end
         end
     end
@@ -139,16 +143,16 @@ library DID
           end
       | _ => map
       end in foldl iter prevServices l
-
+    
 contract DID(
-  initOwner: ByStr20
+  initOwner: ByStr20, (* the Zilliqa address of the DID owner *)
+  init_tyron: ByStr20 (* the init.tyron smart contract *)
   )
-  (* A self-sovereign identity smart contract is the owner of this DID *)
-  field owner: ByStr20 = initOwner
 
-  (* The decentralized identifier *)
-  field did: String = ""
+  field did: String = "" (* the decentralized identifier *)
   field did_status: DIDstatus = Deployed
+  
+  field owner: ByStr20 = initOwner
 
   (* Verification methods
   @key: key purpose
@@ -183,7 +187,6 @@ procedure ThrowError(
   e = make_error err; throw e
 end
 
-(* The DID only accepts orders from its owner *)
 procedure VerifyOwner()
   current_owner <- owner;
   is_owner = builtin eq current_owner _sender;
@@ -202,7 +205,7 @@ procedure IsOperational()
   end
 end
   
-procedure ByStr33ErrorNone(
+procedure ThrowIfNoKey(
   optKey: Option ByStr33
   )
   match optKey with
@@ -222,39 +225,30 @@ procedure ThrowIfSameKey(
   end
 end
 
-procedure DIDkeys(
+procedure VerifyDIDkeys(
   operation: Operation,
   recoveryKey: Option ByStr33,
   updateKey: Option ByStr33
   )
-  opt_recovery_key <- did_recovery_key;
-  did_recovery = option_bystr33_value opt_recovery_key;
-  opt_update_key <- did_update_key;
-  did_update = option_bystr33_value opt_update_key;
+  get_recovery_key <- did_recovery_key; did_recovery = option_bystr33_value get_recovery_key;
+  get_update_key <- did_update_key; did_update = option_bystr33_value get_update_key;
   match operation with
   | Recovery =>
-      ByStr33ErrorNone recoveryKey;
-      ByStr33ErrorNone updateKey;
-      recovery_key = option_bystr33_value recoveryKey;
-      update_key = option_bystr33_value updateKey;
-      ThrowIfSameKey recovery_key update_key;
-      ThrowIfSameKey did_recovery recovery_key;
-      ThrowIfSameKey did_recovery update_key;
-      ThrowIfSameKey did_update update_key;
-      ThrowIfSameKey did_update recovery_key;
-      did_recovery_key := recoveryKey;
-      did_update_key := updateKey
+      ThrowIfNoKey recoveryKey; ThrowIfNoKey updateKey;
+      recovery_key = option_bystr33_value recoveryKey; update_key = option_bystr33_value updateKey;
+      ThrowIfSameKey recovery_key update_key; ThrowIfSameKey did_recovery recovery_key; ThrowIfSameKey did_recovery update_key; ThrowIfSameKey did_update recovery_key; ThrowIfSameKey did_update update_key;
+      did_recovery_key := recoveryKey; did_update_key := updateKey
   | Update =>
-      ByStr33ErrorNone updateKey;
+      ThrowIfNoKey updateKey;
       update_key = option_bystr33_value updateKey;
-      ThrowIfSameKey did_update update_key;
-      ThrowIfSameKey did_recovery update_key;
+      ThrowIfSameKey did_update update_key; ThrowIfSameKey did_recovery update_key;
       did_update_key := updateKey
+  | _ => (* upgrade verification of tyron key *)
   end
 end
 
-(* Verify Schnorr signature - signed data must correspond with DID Key *)
-procedure IsRightSignature(
+(* Verify Schnorr signature - signed data must correspond with a DID Key *)
+procedure VerifySignature(
   operation: Operation,
   signedData: ByStr,
   signature: Option ByStr64
@@ -262,22 +256,26 @@ procedure IsRightSignature(
   sig = option_bystr64_value signature;
   match operation with
   | Recovery =>
-      opt_recovery_key <- did_recovery_key;
-      did_recovery = option_bystr33_value opt_recovery_key;
+      get_recovery_key <- did_recovery_key;
+      did_recovery = option_bystr33_value get_recovery_key;
       signature_is_right = builtin schnorr_verify did_recovery signedData sig;
-      match signature_is_right with
-      | True =>
-      | False => err= CodeWrongSignature; ThrowError err
-      end
+      correct_signature := signature_is_right
   | Update =>
-      opt_update_key <- did_update_key;
-      did_update = option_bystr33_value opt_update_key;
+      get_update_key <- did_update_key;
+      did_update = option_bystr33_value get_update_key;
       signature_is_right = builtin schnorr_verify did_update signedData sig;
-      match signature_is_right with
-      | True =>
-      | False => err= CodeWrongSignature; ThrowError err
-      end
-  end
+      correct_signature := signature_is_right
+  | Tyron keyId =>
+      get_key <- verification_methods[keyId]; key = option_bystr33_value get_key;
+      signature_is_right = builtin schnorr_verify key signedData sig;
+      correct_signature := signature_is_right
+  end;
+  signature_verified <- correct_signature;
+  match signature_verified with
+    | True =>
+    | False => err= CodeWrongSignature; ThrowError err
+  end;
+  false = False; correct_signature := false
 end
 
 (* Update verification methods and services *)
@@ -285,21 +283,17 @@ procedure UpdateDocument(
   operation: Operation,
   document: List Document
   )
-  current_methods <- verification_methods;
-  prev_methods =
-    match operation with
-    | Recovery => Emp String ByStr33
-    | Update => current_methods
-    end;
-  update_methods = @update_methods Document;
+  current_methods <- verification_methods; current_services <- services;
+  prev_methods = match operation with
+  | Recovery => Emp String ByStr33
+  | _ => current_methods
+  end;
+  update_methods = @update_methods Document; update_services = @update_services Document;
   updated_methods = update_methods document prev_methods; verification_methods := updated_methods;
-  current_services <- services;
-  prev_services =
-    match operation with
-    | Recovery => Emp String Pair String String
-    | Update => current_services
-    end;
-  update_services = @update_services Document;
+  prev_services = match operation with
+  | Recovery => Emp String Pair String String
+  | _ => current_services
+  end;
   updated_services = update_services document prev_services; services := updated_services
 end
 
@@ -343,7 +337,7 @@ transition DIDcreate(
     let did_prefix = "did:tyron:zil:test:"
     in let did_suffix = builtin to_string _this_address in builtin concat did_prefix did_suffix;
   did := this_did;
-  DIDkeys recovery recoveryKey updateKey;
+  VerifyDIDkeys recovery recoveryKey updateKey;
   match document with
   | None => err= CodeNotValid; ThrowError err
   | Some doc =>
@@ -365,7 +359,7 @@ transition DIDrecover(
   signature: Option ByStr64
   )
   VerifyOwner; IsOperational;
-  DIDkeys recovery recoveryKey updateKey;
+  VerifyDIDkeys recovery recoveryKey updateKey;
   match document with
   | None => err= CodeNotValid; ThrowError err
   | Some doc =>
@@ -385,7 +379,7 @@ transition DIDupdate(
   signature: Option ByStr64
   )
   VerifyOwner; IsOperational;
-  DIDkeys update recoveryKey updateKey;
+  VerifyDIDkeys update recoveryKey updateKey;
   match document with
   | None => err= CodeNotValid; ThrowError err
   | Some doc =>

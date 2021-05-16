@@ -1,6 +1,6 @@
 (*
-  SSI.tyron: self-sovereign identity smart contract.
-  Tyron Self-Sovereign Identity Protocol.
+  SSI.tyron: self-sovereign identity DID smart contract.
+  Self-Sovereign Identity Protocol.
   Copyright (C) Tyron Pungtas and its affiliates.
 
   This program is free software: you can redistribute it and/or modify
@@ -19,6 +19,17 @@ scilla_version 0
 import BoolUtils
 
 library SSI
+
+  type DIDstatus =
+  | Deployed
+  | Created
+  | Updated
+  | Recovered
+  | Deactivated
+
+  type Operation =
+    | Recovery
+    | Update
 
   let one_msg = fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
@@ -60,38 +71,75 @@ library SSI
   let option_uint128_value = let f = @option_value Uint128 in f zero
   let option_bystr33_value = let f = @option_value ByStr33 in f 
 
-  let create = "DIDcreate"
-  let recover = "DIDrecover"
-  let update = "DIDupdate"
-  let deactivate = "DIDdeactivate"
-  let ssi = "ssi"
-
-  type Action =
-    | Add
-    | Remove
-
-  type DataTransferProtocol =
+  type TransferProtocol =
     | Https
     | Git
-    | Ssh
+    | Zilliqa
+    | Arweave
 
   type ServiceEndpoint =
-    | ServiceEndpoint of DataTransferProtocol String
+    | ServiceEndpoint of TransferProtocol String
     
-  type DIDservice =
-    | DIDservice of String ServiceEndpoint   (* the type & endpoint *)
+  type DidService =
+    | DidService of String ServiceEndpoint  (* the type & endpoint *)
     
   type Document =
-    | VerificationMethod of Action String ByStr33   (* string: key purpose OR service ID *)
-    | Service of Action String DIDservice
+    | VerificationMethod of Action String ByStr33  (* string: key purpose OR service ID *)
+    | Service of Action String DidService
+    
+  let update_methods: forall 'A. List Document -> Map String ByStr33 -> Map String ByStr33 = tfun 'A => fun(l: List Document) => fun(prevMethods: Map String ByStr33) =>
+    let foldl = @list_foldl Document Map String ByStr33
+    in let iter = fun(map: Map String ByStr33) => fun(h: Document) =>
+      match h with
+      | VerificationMethod action purpose key =>
+          match action with
+            | Add =>
+                builtin put map purpose key
+            | Remove =>
+                builtin remove map purpose
+          end
+      | _ => map
+      end in foldl iter prevMethods l
 
-  type XDirection =
-    | In
-    | Out
+  let make_endpoint = fun( input: DidService ) =>
+    match input with
+    | DidService type endpoint =>
+        match endpoint with
+        | ServiceEndpoint transfer addr =>
+            match transfer with
+            | Https =>
+                let prefix = "https://" in let uri = builtin concat prefix addr in
+                Pair{ String String } type uri
+            | Git =>
+                let prefix = "git://" in let uri = builtin concat prefix addr in
+                Pair{String String} type uri
+            | Zilliqa =>
+                let prefix = "zil://" in let uri = builtin concat prefix addr in
+                Pair{ String String } type uri
+            | Arweave =>
+                let prefix = "ar://" in let uri = builtin concat prefix e in
+                Pair{ String String } type uri
+            end
+        end
+    end
 
-  let incoming = In
-  let outcoming = Out
+  let update_services: forall 'A. List Document -> Map String Pair String String -> Map String Pair String String = tfun 'A => fun( l: List Document ) => fun( prevServices: Map String Pair String String ) =>
+    let foldl = @list_foldl Document Map String Pair String String
+    in let iter = fun( map: Map String Pair String String ) => fun( h: Document ) =>
+      match h with
+      | Service action id didService =>
+          match action with
+          | Add =>
+              let endpoint = make_endpoint didService
+              in builtin put map id endpoint
+          | Remove =>
+              builtin remove map id
+          end
+      | _ => map
+      end in foldl iter prevServices l
 
+  let ssi = "ssi"
+  
 contract SSI(
 	(* Initial owner of the self-sovereign identity *)
 	initOwner: ByStr20,

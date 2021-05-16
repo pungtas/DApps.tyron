@@ -1,6 +1,6 @@
 (*
   INIT.tyron: SSI initialization & DNS smart contract.
-  Tyron Self-Sovereign Identity Protocol.
+  Self-Sovereign Identity Protocol.
   Copyright (C) Tyron Pungtas and its affiliates.
 
   This program is free software: you can redistribute it and/or modify
@@ -16,6 +16,8 @@
 
 scilla_version 0
 
+import PairUtils
+
 library INIT
 
   let one_msg = fun( msg: Message ) =>
@@ -25,126 +27,179 @@ library INIT
     let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
 
   type Error =
-    | CodeDomainTaken
+    | ThrownIfDomainTaken
+    | ThrownIfInsufficientFunds
     | CodeNotProxy
     | CodeNotRightCaller
+    | CodeNotValid
 
   let make_error = fun( error: Error ) =>
     let result = match error with
-    | CodeDomainTaken            => Int32 -1
-    | CodeNotProxy            => Int32 -2
-    | CodeNotRightCaller         => Int32 -3
+    | ThrownIfDomainTaken        => Int32 -1
+    | ThrownIfInsufficientFunds  => Int32 -2
+    | CodeNotProxy               => Int32 -3
+    | CodeNotRightCaller         => Int32 -4
+    | CodeNotValid               => Int32 -5
     end in { _exception: "Error"; code: result }
   
   let zero = Uint128 0
   
   type Code =
-    | Ssi
-    | Did
-  
+    | Code of String ( Pair Uint128 String )
+    
   let option_value = tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) =>
     match opt_val with
     | Some v => v
     | None => default
     end
+  
+  let zeroAddr = 0x0000000000000000000000000000000000000000
     
   let option_uint128_value = let f = @option_value Uint128 in f zero
+  let option_bystr20_value = let f = @option_value ByStr20 in f zeroAddr
+  let ten_zil = Uint128 10000000000000
+  let ten = Uint128 10
+  let hundred = Uint128 100
 
 contract INIT(
   initAdmin: ByStr20
   )
   field admin: ByStr20 = initAdmin
 
-  (* SSI.tyron smart-contract code by version
-  @key: version
-  @value: hex-encoded code *)
-  field ssi_code: Map String String = Emp String String
-  
-  (* DID.tyron smart-contract code by version
-  @key: version
-  @value: hex-encoded code *)
-  field did_code: Map String String = Emp String String
+  (* Tyron smart contracts' code by version
+  @key: Domain (e.g. "ssi", "did", "agent", "mapu")
+  @value: Map of
+    @key: version
+    @value: hex-encoded code *)
+  field tyron_code: Map String ( Map Uint128 String ) = Emp String ( Map Uint128 String )
   
   (* DNS records
-  @key: SsiDomain (e.g. ".did", ".agent", ".mapu")
+  @key: Domain (e.g. ".ssi", ".did", ".agent", ".mapu", ".tyron")
   @value: Map of
-    @key: domain name
+    @key: username
     @value: address *)
-  field dns: Map String (Map String ByStr20) = Emp String (Map String ByStr20)
+  field dns: Map String ( Map String ByStr20 ) = Emp String ( Map String ByStr20 )
 
-  (* Proxy and implementation addresses
+  (* Dapp records
   @key: implementation address
   @value: proxy address *)
   field records: Map ByStr20 ByStr20 = Emp ByStr20 ByStr20
+  (* upgrade record to did service *)
   
   (* Implementation records
   @key: proxy address
   @value: implementation address *)
   field implementations: Map ByStr20 ByStr20 = Emp ByStr20 ByStr20
+  field domain_cost: Uint128 = zero
+  field domain_transfer_fee: Uint128 = zero
+  field dao: ByStr20 = initAdmin
 
-procedure ThrowError(
-  err: Error
-  )
+procedure ThrowError( err: Error )
   e = make_error err; throw e
 end
 
-(* Validate address against _sender *)
-procedure VerifyCaller(
-  check: ByStr20
-)
-  is_correct = builtin eq check _sender;
+procedure VerifyCaller( addr: ByStr20 )
+  is_correct = builtin eq addr _sender;
   match is_correct with
   | True =>
   | False => err= CodeNotRightCaller; ThrowError err
   end
 end
 
-(* Update the admin's address *)
-transition UpdateAdmin(
-  newAdmin: ByStr20
-)
+transition UpdateAdmin( newAdmin: ByStr20 )
   current_admin <- admin; VerifyCaller current_admin;
   admin := newAdmin
 end
   
-(* Set the SSI or DID.tyron code *)
-transition SetCode(
-  tyron: Code,
-  version: String,
-  code: String
-  )
+(* Publish .tyron code *)
+transition SetCode( tyron: Code )
   current_admin <- admin; VerifyCaller current_admin;
   match tyron with
-    | Ssi =>
-        ssi_code[version] := code;
-        e = {
-          _eventname: "SSIcodeUpdated";
-          version: version;
-          code: code
-        }; event e
-    | Did =>
-        did_code[version] := code;
-        e = {
-          _eventname: "DIDcodeUpdated";
-          version: version;
-          code: code
-        }; event e
+  | Code domain version_code  =>
+      version = let fst_element = @fst Uint128 String in fst_element version_code;
+      code = let snd_element = @snd Uint128 String in snd_element version_code;
+      tyron_code[domain][version] := code;
+      e = {
+        _eventname: "TyronCodeUpdated";
+        domain: domain;
+        version: version;
+        code: code
+      }; event e
   end
 end
 
-(* Set a domain name in the DNS *)
-transition SetDomain(
-  domain: String,
-  username: String
-  )
-  
+transition UpdateDomainCost(
+  cost: Uint128
+)
+  current_admin <- admin; VerifyCaller current_admin;
+  domain_cost := cost
+end
+
+transition BuyDomainNameNFT( userDomain: Pair String String )
+  username = let fst_element = @fst String String in fst_element userDomain;
+  domain = let snd_element = @snd String String in snd_element userDomain;
   taken <- exists dns[domain][username];
   match taken with
-  | True => err = CodeDomainTaken; ThrowError err
+  | True => err= ThrownIfDomainTaken; ThrowError err
   | False => 
-      accept;
-      (* to-do payment *)
-      dns[domain][username] := _sender
+      cost <- domain_cost;
+      is_enough = builtin lt cost _amount;
+      match is_enough with
+      | True =>
+          accept;
+          refund = builtin sub _amount cost;
+          is_zero_refund = builtin eq refund zero;
+          match is_zero_refund with
+          | True =>
+          | False =>
+            msg = let m = {
+              _tag: "AddFunds";
+              _recipient: _sender;
+              _amount: refund
+            } in one_msg m; send msg
+          end;
+          dns[domain][username] := _sender
+      | False => err= ThrownIfInsufficientFunds; ThrowError err
+      end
+  end
+end
+
+transition UpdateDomainTransferCost(
+  percentage: Uint128
+)
+  current_admin <- admin; VerifyCaller current_admin;
+  domain_transfer_fee := percentage
+end
+
+transition TransferDomainNameNFT( userDomain: Pair String String )
+  username = let fst_element = @fst String String in fst_element userDomain;
+  domain = let snd_element = @snd String String in snd_element userDomain;
+  get_beneficiary <- dns[domain][username];
+  match get_beneficiary with
+  | Some beneficiary =>
+      is_zero = builtin eq _amount zero;
+      match is_zero with
+      | True => err= CodeNotValid; ThrowError err
+      | False =>
+          transfer_fee <- domain_transfer_fee;
+          fee = let percent = builtin div _amount hundred in builtin mul transfer_fee percent;
+          payment = builtin sub _amount fee;
+          current_dao <- dao;
+          (* upgrade to verify that the data got signed by the beneficiary's DID*)
+          accept; msg_to_dao = {
+              _tag: "AddFunds";
+              _recipient: current_dao;
+              _amount: fee
+          };
+          msg_to_beneficiary = {
+            _tag: "AddFunds";
+            _recipient: beneficiary;
+            _amount: payment
+          };
+          msgs = two_msgs msg_to_dao msg_to_beneficiary; send msgs;
+          dns[domain][username] := _sender
+      end
+  | None => err= CodeNotValid; ThrowError err
   end
 end
 
@@ -182,3 +237,4 @@ transition VerifyRecord(
   | None => err= CodeNotProxy; ThrowError err
   end
 end
+(* upgrade to remote read *)
