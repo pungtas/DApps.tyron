@@ -1,5 +1,5 @@
 (*
-  DIDzilswap.tyron: decentralized identifier smart contract that interacts with ZilSwap.
+  DIDxWallet.tyron: decentralized identifier smart wallet.
   Self-Sovereign Identity Protocol.
   Copyright (C) Tyron Pungtas and its affiliates.
 
@@ -16,7 +16,7 @@
 
 scilla_version 0
 
-library DIDzilswap
+library DIDxWallet
 
   type DIDstatus =
     | Deployed
@@ -41,7 +41,7 @@ library DIDzilswap
     | CodeNotOwner
     | CodeWrongSignature
     | CodeUndefinedKey
-    | ThrownIfSameKey
+    | CodeSameKey
     | CodeNotValid
 
   let make_error = fun( error: Error ) =>
@@ -50,7 +50,7 @@ library DIDzilswap
     | CodeNotOwner               => Int32 -2
     | CodeWrongSignature         => Int32 -3
     | CodeUndefinedKey           => Int32 -4
-    | ThrownIfSameKey            => Int32 -5
+    | CodeSameKey                => Int32 -5
     | CodeNotValid               => Int32 -6
     end in { _exception: "Error"; code: result }
   
@@ -150,7 +150,7 @@ library DIDzilswap
   | Username of ( Pair String ByStr20 )
   | Address of ByStr20
   
-contract DIDzilswap(
+contract DIDxWallet(
   initOwner: ByStr20, (* the Zilliqa address of the DID owner *)
   initZilswap: ByStr20, (* the address of ZilSwap *)
   init_tyron: ByStr20 (* the init.tyron smart contract *)
@@ -224,7 +224,7 @@ procedure ThrowIfSameKey(
   )
   is_same_key = builtin eq key sndKey;
   match is_same_key with
-  | True => err= ThrownIfSameKey; ThrowError err
+  | True => err= CodeSameKey; ThrowError err
   | False =>
   end
 end
@@ -429,7 +429,7 @@ transition Transfer(
   amount: Uint128
   ) 
   IsOperational; VerifyOwner;
- match beneficiary with
+  match beneficiary with
   | Username username_did => Resolve username_did
   | Address addr =>
       msg = let m = {
@@ -442,7 +442,7 @@ end
 
 transition RecipientAcceptTransfer(
   sender: ByStr20,
-recipient: ByStr20,
+  recipient: ByStr20,
   amount: Uint128
   )
   IsOperational
