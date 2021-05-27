@@ -1,6 +1,6 @@
 (*
   PST.tyron: profit-sharing token Zilliqa reference contract - Proxy smart contract.
-  Tyron Self-Sovereign Identity Protocol.
+  Self-Sovereign Identity Protocol.
   Copyright (C) Tyron Pungtas and its affiliates.
 
   This program is free software: you can redistribute it and/or modify
@@ -169,18 +169,14 @@ end
 transition Pause()
   current_impl <- implementation;
   msg = let m = {
-    _tag: "Pause";
-    _recipient: current_impl;
-    _amount: zero
+    _tag: "Pause"; _recipient: current_impl; _amount: zero
   } in one_msg m; send msg
 end
 
 transition Unpause()
   current_impl <- implementation;
   msg = let m = {
-    _tag: "Unpause";
-    _recipient: current_impl;
-    _amount: zero
+    _tag: "Unpause"; _recipient: current_impl; _amount: zero
   } in one_msg m; send msg
 end
 
@@ -189,9 +185,7 @@ transition Blacklist(
   )
   current_impl <- implementation;
   msg = let m = {
-    _tag: "Blacklist";
-    _recipient: current_impl;
-    _amount: zero;
+    _tag: "Blacklist"; _recipient: current_impl; _amount: zero;
     addr: addr
   } in one_msg m; send msg
 end
@@ -201,9 +195,7 @@ transition Unblacklist(
   )
   current_impl <- implementation;
   msg = let m = {
-    _tag: "Unblacklist";
-    _recipient: current_impl;
-    _amount: zero;
+    _tag: "Unblacklist"; _recipient: current_impl; _amount: zero;
     addr: addr
   } in one_msg m; send msg
 end
@@ -214,9 +206,7 @@ transition IncreaseMinterAllowance(
   )
   current_impl <- implementation;
   msg = let m = {
-    _tag: "IncreaseMinterAllowance";
-    _recipient: current_impl;
-    _amount: zero;
+    _tag: "IncreaseMinterAllowance"; _recipient: current_impl; _amount: zero;
     minter: minter;
     amount: amount
   } in one_msg m; send msg
@@ -228,9 +218,7 @@ transition DecreaseMinterAllowance(
   )
   current_impl <- implementation;
   msg = let m = {
-    _tag: "DecreaseMinterAllowance";
-    _recipient: current_impl;
-    _amount: zero;
+    _tag: "DecreaseMinterAllowance"; _recipient: current_impl; _amount: zero;
     minter: minter;
     amount: amount
   } in one_msg m; send msg
@@ -242,9 +230,7 @@ transition Mint(
   )
   current_impl <- implementation;
   msg = let m = {
-    _tag: "Mint";
-    _recipient: current_impl;
-    _amount: zero;
+    _tag: "Mint"; _recipient: current_impl; _amount: zero;
     originator: _sender;
     beneficiary: beneficiary;
     amount: amount
@@ -308,9 +294,7 @@ transition Burn(
   )
   current_impl <- implementation;
   msg = let m = {
-    _tag: "Burn";
-    _recipient: current_impl;
-    _amount: zero;
+    _tag: "Burn"; _recipient: current_impl; _amount: zero;
     originator: _sender;
     amount: amount
   } in one_msg m; send msg
@@ -329,9 +313,7 @@ end
 transition LawEnforcementWipingBurn( addr: ByStr20 )
   current_impl <- implementation;
   msg = let m = {
-    _tag: "LawEnforcementWipingBurn";
-    _recipient: current_impl;
-    _amount: zero;
+    _tag: "LawEnforcementWipingBurn"; _recipient: current_impl; _amount: zero;
     addr: addr
   } in one_msg m; send msg
 end
@@ -343,49 +325,6 @@ transition LawEnforcementWipingBurnCallBack(
   current_impl <- implementation; VerifyCaller current_impl;
   delete accounts[addr];
   total_supply := newSupply
-end
-
-transition IncreaseAllowance(
-  spender: ByStr20,
-  amount: Uint128
-  )
-  current_impl <- implementation;
-  get_allowance <- allowances[_sender][spender]; allowance = option_uint128_value get_allowance;
-  msg = let m = {
-    _tag: "IncreaseAllowance";
-    _recipient: current_impl;
-    _amount: zero;
-    originator: _sender;
-    spender: spender;
-    amount: amount;
-    currentAllowance: allowance
-  } in one_msg m; send msg
-end
-
-transition DecreaseAllowance(
-  spender: ByStr20,
-  amount: Uint128
-  )
-  current_impl <- implementation;
-  get_allowance <- allowances[_sender][spender]; allowance = option_uint128_value get_allowance;
-  msg = let m = {
-    _tag: "DecreaseAllowance";
-    _recipient: current_impl;
-    _amount: zero;
-    originator: _sender;
-    spender: spender;
-    amount: amount;
-    currentAllowance: allowance
-  } in one_msg m; send msg
-end
-
-transition AllowanceCallBack(
-  originator: ByStr20,
-  spender: ByStr20,
-  newAllowance: Uint128
-  )
-  current_impl <- implementation; VerifyCaller current_impl;
-  allowances[originator][spender] := newAllowance
 end
 
 transition Transfer(
@@ -414,26 +353,53 @@ transition TransferCallBack(
   UpdateAccount beneficiary newBeneficiaryBal no
 end
 
+transition IncreaseAllowance(
+  spender: ByStr20,
+  amount: Uint128
+  )
+  current_impl <- implementation;
+  msg = let m = {
+    _tag: "IncreaseAllowance"; _recipient: current_impl; _amount: zero;
+    originator: _sender;
+    spender: spender;
+    amount: amount
+  } in one_msg m; send msg
+end
+
+transition DecreaseAllowance(
+  spender: ByStr20,
+  amount: Uint128
+  )
+  current_impl <- implementation;
+  msg = let m = {
+    _tag: "DecreaseAllowance"; _recipient: current_impl; _amount: zero;
+    originator: _sender;
+    spender: spender;
+    amount: amount
+  } in one_msg m; send msg
+end
+
+transition AllowanceCallBack(
+  originator: ByStr20,
+  spender: ByStr20,
+  newAllowance: Uint128
+  )
+  current_impl <- implementation; VerifyCaller current_impl;
+  allowances[originator][spender] := newAllowance
+end
+
 transition TransferFrom(
   from: ByStr20, 
   to: ByStr20,
   amount: Uint128
   )
   current_impl <- implementation;
-  get_beneficiary_account <- accounts[to]; beneficiary_bal = account_balance get_beneficiary_account;
-  get_originator_account <- accounts[from]; originator_bal = account_balance get_originator_account;
-  get_allowance <- allowances[from][_sender]; allowance = option_uint128_value get_allowance;
   msg = let m = {
-    _tag: "TransferFrom";
-    _recipient: current_impl;
-    _amount: zero;
+    _tag: "TransferFrom"; _recipient: current_impl; _amount: zero;
     originator: from;
     spender: _sender;
     beneficiary: to;
-    amount: amount;
-    originatorBal: originator_bal;
-    spenderAllowance: allowance;
-    beneficiaryBal: beneficiary_bal
+    amount: amount
   } in one_msg m; send msg
 end
 
@@ -538,9 +504,7 @@ transition SwapZILForPSTAndDistributeCallBack(
         no: no
       }; event e;
       msg = let m = {
-        _tag: "VoteDecisionCallBack";
-        _recipient: originator;
-        _amount: zero;
+        _tag: "VoteDecisionCallBack"; _recipient: originator; _amount: zero;
         yes: yes;
         no: no
       } in one_msg m; send msg
