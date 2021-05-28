@@ -20,6 +20,37 @@ import PairUtils
 
 library INIT
 
+  type DIDstatus =
+    | Deployed
+    | Created
+    | Updated
+    | Recovered
+    | Deactivated
+
+  type Operation =
+    | Recovery
+    | Update
+    | Tyron of String
+  
+  type Action =
+    | Add
+    | Remove
+
+  type TransferProtocol =
+    | Https
+    | Git
+
+  type ServiceEndpoint =
+    | Endpoint of TransferProtocol String
+    | Address of ByStr20
+    
+  type DidService =
+    | DidService of String ServiceEndpoint  (* the type & endpoint *)
+    
+  type Document =
+    | VerificationMethod of Action String ByStr33  (* string: key purpose OR service ID *)
+    | Service of Action String DidService
+  
   let one_msg = fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
@@ -56,6 +87,16 @@ contract INIT(
   )
   field admin: ByStr20 = initAdmin
   field treasury: ByStr20 = initAdmin
+  
+  (* Verification methods
+  @key: key purpose
+  @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
+  field verification_methods: Map String ByStr33 = Emp String ByStr33
+  
+  (* Services
+  @key: ID
+  @value: the type & URI *)
+  field services: Map String DidService = Emp String DidService
 
   (* Tyron smart contracts' code by version
   @key: domain (e.g. "ssi", "did", "agent", "mapu")

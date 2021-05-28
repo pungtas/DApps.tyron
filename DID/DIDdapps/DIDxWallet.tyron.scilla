@@ -16,6 +16,8 @@
 
 scilla_version 0
 
+import PairUtils
+
 library DIDxWallet
 
   type DIDstatus =
@@ -28,7 +30,32 @@ library DIDxWallet
   type Operation =
     | Recovery
     | Update
-    | Tyron of String
+    | Verify of String
+  
+  type Action =
+    | Add
+    | Remove
+
+  type TransferProtocol =
+    | Https
+    | Git
+    | Zilliqa
+    | Arweave
+
+  type ServiceEndpoint =
+    | Endpoint of TransferProtocol String
+    | Address of ByStr20
+    
+  type DidService =
+    | DidService of String ServiceEndpoint  (* the type & endpoint *)
+    
+  type Document =
+    | VerificationMethod of Action String ByStr33  (* string: key purpose OR service ID *)
+    | Service of Action String DidService
+    
+  type Beneficiary =
+  | UserDomain of ( Pair String String )
+  | BeneficiaryAddr of ByStr20
 
   let one_msg = fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
@@ -54,8 +81,10 @@ library DIDxWallet
     | CodeNotValid               => Int32 -6
     end in { _exception: "Error"; code: result }
   
+  let domain = "did"
   let recovery = Recovery
   let update = Update
+  let zilswap = "zilswap"
   
   let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
     match input with
@@ -64,35 +93,28 @@ library DIDxWallet
     end
   
   let zero = Uint128 0
+  let fifteen_min = Uint128 21
   let zeroByStr20 = 0x0000000000000000000000000000000000000000
   let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
   let zeroByStr64 = 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+  let zeroService = let endpoint = Address zeroByStr20 in DidService domain endpoint
   let option_uint128_value = let f = @option_value Uint128 in f zero
   let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
   let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
   let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
-  let fifteen_min = Uint128 21
-
-  type Action =
-    | Add
-    | Remove
-
-  type TransferProtocol =
-    | Https
-    | Git
-    | Zilliqa
-    | Arweave
-
-  type ServiceEndpoint =
-    | ServiceEndpoint of TransferProtocol String
-    
-  type DidService =
-    | DidService of String ServiceEndpoint  (* the type & endpoint *)
-    
-  type Document =
-    | VerificationMethod of Action String ByStr33  (* string: key purpose OR service ID *)
-    | Service of Action String DidService
-    
+  
+  let option_service = let f = @option_value DidService in f zeroService 
+  let service_addr = fun( getService: Option DidService ) =>
+    let service = option_service getService
+    in match service with
+    | DidService serviceType endpoint =>
+        match endpoint with
+        | Endpoint transfer addr => zeroByStr20
+        | Address addr => addr
+        end
+    end
+ 
+  (*
   let update_methods: forall 'A. List Document -> Map String ByStr33 -> Map String ByStr33 = tfun 'A => fun(l: List Document) => fun(prevMethods: Map String ByStr33) =>
     let foldl = @list_foldl Document Map String ByStr33
     in let iter = fun(map: Map String ByStr33) => fun(h: Document) =>
@@ -109,23 +131,18 @@ library DIDxWallet
 
   let make_endpoint = fun( input: DidService ) =>
     match input with
-    | DidService tipo endpoint =>
+    | DidService serviceType endpoint =>
         match endpoint with
-        | ServiceEndpoint transfer addr =>
+        | Endpoint transfer addr =>
             match transfer with
             | Https =>
                 let prefix = "https://" in let uri = builtin concat prefix addr in
-                Pair{ String String } tipo uri
+                Pair{ String String } serviceType uri
             | Git =>
                 let prefix = "git://" in let uri = builtin concat prefix addr in
-                Pair{String String} tipo uri
-            | Zilliqa =>
-                let prefix = "zil://" in let uri = builtin concat prefix addr in
-                Pair{ String String } tipo uri
-            | Arweave =>
-                let prefix = "ar://" in let uri = builtin concat prefix addr in
-                Pair{ String String } tipo uri
+                Pair{ String String } serviceType uri
             end
+        | Address addr => Pair{ String ByStr20 } serviceType addr
         end
     end
 
@@ -143,26 +160,17 @@ library DIDxWallet
           end
       | _ => map
       end in foldl iter prevServices l
-
-  let zilswap = "zilswap"
-
-  type Beneficiary =
-  | Username of ( Pair String ByStr20 )
-  | Address of ByStr20
-  
+    *)
 contract DIDxWallet(
-  initOwner: ByStr20, (* the Zilliqa address of the DID owner *)
-  initZilswap: ByStr20, (* the address of ZilSwap *)
-  init_tyron: ByStr20 (* the init.tyron smart contract *)
+  initOwner: ByStr20,    (* the Zilliqa address of the DID owner *)
+  init_tyron: ByStr20 with contract    (* the init.tyron smart contract *)
+    field services: Map String DidService,
+    field dns: Map String ( Map String ByStr20 )
+    end
   )
-  field did: String = "" (* the decentralized identifier *)
+  field did: String = ""    (* the decentralized identifier *)
   field did_status: DIDstatus = Deployed
   
-  field owner: ByStr20 = initOwner
-  field init: ByStr20 = init_tyron
-  field zilswap: ByStr20 = initZilswap
-  field deadline_block: Uint128 = fifteen_min
-
   (* Verification methods
   @key: key purpose
   @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
@@ -171,7 +179,18 @@ contract DIDxWallet(
   (* Services
   @key: ID
   @value: the type & URI *)
-  field services: Map String Pair String String = Emp String Pair String String
+  field services: Map String DidService = Emp String DidService
+  
+  field owner: ByStr20 = initOwner
+
+  field init: ByStr20 with contract
+    field services: Map String DidService,
+    field dns: Map String ( Map String ByStr20 )
+    end = init_tyron
+  
+  field deadline_block: Uint128 = fifteen_min
+  
+  field recipient_addr: Map String ByStr20 = Emp String ByStr20
   
   (* The public key for the next DID Update operation *)
   field did_update_key: Option ByStr33 = None{ ByStr33 }
@@ -188,16 +207,15 @@ contract DIDxWallet(
   
   (* A monotonically increasing number representing the amount of DID CRUD transactions that have taken place *)
   field crud_tx_number: Uint128 = zero
-  field correct_signature: Bool = False
-
+  
 procedure ThrowError( err: Error )
   e = make_error err; throw e
 end
 
 procedure VerifyOwner()
   current_owner <- owner;
-  is_owner = builtin eq current_owner _sender;
-  match is_owner with
+  verified = builtin eq current_owner _sender;
+  match verified with
   | True =>
   | False => err= CodeNotOwner; ThrowError err
   end
@@ -251,42 +269,17 @@ procedure VerifyDIDkeys(
   end
 end
 
-(* Verify Schnorr signature - signed data must correspond with a DID Key *)
-procedure VerifySignature(
-  operation: Operation,
-  signedData: ByStr,
-  signature: Option ByStr64
-  )
-  sig = option_bystr64_value signature;
-  match operation with
-  | Recovery =>
-      get_recovery_key <- did_recovery_key;
-      did_recovery = option_bystr33_value get_recovery_key;
-      signature_is_right = builtin schnorr_verify did_recovery signedData sig;
-      correct_signature := signature_is_right
-  | Update =>
-      get_update_key <- did_update_key;
-      did_update = option_bystr33_value get_update_key;
-      signature_is_right = builtin schnorr_verify did_update signedData sig;
-      correct_signature := signature_is_right
-  | Tyron keyId =>
-      get_key <- verification_methods[keyId]; key = option_bystr33_value get_key;
-      signature_is_right = builtin schnorr_verify key signedData sig;
-      correct_signature := signature_is_right
-  end;
-  signature_verified <- correct_signature;
-  match signature_verified with
-    | True =>
-    | False => err= CodeWrongSignature; ThrowError err
-  end;
-  false = False; correct_signature := false
-end
-
 (* Update verification methods and services *)
 procedure UpdateDocument(
   operation: Operation,
   document: List Document
   )
+  match operation with
+  | Recovery =>
+  | Update =>
+  | Verify id =>
+  end
+  (*
   current_methods <- verification_methods; current_services <- services;
   prev_methods = match operation with
   | Recovery => Emp String ByStr33
@@ -299,6 +292,7 @@ procedure UpdateDocument(
   | _ => current_services
   end;
   updated_services = update_services document prev_services; services := updated_services
+  *)
 end
 
 procedure Timestamp()
@@ -307,21 +301,25 @@ procedure Timestamp()
   new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor; crud_tx_number := new_tx_number
 end
 
-procedure SubscribeToDns( username_did: Pair String ByStr20 )
-  current_init <- init;
-  accept; msg = let m = {
-		_tag: "SubscribeToDns"; _recipient: current_init; _amount: _amount;
-		username_did: username_did
-	} in one_msg m; send msg
+procedure BuyDomainNameNFT( username: Option String )
+  match username with
+  | None => err = CodeNotValid; ThrowError err
+  | Some name =>
+      current_init <- init;
+      user_domain = Pair{ String String } name domain;
+      accept; msg = let m = {
+        _tag: "BuyDomainNameNFT"; _recipient: current_init; _amount: _amount;
+        userDomain: user_domain
+      } in one_msg m; send msg
+  end
 end
 
 transition DIDcreate(
+  username: Option String,
+  document: Option( List Document ),
   recoveryKey: Option ByStr33,
   updateKey: Option ByStr33,
-  document: Option (List Document),
-  signedData: Option ByStr,
-  signature: Option ByStr64,
-  username_did: Pair String ByStr20
+  signature: Option ByStr64
   )
   IsOperational; VerifyOwner; VerifyDIDkeys recovery recoveryKey updateKey;
   this_did = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address 
@@ -329,60 +327,87 @@ transition DIDcreate(
   did := this_did;
   match document with
   | None => err= CodeNotValid; ThrowError err
-  | Some doc =>
-      UpdateDocument recovery doc;
-      new_status = Created; did_status := new_status;
-      current_block <- &BLOCKNUMBER; did_created := current_block;
-      Timestamp
+  | Some doc => UpdateDocument recovery doc
   end;
-  SubscribeToDns username_did
+  BuyDomainNameNFT username;
+  new_status = Created; did_status := new_status;
+  current_block <- &BLOCKNUMBER; did_created := current_block; Timestamp
+end
+
+(* Verify Schnorr signature - signed data must correspond with a DID Key *)
+procedure VerifySignature(
+  operation: Operation,
+  signedData: ByStr,
+  signature: Option ByStr64
+  )
+  sig = option_bystr64_value signature;
+  get_recovery_key <- did_recovery_key;
+  get_update_key <- did_update_key;
+  current_methods <- verification_methods;
+  is_right_signature = match operation with
+  | Recovery =>
+      let did_recovery = option_bystr33_value get_recovery_key in builtin schnorr_verify did_recovery signedData sig
+  | Update =>
+      let did_update = option_bystr33_value get_update_key in builtin schnorr_verify did_update signedData sig
+  | Verify purpose =>
+      let get_key = builtin get current_methods purpose in let key = option_bystr33_value get_key in builtin schnorr_verify key signedData sig
+  end;
+  match is_right_signature with
+    | True =>
+    | False => err= CodeWrongSignature; ThrowError err
+  end
+end
+
+procedure VerifyDocument(
+  operation: Operation,
+  document: Option( List Document ),
+  signature: Option ByStr64
+  )
+  match document with
+  | None => err= CodeNotValid; ThrowError err
+  | Some doc =>
+      signed_data = let hash = builtin sha256hash doc in builtin to_bystr hash;
+      VerifySignature operation signed_data signature; UpdateDocument operation doc
+  end
 end
 
 transition DIDrecover(
+  username: Option String,
+  document: Option( List Document ),
   recoveryKey: Option ByStr33,
   updateKey: Option ByStr33,
-  document: Option (List Document),
-  signedData: ByStr,
   signature: Option ByStr64
   )
   IsOperational; VerifyOwner; VerifyDIDkeys recovery recoveryKey updateKey;
-  match document with
-  | None => err= CodeNotValid; ThrowError err
-  | Some doc =>
-      VerifySignature recovery signedData signature; UpdateDocument recovery doc;
-      new_status = Recovered; did_status := new_status;
-      Timestamp
-  end
+  VerifyDocument recovery document signature;
+  new_status = Recovered; did_status := new_status; Timestamp
 end
 
 transition DIDupdate(
+  username: Option String,
+  document: Option( List Document ),
   recoveryKey: Option ByStr33,
   updateKey: Option ByStr33,
-  document: Option (List Document),
-  signedData: ByStr,
   signature: Option ByStr64
   )
   IsOperational; VerifyOwner; VerifyDIDkeys update recoveryKey updateKey;
-  match document with
-  | None => err= CodeNotValid; ThrowError err
-  | Some doc =>
-      VerifySignature update signedData signature; UpdateDocument update doc;
-      new_status = Updated; did_status := new_status;
-      Timestamp
-  end
+  VerifyDocument update document signature;
+  new_status = Updated; did_status := new_status; Timestamp
 end
 
 transition DIDdeactivate(
-  signedData: ByStr,
+  username: Option String,
+  document: Option( List Document ),
+  recoveryKey: Option ByStr33,
+  updateKey: Option ByStr33,
   signature: Option ByStr64
   ) 
   IsOperational; VerifyOwner;
-  VerifySignature recovery signedData signature;
+  VerifyDocument recovery document signature;
   deactivated_key = None{ ByStr33 }; did_update_key := deactivated_key; did_recovery_key := deactivated_key;
   deactivated_methods = Emp String ByStr33; verification_methods := deactivated_methods;
-  deactivated_services = Emp String ( Pair String String ); services := deactivated_services;
-  new_status = Deactivated; did_status := new_status;
-  Timestamp
+  deactivated_services = Emp String DidService; services := deactivated_services;
+  new_status = Deactivated; did_status := new_status; Timestamp
 end
 
 (* Receive native funds ($ZIL) and send to owner *)
@@ -401,7 +426,7 @@ transition AddFunds()
   } in one_msg m; send msg
 end
 
-procedure Resolve( username_did: Pair String ByStr20 )
+procedure Resolve( userDomain: Pair String String )
   current_init <- init
   (* upgrade remote read *)
 end
@@ -414,8 +439,8 @@ transition SendFunds(
   )
   IsOperational; VerifyOwner;
   match beneficiary with
-  | Username username_did => Resolve username_did
-  | Address addr =>
+  | UserDomain username_domain => Resolve username_domain
+  | BeneficiaryAddr addr =>
       accept; msg = let m = {
         _tag: tag; _recipient: addr; _amount: amount
       } in one_msg m; send msg
@@ -430,8 +455,8 @@ transition Transfer(
   ) 
   IsOperational; VerifyOwner;
   match beneficiary with
-  | Username username_did => Resolve username_did
-  | Address addr =>
+  | UserDomain username_domain => Resolve username_domain
+  | BeneficiaryAddr addr =>
       msg = let m = {
         _tag: "Transfer"; _recipient: proxyAddr; _amount: zero;
         to: addr;
@@ -478,19 +503,30 @@ transition UpdateOwner( addr: ByStr20 )
   IsOperational; VerifyOwner; owner := addr
 end
 
-transition UpdateZilswap( addr: ByStr20 )
-  IsOperational; VerifyOwner; zilswap := addr
+transition UpdateInit(
+  addr: ByStr20 with contract
+    field services: Map String DidService,
+    field dns: Map String ( Map String ByStr20 )
+    end
+  )
+  IsOperational; VerifyOwner; init := addr
 end
 
 transition UpdateDeadline( amount: Uint128 )
   IsOperational; VerifyOwner; deadline_block := amount
 end
 
+procedure FetchAddr( id: String )
+  current_init <- init; 
+  get_service <-& current_init.services[id]; addr = service_addr get_service; recipient_addr[id] := addr
+end
+
 procedure IncreaseAllowance(
-  addr: ByStr20,
+  addrName: String,
   amount: Uint128
   )
-  zilswap_addr <- zilswap;
+  FetchAddr addrName; get_addr <- recipient_addr[addrName]; addr = option_bystr20_value get_addr;
+  FetchAddr zilswap; get_zilswap <- recipient_addr[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
   msg = let m = {
     _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
     spender: zilswap_addr;
@@ -499,13 +535,15 @@ procedure IncreaseAllowance(
 end
 
 transition AddLiquidity(
-  addr: ByStr20,
+  addrName: String,
   amount: Uint128,
   sndAmount: Uint128
   )
-  IsOperational; VerifyOwner; IncreaseAllowance addr amount;
-  zilswap_addr <- zilswap; current_block <- &BLOCKNUMBER; deadline <- deadline_block;
-  this_deadline = builtin badd current_block deadline;
+  IsOperational; VerifyOwner; 
+  IncreaseAllowance addrName amount;
+  get_zilswap <- recipient_addr[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
+  get_addr <- recipient_addr[addrName]; addr = option_bystr20_value get_addr;
+  current_block <- &BLOCKNUMBER; deadline <- deadline_block; this_deadline = builtin badd current_block deadline;
   accept; msg = let m = {
     _tag: "AddLiquidity"; _recipient: zilswap_addr; _amount: _amount;
     token_address: addr;
@@ -516,13 +554,15 @@ transition AddLiquidity(
 end
 
 transition SwapTokensForExactZIL(
-  addr: ByStr20,
+  addrName: String,
   amount: Uint128,
   sndAmount: Uint128
   )
-  IsOperational; VerifyOwner; IncreaseAllowance addr amount;
-  zilswap_addr <- zilswap; current_block <- &BLOCKNUMBER; deadline <- deadline_block; current_owner <- owner;
-  this_deadline = builtin badd current_block deadline;
+  IsOperational; VerifyOwner; IncreaseAllowance addrName amount;
+  get_zilswap <- recipient_addr[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
+  get_addr <- recipient_addr[addrName]; addr = option_bystr20_value get_addr;
+  current_block <- &BLOCKNUMBER; deadline <- deadline_block; this_deadline = builtin badd current_block deadline;
+  current_owner <- owner;
   msg = let m = {
     _tag: "SwapTokensForExactZIL"; _recipient: zilswap_addr; _amount: zero;
     token_address: addr;
