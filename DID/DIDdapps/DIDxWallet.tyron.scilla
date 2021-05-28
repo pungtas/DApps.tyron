@@ -16,7 +16,7 @@
 
 scilla_version 0
 
-import PairUtils
+import PairUtils BoolUtils
 
 library DIDxWallet
 
@@ -66,6 +66,7 @@ library DIDxWallet
   type Error =
     | CodeWrongStatus
     | CodeNotOwner
+    | CodeWrongCaller
     | CodeWrongSignature
     | CodeUndefinedKey
     | CodeSameKey
@@ -75,10 +76,11 @@ library DIDxWallet
     let result = match error with
     | CodeWrongStatus            => Int32 -1
     | CodeNotOwner               => Int32 -2
-    | CodeWrongSignature         => Int32 -3
-    | CodeUndefinedKey           => Int32 -4
-    | CodeSameKey                => Int32 -5
-    | CodeNotValid               => Int32 -6
+    | CodeWrongCaller            => Int32 -3
+    | CodeWrongSignature         => Int32 -4
+    | CodeUndefinedKey           => Int32 -5
+    | CodeSameKey                => Int32 -6
+    | CodeNotValid               => Int32 -7
     end in { _exception: "Error"; code: result }
   
   let domain = "did"
@@ -182,6 +184,7 @@ contract DIDxWallet(
   field services: Map String DidService = Emp String DidService
   
   field owner: ByStr20 = initOwner
+  field agent: ByStr20 = initOwner
 
   field init: ByStr20 with contract
     field services: Map String DidService,
@@ -221,6 +224,18 @@ procedure VerifyOwner()
   end
 end
 
+procedure VerifyCaller()
+  current_owner <- owner;
+  is_owner = builtin eq current_owner _sender;
+  current_agent <- agent;
+  is_agent = builtin eq current_agent _sender;
+  verified = orb is_owner is_agent;
+  match verified with
+  | True =>
+  | False => err = CodeWrongCaller; ThrowError err
+  end
+end
+
 procedure IsOperational()
   this_status <- did_status;
   match this_status with
@@ -228,7 +243,15 @@ procedure IsOperational()
   | _ =>
   end
 end
-  
+
+transition UpdateOwner( addr: ByStr20 )
+  IsOperational; VerifyOwner; owner := addr
+end
+
+transition UpdateAgent( addr: ByStr20 )
+  IsOperational; VerifyOwner; agent := addr
+end
+
 procedure ThrowIfNoKey( optKey: Option ByStr33 )
   match optKey with
   | Some key =>
@@ -499,10 +522,6 @@ transition TransferFromSuccessCallBack(
   IsOperational
 end
 
-transition UpdateOwner( addr: ByStr20 )
-  IsOperational; VerifyOwner; owner := addr
-end
-
 transition UpdateInit(
   addr: ByStr20 with contract
     field services: Map String DidService,
@@ -539,7 +558,7 @@ transition AddLiquidity(
   amount: Uint128,
   sndAmount: Uint128
   )
-  IsOperational; VerifyOwner; 
+  IsOperational; VerifyCaller; 
   IncreaseAllowance addrName amount;
   get_zilswap <- recipient_addr[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
   get_addr <- recipient_addr[addrName]; addr = option_bystr20_value get_addr;
@@ -558,7 +577,7 @@ transition SwapTokensForExactZIL(
   amount: Uint128,
   sndAmount: Uint128
   )
-  IsOperational; VerifyOwner; IncreaseAllowance addrName amount;
+  IsOperational; VerifyCaller; IncreaseAllowance addrName amount;
   get_zilswap <- recipient_addr[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
   get_addr <- recipient_addr[addrName]; addr = option_bystr20_value get_addr;
   current_block <- &BLOCKNUMBER; deadline <- deadline_block; this_deadline = builtin badd current_block deadline;
