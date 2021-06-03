@@ -40,16 +40,13 @@ library DIDxWallet
     | Https
     | Git
 
-  type ServiceEndpoint =
-    | Endpoint of TransferProtocol String
-    | Address of ByStr20
-    
-  type DidService =
-    | DidService of String ServiceEndpoint  (* the type & endpoint *)
-    
+  type Endpoint =
+    | Uri of String TransferProtocol String   (* type, transfer protocol & uri *)
+    | Address of String ByStr20   (* network, address *)
+
   type Document =
     | VerificationMethod of Action String ByStr33  (* string: key purpose OR service ID *)
-    | Service of Action String DidService
+    | Service of Action String Endpoint
     
   type Beneficiary =
   | UserDomain of String String
@@ -110,27 +107,24 @@ library DIDxWallet
   let zeroByStr32 = 0x0000000000000000000000000000000000000000000000000000000000000000
   let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
   let zeroByStr64 = 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-  let zeroService = let endpoint = Address zeroByStr20 in DidService did endpoint
+  let zeroEndpoint = Address did zeroByStr20
   let option_uint128_value = let f = @option_value Uint128 in f zero
   let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
   let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
   let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
   
-  let option_service = let f = @option_value DidService in f zeroService 
-  let service_addr = fun( getService: Option DidService ) =>
-    let service = option_service getService
-    in match service with
-    | DidService serviceType endpoint =>
-        match endpoint with
-        | Endpoint transfer addr => zeroByStr20
-        | Address addr => addr
-        end
+  let option_service = let f = @option_value Endpoint in f zeroEndpoint
+  let service_addr = fun( getEndpoint: Option Endpoint ) =>
+    let endpoint = option_service getEndpoint
+    in match endpoint with
+    | Uri tipo transfer uri => zeroByStr20
+    | Address network addr => addr
     end
     
 contract DIDxWallet(
-  initOwner: ByStr20 with contract field verification_methods: Map String ByStr33 end,    (* the Zilliqa address of the DID owner *)
-  init_tyron: ByStr20 with contract    (* the init.tyron smart contract *)
-    field services: Map String DidService,
+  initOwner: ByStr20 with contract field verification_methods: Map String ByStr33 end,
+  init_tyron: ByStr20 with contract
+    field services: Map String Endpoint,
     field dns: Map String ( Map String ByStr20 )
     end
   )
@@ -138,7 +132,7 @@ contract DIDxWallet(
   field agent: ByStr20 with contract field verification_methods: Map String ByStr33 end = initOwner
 
   field init: ByStr20 with contract
-    field services: Map String DidService,
+    field services: Map String Endpoint,
     field dns: Map String ( Map String ByStr20 ) end
     = init_tyron
   
@@ -162,7 +156,7 @@ contract DIDxWallet(
   (* Services
   @key: ID
   @value: the type & URI *)
-  field services: Map String DidService = Emp String DidService
+  field services: Map String Endpoint = Emp String Endpoint
   
   field service_addr: Map String ByStr20 = Emp String ByStr20
   
@@ -274,7 +268,7 @@ end
 
 transition UpdateInit(
   addr: ByStr20 with contract
-    field services: Map String DidService,
+    field services: Map String Endpoint,
     field dns: Map String ( Map String ByStr20 )
     end
   )
@@ -448,6 +442,7 @@ transition DIDcreate(
   new_status = Created; did_status := new_status;
   current_block <- &BLOCKNUMBER; did_created := current_block; Timestamp
 end
+(* upgrade to verify that document's action is not Remove *)
 
 procedure HashDocument( document: Document )
   doc_hash <- document_hash;
@@ -459,24 +454,55 @@ procedure HashDocument( document: Document )
             in let h2 = builtin sha256hash purpose
             in let h3 = builtin sha256hash key
             in let h1_2 = builtin concat h1 h2
-            in let h1_2_3 = builtin concat h1_2 h3
-            in let hash = builtin concat doc_hash h1_2_3
-            in builtin sha256hash hash;
-          document_hash := doc_hash
+            in let h1__3 = builtin concat h1_2 h3
+            in builtin sha256hash h1__3;
+          new_doc_hash = let hash_ = builtin concat doc_hash hash
+          in builtin sha256hash hash_;
+          document_hash := new_doc_hash
       | Remove =>
           hash = let h1 = builtin sha256hash actionRemove
             in let h2 = builtin sha256hash purpose
-            in let h3 = builtin sha256hash key
             in let h1_2 = builtin concat h1 h2
-            in let h1_2_3 = builtin concat h1_2 h3
-            in let hash = builtin concat doc_hash h1_2_3
-            in builtin sha256hash hash;
-          document_hash := doc_hash
+            in builtin sha256hash h1_2;
+          new_doc_hash = let hash_ = builtin concat doc_hash hash
+          in builtin sha256hash hash_;
+          document_hash := new_doc_hash
       end
-  | Service action id didService =>
+  | Service action id endpoint =>
       match action with
-      | Add => services[id] := didService
-      | Remove => delete services[id]
+      | Add =>
+          match endpoint with
+          | Uri tipo transfer uri =>
+              hash = let h1 = builtin sha256hash actionAdd
+              in let h2 = builtin sha256hash tipo
+              in let h3 = builtin sha256hash transfer
+              in let h4 = builtin sha256hash uri
+              in let h1_2 = builtin concat h1 h2
+              in let h1__3 = builtin concat h1_2 h3
+              in let h1__4 = builtin concat h1__3 h4
+              in builtin sha256hash h1__4;
+              new_doc_hash = let hash_ = builtin concat doc_hash hash
+              in builtin sha256hash hash_;
+              document_hash := new_doc_hash
+          | Address network addr =>
+              hash = let h1 = builtin sha256hash actionAdd
+              in let h2 = builtin sha256hash network
+              in let h3 = builtin sha256hash addr
+              in let h1_2 = builtin concat h1 h2
+              in let h1__3 = builtin concat h1_2 h3
+              in builtin sha256hash h1__3;
+              new_doc_hash = let hash_ = builtin concat doc_hash hash
+              in builtin sha256hash hash_;
+              document_hash := new_doc_hash
+          end
+      | Remove =>
+          hash = let h1 = builtin sha256hash actionRemove
+          in let h2 = builtin sha256hash id
+          in let h1__2 = builtin concat h1 h2
+          in builtin sha256hash h1__2;
+          new_doc_hash = let hash_ = builtin concat doc_hash hash
+          in builtin sha256hash hash_;
+          document_hash := new_doc_hash
       end
   end
 end
@@ -537,7 +563,7 @@ transition DIDdeactivate(
   IsOperational; VerifyOwner;
   VerifyDocument didRecovery document signature;
   deactivated_methods = Emp String ByStr33; verification_methods := deactivated_methods;
-  deactivated_services = Emp String DidService; services := deactivated_services;
+  deactivated_services = Emp String Endpoint; services := deactivated_services;
   new_status = Deactivated; did_status := new_status; Timestamp
 end
 
