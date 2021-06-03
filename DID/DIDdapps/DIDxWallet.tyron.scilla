@@ -238,7 +238,8 @@ end
 
 transition SocialRecovery( 
   addr: ByStr20 with contract field verification_methods: Map String ByStr33 end,
-  signature: ByStr64
+  signature1: ByStr64,
+  signature2: ByStr64
   )
   IsOperational;
   current_agent <- agent; is_agent = builtin eq current_agent _sender;
@@ -251,20 +252,20 @@ transition SocialRecovery(
         ByStr20 with contract field verification_methods: Map String ByStr33 end
       in fst_element sr;
       get_sr1key <-& sr1addr.verification_methods[didsr]; did_sr1key = option_bystr33_value get_sr1key;
-      is_right_sr1signature = builtin schnorr_verify did_sr1key signed_data signature;
+      is_right_sr1signature = builtin schnorr_verify did_sr1key signed_data signature1;
       match is_right_sr1signature with
       | True =>
-      | False =>
           sr2addr = let snd_element = @snd
             ByStr20 with contract field verification_methods: Map String ByStr33 end
             ByStr20 with contract field verification_methods: Map String ByStr33 end
           in snd_element sr;
           get_sr2key <-& sr2addr.verification_methods[didsr]; did_sr2key = option_bystr33_value get_sr2key;
-          is_right_sr2signature = builtin schnorr_verify did_sr2key signed_data signature;
+          is_right_sr2signature = builtin schnorr_verify did_sr2key signed_data signature2;
           match is_right_sr2signature with
           | True =>
           | False => err = CodeWrongSignature; ThrowError err
           end
+      | False => err = CodeWrongSignature; ThrowError err
       end
   | False => err = CodeWrongCaller; ThrowError err
   end;
