@@ -2,6 +2,7 @@
   INIT.tyron: SSI initialization & DNS smart contract.
   Self-Sovereign Identity Protocol.
   Copyright (C) Tyron Pungtas and its affiliates.
+  www.ssiprotocol.com
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -16,9 +17,11 @@
 
 scilla_version 0
 
-import PairUtils
+import PairUtils IntUtils
 
-library INIT
+library INIT_tyron
+  
+  (* The DID library + additional init.tyron errors *)
 
   type DIDstatus =
     | Deployed
@@ -30,7 +33,6 @@ library INIT
   type Operation =
     | Recovery
     | Update
-    | Tyron of String
   
   type Action =
     | Add
@@ -40,16 +42,22 @@ library INIT
     | Https
     | Git
 
-  type ServiceEndpoint =
-    | Endpoint of TransferProtocol String
+  type Endpoint =
     | Address of ByStr20
-    
-  type DidService =
-    | DidService of String ServiceEndpoint  (* the type & endpoint *)
-    
+    | Uri of String TransferProtocol String   (* type, transfer protocol & uri *)
+
   type Document =
     | VerificationMethod of Action String ByStr33  (* string: key purpose OR service ID *)
-    | Service of Action String DidService
+    | Service of Action String Endpoint
+  
+  let didRecovery = Recovery
+  let didUpdate = Update
+  let update = "update"
+  let recovery = "recovery"
+  let didsr = "socialrecovery"
+  let actionAdd = "add"
+  let actionRemove = "remove"
+  let psc = "psc"    (* profit-sharing community *)
   
   let one_msg = fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
@@ -58,125 +66,412 @@ library INIT
     let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
 
   type Error =
-    | CodeDomainTaken
+    | CodeWrongStatus
+    | CodeNotAdmin
     | CodeWrongCaller
-    | CodeInsufficientFunds
-    | CodeNotProxy
+    | CodeWrongSignature
+    | CodeSameKey
     | CodeNotValid
-
+    | CodeDomainTaken
+    | CodeInsufficientFunds
+ 
   let make_error = fun( error: Error ) =>
     let result = match error with
-    | CodeDomainTaken            => Int32 -1
-    | CodeWrongCaller            => Int32 -4
-    | CodeInsufficientFunds      => Int32 -2
-    | CodeNotProxy               => Int32 -3
-    | CodeNotValid               => Int32 -5
+    | CodeWrongStatus            => Int32 -1
+    | CodeNotAdmin               => Int32 -2
+    | CodeWrongCaller            => Int32 -3
+    | CodeWrongSignature         => Int32 -4
+    | CodeSameKey                => Int32 -5
+    | CodeNotValid               => Int32 -6
+    | CodeDomainTaken            => Int32 -7
+    | CodeInsufficientFunds      => Int32 -8
     end in { _exception: "Error"; code: result }
-  
+    
   let zero = Uint128 0
+  let zeroByStr20 = 0x0000000000000000000000000000000000000000
+  let zeroByStr32 = 0x0000000000000000000000000000000000000000000000000000000000000000
+  let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
+  let zeroByStr64 = 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+  let zero_bystr = builtin to_bystr zeroByStr20
+  
+  let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
+    match input with
+    | Some v => v
+    | None => default
+    end
+  let option_uint128_value = let f = @option_value Uint128 in f zero
+  let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
+  let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
+  let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
+  
+  (* The init.tyron library *)
   
   type Code =
     | Code of String ( Pair Uint128 String )
+    
+  let agent = "agent"
+  let zeroFund = Pair{ ByStr20 Uint128 } zeroByStr20 zero
+  let option_fund = let f = @option_value( Pair ByStr20 Uint128 ) in f zeroFund
+  let fund_addr = fun( getFund: Option( Pair ByStr20 Uint128 )) =>
+    let fund = option_fund getFund
+    in let fst_element = @fst ByStr20 Uint128
+    in fst_element fund
+  let fund_balance = fun( getFund: Option( Pair ByStr20 Uint128 )) =>
+    let fund = option_fund getFund
+    in let snd_element = @snd ByStr20 Uint128
+    in snd_element fund
 
-  let ten_zil = Uint128 10000000000000
-  let ten = Uint128 10
-  let hundred = Uint128 100
-
-contract INIT(
+contract INIT_tyron(
   initAdmin: ByStr20
   )
-  field admin: ByStr20 = initAdmin
-  field treasury: ByStr20 = initAdmin
+  field admin_: ByStr20 = initAdmin
+  field did_: String = ""    (* the decentralized identifier *)
+  field did_status_: DIDstatus = Deployed
   
-  (* Verification methods
-  @key: key purpose
-  @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
-  field verification_methods: Map String ByStr33 = Emp String ByStr33
-  
-  (* Services
-  @key: ID
-  @value: the type & URI *)
-  field services: Map String DidService = Emp String DidService
 
-  (* Tyron smart contracts' code by version
-  @key: domain (e.g. "ssi", "did", "agent", "mapu")
-  @value: map of
-    @key: version
-    @value: hex-encoded code *)
-  field tyron_code: Map String ( Map Uint128 String ) = Emp String ( Map Uint128 String )
+  (* Verification methods @key: ID (key purpose) @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
+  field verification_methods_: Map String ByStr33 = Emp String ByStr33
   
-  (* DNS records
-  @key: domain (e.g. "ssi", "did", "agent", "mapu", "tyron")
-  @value: map of
-    @key: username
-    @value: address *)
+  (* Services @key: ID @value: endpoint *)
+  field services_: Map String ByStr20 = Emp String ByStr20
+  field services__: Map String Endpoint = Emp String Endpoint
+  
+  field document_hash: ByStr = zero_bystr
+  
+  (* The block number when the DID Create operation occurred *)
+  field did_created_: BNum = BNum 0
+  
+  (* The block number when the last DID CRUD operation occurred *)  
+  field ledger_time_: BNum = BNum 0
+  
+  (* A monotonically increasing number representing the amount of DID CRUD transactions that have taken place *)
+  field crud_tx_number_: Uint128 = zero
+
+  (* Tyron Pungtas Funds @key: ID, e.g. "psc", "education" @value: Pair address balance *)
+  field fund: Map String ( Pair ByStr20 Uint128 ) = Emp String ( Pair ByStr20 Uint128 )
+  
+  (* SSI domains: "tyron", did", "coop", ssi", "mapu" *)
+  
+  (* Tyron smart contracts' code by version @key: SSI domain @value: map of version number & hex-encoded code *)
+  field tyron_code: Map String ( Map String String ) = Emp String ( Map String String )
+  
+  (* DNS records @key: SSI domain @value: map of username & address *)
   field dns: Map String ( Map String ByStr20 ) = Emp String ( Map String ByStr20 )
 
-  (* DNS fees
-  @key: domain (e.g. "ssi", "did", "agent", "mapu", "tyron")
-  @value: pair of purchase fee (in $ZIL) and transfer fee (as a percentage of transfer price) *)
-  field domain_fee: Map String Pair Uint128 Uint128 = Emp String Pair Uint128 Uint128
-  
-  (* Dapp records
-  @key: implementation address
-  @value: proxy address *)
-  field records: Map ByStr20 ByStr20 = Emp ByStr20 ByStr20
-  (* upgrade record to did service *)
-  
-  (* Implementation records
-  @key: proxy address
-  @value: implementation address *)
-  field implementations: Map ByStr20 ByStr20 = Emp ByStr20 ByStr20
-  
+  (* Fees of the profit-sharing community @key: ID, e.g. SSI domain or agent's ID @value: fee in $ZIL *)
+  field psc_fee: Map String Uint128 = Emp String Uint128
+
+(* The DID backbone *)
+
 procedure ThrowError( err: Error )
-  e = make_error err; throw e
-end
+  e = make_error err; throw e end
 
-procedure VerifyCaller( addr: ByStr20 )
-  is_correct = builtin eq addr _sender;
-  match is_correct with
+procedure IsOperational()
+  did_status <- did_status_;
+  match did_status with
+  | Deactivated => err = CodeWrongStatus; ThrowError err
+  | _ => end end
+
+procedure VerifyAdmin()
+  current_admin <- admin_;
+  verified = builtin eq current_admin _sender;
+  match verified with
   | True =>
-  | False => err = CodeWrongCaller; ThrowError err
+  | False => err= CodeNotAdmin; ThrowError err end end
+
+transition UpdateAdmin( addr: ByStr20 )
+  IsOperational; VerifyAdmin; admin_ := addr end
+
+(* Verify Schnorr signature - signed data must correspond with a DID Key *)
+procedure VerifySignature(
+  id: String,
+  signedData: ByStr,
+  signature: ByStr64
+  )
+  get_did_key <- verification_methods_[id];
+  is_right_signature = let did_key = option_bystr33_value get_did_key in builtin schnorr_verify did_key signedData signature;
+  match is_right_signature with
+    | True =>
+    | False => err = CodeWrongSignature; ThrowError err end end
+
+procedure ThrowIfNoKey( optKey: Option ByStr33 )
+  match optKey with
+  | Some key =>
+  | None => err = CodeUndefinedKey; ThrowError err end end
+
+procedure ThrowIfSameKey(
+  key: ByStr33,
+  sndKey: ByStr33
+  )
+  is_same_key = builtin eq key sndKey;
+  match is_same_key with
+  | True => err= CodeSameKey; ThrowError err
+  | False => end end
+
+procedure VerifyDIDkeys(
+  operation: Operation,
+  didRecovery: ByStr33,
+  didUpdate: ByStr33
+  )
+  get_update_key <- verification_methods_[update]; new_update = option_bystr33_value get_update_key;
+  match operation with
+  | Recovery =>
+      get_recovery_key <- verification_methods_[recovery]; new_recovery = option_bystr33_value get_recovery_key;
+      ThrowIfSameKey new_recovery new_update;
+      ThrowIfSameKey new_recovery didRecovery; ThrowIfSameKey new_recovery didUpdate; ThrowIfSameKey new_update didRecovery; ThrowIfSameKey new_update didUpdate
+  | Update => ThrowIfSameKey new_update didUpdate; ThrowIfSameKey new_update didRecovery end end
+
+procedure Timestamp()
+  current_block <- &BLOCKNUMBER; ledger_time_ := current_block;
+  latest_tx_number <- crud_tx_number_;
+  new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor; crud_tx_number_ := new_tx_number
+end
+
+procedure SaveDocument( document: Document )
+  match document with
+  | VerificationMethod action purpose key =>
+      match action with
+      | Add => verification_methods_[purpose] := key
+      | Remove => err = CodeNotValid; ThrowError err end
+  | Service action id endpoint =>
+      match action with
+      | Add =>
+          match endpoint with
+          | Address addr => services_[id] := addr
+          | Uri eType protocol uri => services__[id] := endpoint end
+      | Remove => err = CodeNotValid; ThrowError err end end end
+
+transition DidCreate(
+  document: List Document,
+  signature: Option ByStr64
+  )
+  did_status <- did_status_;
+  match did_status with
+  | Deployed =>
+    VerifyAdmin;
+    new_did = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address 
+      in builtin concat did_prefix did_suffix; did_ := new_did;
+    forall document SaveDocument;
+    get_recovery_key <- verification_methods_[recovery]; ThrowIfNoKey get_recovery_key; did_recovery = option_bystr33_value get_recovery_key;
+    get_update_key <- verification_methods_[update]; ThrowIfNoKey get_update_key; did_update = option_bystr33_value get_update_key;
+    ThrowIfSameKey did_recovery did_update;
+    new_status = Created; did_status_ := new_status;
+    current_block <- &BLOCKNUMBER; did_created_ := current_block; Timestamp
+  | _ => err = CodeWrongStatus; ThrowError err
   end
 end
 
-transition UpdateAdmin( newAdmin: ByStr20 )
-  current_admin <- admin; VerifyCaller current_admin;
-  admin := newAdmin
+procedure UpdateDocument( document: Document )
+  match document with
+  | VerificationMethod action purpose key =>
+      key_exists <- exists verification_methods_[purpose];
+      match action with
+      | Add =>
+          match key_exists with
+          | True => err = CodeNotValid; ThrowError err
+          | False => verification_methods_[purpose] := key end
+      | Remove =>
+          match key_exists with
+          | True => delete verification_methods_[purpose]
+          | False => err = CodeNotValid; ThrowError err end end
+  | Service action id endpoint =>
+      service_exists <- exists services_[id];
+      match action with
+      | Add =>
+          match service_exists with
+          | True => err = CodeNotValid; ThrowError err
+          | False => 
+              match endpoint with
+              | Address addr => services_[id] := addr
+              | Uri eType protocol uri => services__[id] := endpoint end end
+      | Remove =>
+          match service_exists with
+          | True => delete services_[id]
+          | False => err = CodeNotValid; ThrowError err end end end end
+
+procedure ValidateDocument(
+  operation: Operation,
+  document: List Document
+  )
+  match operation with
+  | Recovery => forall document SaveDocument
+  | Update => forall document UpdateDocument
+  end
 end
 
-transition UpdateTreasuryAddr( newAddr: ByStr20 )
-  current_admin <- admin; VerifyCaller current_admin;
-  treasury := newAddr;
-  e = {
-    _eventname: "TreasuryAddressUpdated";
-    newAddress: newAddr
-  }; event e
-end
-  
+procedure HashDocument( document: Document )
+  doc_hash <- document_hash;
+  match document with
+  | VerificationMethod action purpose key =>
+      match action with
+      | Add =>
+          hash = let h1 = builtin sha256hash actionAdd 
+            in let h2 = builtin sha256hash purpose
+            in let h3 = builtin sha256hash key
+            in let h1_2 = builtin concat h1 h2
+            in builtin concat h1_2 h3;
+          doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
+          document_hash := doc_hash_
+      | Remove =>
+          hash = let h1 = builtin sha256hash actionRemove
+            in let h2 = builtin sha256hash purpose
+            in builtin concat h1 h2;
+          doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
+          document_hash := doc_hash_
+      end
+  | Service action id endpoint =>
+      match action with
+      | Add =>
+          match endpoint with
+          | Uri eType transfer uri =>
+              hash = let h1 = builtin sha256hash actionAdd
+              in let h2 = builtin sha256hash id
+              in let h3 = builtin sha256hash uri
+              in let h1_2 = builtin concat h1 h2
+              in builtin concat h1_2 h3;
+              doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
+              document_hash := doc_hash_
+          | Address addr =>
+              hash = let h1 = builtin sha256hash actionAdd
+              in let h2 = builtin sha256hash id
+              in let h3 = builtin sha256hash addr
+              in let h1_2 = builtin concat h1 h2
+              in builtin concat h1_2 h3;
+              doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
+              document_hash := doc_hash_
+          end
+      | Remove =>
+          hash = let h1 = builtin sha256hash actionRemove
+          in let h2 = builtin sha256hash id
+          in builtin concat h1 h2;
+          doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
+          document_hash := doc_hash_ end end end
+
+procedure VerifyDocument(
+  operation: Operation,
+  document: List Document,
+  signature: Option ByStr64
+  )
+  document_hash := zero_bystr;
+  forall document HashDocument;
+  doc_hash <- document_hash;
+  sig = option_bystr64_value signature;
+  id = match operation with
+  | Recovery => recovery
+  | Update => update
+  end;
+  VerifySignature id doc_hash sig;
+  ValidateDocument operation document end
+
+transition DidRecover(
+  document: List Document,
+  signature: Option ByStr64
+  )
+  IsOperational; VerifyAdmin;
+  get_recovery_key <- verification_methods_[recovery]; did_recovery = option_bystr33_value get_recovery_key;
+  get_update_key <- verification_methods_[update]; did_update = option_bystr33_value get_update_key;
+  VerifyDocument didRecovery document signature;
+  VerifyDIDkeys didRecovery did_recovery did_update;
+  new_status = Recovered; did_status_ := new_status; Timestamp end
+
+transition DidUpdate(
+  document: List Document,
+  signature: Option ByStr64
+  )
+  IsOperational; VerifyAdmin;
+  get_recovery_key <- verification_methods_[recovery]; did_recovery = option_bystr33_value get_recovery_key;
+  get_update_key <- verification_methods_[update]; did_update = option_bystr33_value get_update_key;
+  VerifyDocument didUpdate document signature;
+  VerifyDIDkeys didUpdate did_recovery did_update;
+  new_status = Updated; did_status_ := new_status; Timestamp end
+
+transition DidDeactivate(
+  document: List Document,
+  signature: Option ByStr64
+  ) 
+  IsOperational; VerifyAdmin;
+  VerifyDocument didRecovery document signature;
+  deactivated_methods = Emp String ByStr33; verification_methods_ := deactivated_methods;
+  deactivated_services = Emp String ByStr20; services_ := deactivated_services;
+  deactivated_services_ = Emp String Endpoint; services__ := deactivated_services_;
+  new_status = Deactivated; did_status_ := new_status; Timestamp end
+
+
+(* The init.tyron contract *)
+
 (* Publish .tyron code *)
-transition SetCode( tyron: Code )
-  current_admin <- admin; VerifyCaller current_admin;
-  match tyron with
-  | Code domain version_code  =>
-      version = let fst_element = @fst Uint128 String in fst_element version_code;
-      code = let snd_element = @snd Uint128 String in snd_element version_code;
-      tyron_code[domain][version] := code;
-      e = {
-        _eventname: "TyronCodeUpdated";
-        domain: domain;
-        version: version;
-        code: code
-      }; event e
-  end
-end
-
-transition UpdateDomainFee(
+transition SetCode( 
   domain: String,
-  fee: Pair Uint128 Uint128
-)
-  current_admin <- admin; VerifyCaller current_admin;
-  domain_fee[domain] := fee
+  version: String,
+  code: String
+  )
+  VerifyAdmin;
+  tyron_code[domain][version] := code;
+  e = { _eventname: "TyronCodeUpdated";
+    domain: domain;
+    version: version;
+    code: code
+  }; event e end
+
+procedure IncreaseFunds( id: String )
+  accept;
+  get_fund <- fund[id]; addr = fund_addr get_fund; balance = fund_balance get_fund;
+  not_registered = builtin eq addr zeroByStr20;
+  match not_registered with
+  | True => err = CodeNotValid; ThrowError err
+  | False =>
+      updated_fund = let new_balance = builtin add balance _amount
+      in Pair{ ByStr20 Uint128 } addr new_balance; fund[id] := updated_fund end end
+
+(* Receive $ZIL native funds *)
+transition AddFunds( id: String )
+  IsOperational; IncreaseFunds id end
+
+(* Withdraw $ZIL to the profit-sharing community *)
+transition WithdrawFunds(
+  id: String,   (* psc, development, education funds or agent id *)
+  amount: Uint128
+  )
+  IsOperational;
+  get_fund <- fund[id]; addr = fund_addr get_fund; balance = fund_balance get_fund;
+  is_sender = builtin eq addr _sender;
+  match is_sender with
+  | False => err = CodeWrongCaller; ThrowError err
+  | True =>
+      sufficient_funds = uint128_ge balance amount;
+      match sufficient_funds with
+      | True =>
+          new_balance = builtin sub balance amount;
+          updated_fund = Pair{ ByStr20 Uint128 } addr new_balance; fund[id] := updated_fund;
+          msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: amount } in one_msg m; send msg
+      | False => err = CodeInsufficientFunds; ThrowError err end end end
+
+transition UpdateFundAddr(
+  id: String,
+  newAddr: ByStr20
+  )
+  VerifyAdmin;
+  get_fund <- fund[id]; balance = fund_balance get_fund;
+  updated_fund = Pair{ ByStr20 Uint128 } newAddr balance; fund[id] := updated_fund;
+  e = { _eventname: "FundAddressUpdated";
+    id: id;
+    newAddress: newAddr
+  }; event e end
+
+transition UpdatePSCFee(
+  id: String,
+  fee: Uint128
+  )
+  VerifyAdmin; psc_fee[id] := fee end
+
+procedure AddAgent(
+  username: String,
+  addr: ByStr20
+  )
+  taken <- exists fund[username];
+  match taken with
+  | True => err = CodeDomainTaken; ThrowError err
+  | False => new_agent = Pair{ ByStr20 Uint128 } addr zero; fund[username] := new_agent end
 end
 
 transition BuyDomainNameNFT( userDomain: Pair String String )
@@ -184,36 +479,46 @@ transition BuyDomainNameNFT( userDomain: Pair String String )
   domain = let snd_element = @snd String String in snd_element userDomain;
   taken <- exists dns[domain][username];
   match taken with
-  | True => err= CodeDomainTaken; ThrowError err
+  | True => err = CodeDomainTaken; ThrowError err
   | False => 
-      get_fee <- domain_fee[domain];
+      get_fee <- psc_fee[domain];
       match get_fee with
       | None => err = CodeNotValid; ThrowError err
       | Some fee =>
-          p_fee = let fst_element = @fst Uint128 Uint128 in fst_element fee;
-          is_enough = builtin lt p_fee _amount;
+          is_enough = uint128_ge _amount fee;
           match is_enough with
           | True =>
-              accept;
-              refund = builtin sub _amount p_fee;
+              IncreaseFunds psc;
+              refund = builtin sub _amount fee;
               is_zero_refund = builtin eq refund zero;
               match is_zero_refund with
               | True =>
               | False =>
-                msg = let m = {
-                  _tag: "AddFunds";
-                  _recipient: _sender;
-                  _amount: refund
-                } in one_msg m; send msg
+                  msg = let m = { _tag: "AddFunds"; _recipient: _sender; _amount: refund } in one_msg m; send msg
+              end;
+              is_agent = builtin eq domain agent;
+              match is_agent with
+              | True => AddAgent username _sender
+              | False =>
               end;
               dns[domain][username] := _sender
-          | False => err = CodeInsufficientFunds; ThrowError err
-          end
-      end
-  end
-end
+          | False => err = CodeInsufficientFunds; ThrowError err end end end end
 
-transition TransferDomainNameNFT( userDomain: Pair String String )
+procedure UpdateAgentAddr(
+  username: String,
+  newAddr: ByStr20
+  )
+  get_fund <- fund[username]; addr = fund_addr get_fund; balance = fund_balance get_fund;
+  updated_fund = Pair{ ByStr20 Uint128 } newAddr balance; fund[username] := updated_fund;
+  e = { _eventname: "AgentAddressUpdated";
+    username: username;
+    newAddress: newAddr
+  }; event e end
+
+transition TransferDomainNameNFT(
+  userDomain: Pair String String,
+  newAddr: ByStr20
+  )
   username = let fst_element = @fst String String in fst_element userDomain;
   domain = let snd_element = @snd String String in snd_element userDomain;
   get_owner <- dns[domain][username];
@@ -223,46 +528,29 @@ transition TransferDomainNameNFT( userDomain: Pair String String )
       match is_sender with
       | False => err = CodeWrongCaller; ThrowError err
       | True =>
-          is_zero = builtin eq _amount zero;
-          match is_zero with
-          | True => err = CodeNotValid; ThrowError err
-          | False =>
-              get_fee <- domain_fee[domain];
-              match get_fee with
-              | None => err = CodeNotValid; ThrowError err
-              | Some fee =>
-                  t_fee = let snd_element = @snd Uint128 Uint128 in snd_element fee;
-                  psc_fee = let percent = builtin div _amount hundred in builtin mul t_fee percent;
-                  current_treasury <- treasury;
-                  (* upgrade to verify that the data got signed by the beneficiary's DID*)
-                  accept; msg_to_psc = {
-                      _tag: "AddFunds"; _recipient: current_treasury; _amount: psc_fee
-                  };
-                  payment = builtin sub _amount psc_fee;
-                  msg_to_owner = {
-                    _tag: "AddFunds";
-                    _recipient: owner;
-                    _amount: payment
-                  };
-                  msgs = two_msgs msg_to_psc msg_to_owner; send msgs;
-                  dns[domain][username] := _sender (* upgrade *)
+          get_fee <- psc_fee[domain];
+          match get_fee with
+          | None => err = CodeNotValid; ThrowError err
+          | Some fee =>
+              is_enough = builtin lt fee _amount;
+              match is_enough with
+              | True =>
+                  IncreaseFunds psc;
+                  refund = builtin sub _amount fee;
+                  is_zero_refund = builtin eq refund zero;
+                  match is_zero_refund with
+                  | True =>
+                  | False =>
+                    msg = let m = { _tag: "AddFunds"; _recipient: _sender; _amount: refund } in one_msg m; send msg
+                  end;
+                  is_agent = builtin eq domain agent;
+                  match is_agent with
+                  | True => UpdateAgentAddr username newAddr
+                  | False =>
+                  end;
+                  dns[domain][username] := newAddr
+              | False => err = CodeInsufficientFunds; ThrowError err
               end
-          end  
+          end
       end
-  | None => err= CodeNotValid; ThrowError err
-  end
-end
-
-(* Sets proxy and implementation addresses of a token *)
-transition SetRecord(
-  proxyAddr: ByStr20,
-  implAddr: ByStr20
-  )
-  current_admin <- admin; VerifyCaller current_admin;
-  records[implAddr] := proxyAddr;
-  e = {
-    _eventname: "RecordUpdated";
-    proxyAddress: proxyAddr;
-    implementationAddress: implAddr
-  }; event e
-end
+  | None => err = CodeNotValid; ThrowError err end end

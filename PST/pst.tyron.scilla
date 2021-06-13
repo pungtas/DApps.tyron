@@ -52,7 +52,7 @@ library PST
   
   let option_uint128_value = let f = @option_value Uint128 in f zero
   
-  let option_account = let f = @option_value ( Pair Uint128 ( Pair Uint128 Bool )) in f zeroAccount
+  let option_account = let f = @option_value( Pair Uint128 ( Pair Uint128 Bool )) in f zeroAccount
     
   let account_balance = fun( getAccount: Option( Pair Uint128 ( Pair Uint128 Bool ))) =>
     let account = option_account getAccount
