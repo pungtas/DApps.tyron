@@ -1,4 +1,4 @@
-(* v0.8.0 
+(* v0.9.0
 DIDxWallet.tyron: decentralized identifier smart wallet.
 Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -16,7 +16,7 @@ GNU General Public License for more details.*)
 
 scilla_version 0
 
-import PairUtils
+import PairUtils BoolUtils
 
 library DIDxWallet
 
@@ -28,6 +28,7 @@ library DIDxWallet
     | Updated
     | Recovered
     | Deactivated
+    | Locked
 
   type Operation =
     | Recovery
@@ -79,6 +80,7 @@ library DIDxWallet
     | CodeUndefinedKey
     | CodeSameKey
     | CodeNotValid
+    | CodeDidLocked
  
   let make_error = fun( error: Error ) =>
     let result = match error with
@@ -89,6 +91,7 @@ library DIDxWallet
     | CodeUndefinedKey           => Int32 -5
     | CodeSameKey                => Int32 -6
     | CodeNotValid               => Int32 -7
+    | CodeDidLocked              => Int32 -8
     end in { _exception: "Error"; code: result }
   
   let zero = Uint128 0
@@ -116,10 +119,11 @@ library DIDxWallet
   let crud = "crud"
   let stakezil = "stakezil"
   let zilswap = "zilswap"
+  let xorder = "xorder"
   let fifteen_min = Uint128 21
   let one_hundred = Uint128 100
   let fixed = None{ Uint128 }
-    
+
 contract DIDxWallet(
   initAdmin: ByStr20,
   init_tyron: ByStr20 with contract field services_: Map String ByStr20, field dns: Map String ( Map String ByStr20 ), field psc_fee: Map String Uint128 end
@@ -164,6 +168,7 @@ procedure IsOperational()
   did_status <- did_status_;
   match did_status with
   | Deactivated => err = CodeWrongStatus; ThrowError err
+  | Locked => err = CodeDidLocked; ThrowError err
   | _ => end end
 
 procedure VerifyAdmin()
@@ -204,7 +209,7 @@ transition EnableSocialRecovery(
   addr1: ByStr20 with contract field verification_methods_: Map String ByStr33 end,
   addr2: ByStr20 with contract field verification_methods_: Map String ByStr33 end
   )
-  IsOperational; VerifyAdmin; Payment education fixed;
+  IsOperational; VerifyAdmin; Payment update fixed;
   recoverers = let sr = Pair{ ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end } addr1 addr2
     in Some{( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )} sr;
   social_recovery_ := recoverers end
@@ -214,55 +219,67 @@ transition UpdateSocialRecoverer(
   addr: ByStr20 with contract field verification_methods_: Map String ByStr33 end
   )
   IsOperational; VerifyAdmin; Payment update fixed;
-  get_sr <- social_recovery_;
-  match get_sr with
-  | Some sr =>
+  social_recovery <- social_recovery_;
+  match social_recovery with
+  | Some recoverers =>
       match recoverer with
       | First =>
-          sr2addr = let snd_element = @snd ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end in snd_element sr;
+          sr2addr = let snd_element = @snd ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end in snd_element recoverers;
           updated_sr = let sr = Pair{ ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end } addr sr2addr
            in Some{( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )} sr;
           social_recovery_ := updated_sr
       | Second =>
-          sr1addr = let fst_element = @fst ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end in fst_element sr;
+          sr1addr = let fst_element = @fst ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end in fst_element recoverers;
           updated_sr = let sr = Pair{ ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end } sr1addr addr
            in Some{( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )} sr;
           social_recovery_ := updated_sr end
   | None => err = CodeNotValid; ThrowError err end end
 
+transition Lock()
+  IsOperational; VerifyAdmin; Payment update fixed; 
+  social_recovery <- social_recovery_;
+  match social_recovery with
+  | Some recoverers =>
+  | None => err = CodeNotValid; ThrowError err end;
+  locked = Locked; did_status_ := locked end
+  
 transition SocialRecovery( 
   addr: ByStr20 with contract field verification_methods_: Map String ByStr33 end,
   signature1: ByStr64,
   signature2: ByStr64
   )
-  IsOperational; Payment didsr fixed;
-  current_agent <- agent; is_agent = builtin eq current_agent _sender;
-  match is_agent with
-  | True =>
-      signed_data = builtin to_bystr addr;
-      get_sr <- social_recovery_;
-      match get_sr with
-      | Some sr =>
-          sr1addr = let fst_element = @fst
-            ByStr20 with contract field verification_methods_: Map String ByStr33 end
-            ByStr20 with contract field verification_methods_: Map String ByStr33 end
-          in fst_element sr;
-          get_sr1key <-& sr1addr.verification_methods_[didsr]; did_sr1key = option_bystr33_value get_sr1key;
-          is_right_sr1signature = builtin schnorr_verify did_sr1key signed_data signature1;
-          match is_right_sr1signature with
+  did_status <- did_status_;
+  match did_status with
+  | Deactivated => err = CodeWrongStatus; ThrowError err
+  | _ => end;
+  Payment didsr fixed;
+  signed_data = builtin to_bystr addr;
+  social_recovery <- social_recovery_;
+  match social_recovery with
+  | Some recoverers =>
+      recoverer1addr = let fst_element = @fst
+        ByStr20 with contract field verification_methods_: Map String ByStr33 end
+        ByStr20 with contract field verification_methods_: Map String ByStr33 end
+      in fst_element recoverers;
+      recoverer2addr = let snd_element = @snd
+        ByStr20 with contract field verification_methods_: Map String ByStr33 end
+        ByStr20 with contract field verification_methods_: Map String ByStr33 end
+      in snd_element recoverers;
+      is_recoverer = let is_recoverer1 = builtin eq recoverer1addr _sender in let is_recoverer2 = builtin eq recoverer2addr _sender in orb is_recoverer1 is_recoverer2;
+      match is_recoverer with
+      | True =>
+      | False => err = CodeWrongCaller; ThrowError err end;
+      get_recoverer1key <-& recoverer1addr.verification_methods_[didsr]; did_sr1key = option_bystr33_value get_recoverer1key;
+      is_right_signature1 = builtin schnorr_verify did_sr1key signed_data signature1;
+      match is_right_signature1 with
+      | True =>
+          get_recoverer2key <-& recoverer2addr.verification_methods_[didsr]; did_sr2key = option_bystr33_value get_recoverer2key;
+          is_right_signature2 = builtin schnorr_verify did_sr2key signed_data signature2;
+          match is_right_signature2 with
           | True =>
-              sr2addr = let snd_element = @snd
-                ByStr20 with contract field verification_methods_: Map String ByStr33 end
-                ByStr20 with contract field verification_methods_: Map String ByStr33 end
-              in snd_element sr;
-              get_sr2key <-& sr2addr.verification_methods_[didsr]; did_sr2key = option_bystr33_value get_sr2key;
-              is_right_sr2signature = builtin schnorr_verify did_sr2key signed_data signature2;
-              match is_right_sr2signature with
-              | True =>
-              | False => err = CodeWrongSignature; ThrowError err end
           | False => err = CodeWrongSignature; ThrowError err end
-      | None => err = CodeNotValid; ThrowError err end
-  | False => err = CodeWrongCaller; ThrowError err end;
+      | False => err = CodeWrongSignature; ThrowError err end
+  | None => err = CodeNotValid; ThrowError err end;
   admin_ := addr end
 
 transition BuyDomainNameNFT( username: String )
@@ -571,19 +588,17 @@ procedure VerifyCaller(
           | Some sig =>
               match data with
               | Data id addrName sndAddrName amt sndAmt trdAmt =>
-                  signed_data = let h1 = builtin sha256hash id 
-                  in let h2 = builtin sha256hash addrName
-                  in let h3 = builtin sha256hash sndAddrName
-                  in let h4 = builtin sha256hash amt
-                  in let h5 = builtin sha256hash sndAmt
-                  in let h6 = builtin sha256hash trdAmt
+                  signed_data = let h1 = builtin sha256hash addrName
+                  in let h2 = builtin sha256hash sndAddrName
+                  in let h3 = builtin sha256hash amt
+                  in let h4 = builtin sha256hash sndAmt
+                  in let h5 = builtin sha256hash trdAmt
                   in let h1_2 = builtin concat h1 h2
                   in let h1__3 = builtin concat h1_2 h3
                   in let h1__4 = builtin concat h1__3 h4
                   in let h1__5 = builtin concat h1__4 h5
-                  in let h1__6 = builtin concat h1__5 h6
-                  in builtin to_bystr h1__6;
-                  VerifySignature id signed_data sig end end
+                  in builtin to_bystr h1__5;
+                  VerifySignature xorder signed_data sig end end
       | False => err = CodeWrongCaller; ThrowError err end end end
 
 transition AddLiquidity(
@@ -691,11 +706,11 @@ transition DelegateStake(
   match data with
   | Data id ssnName sndAddrName amt sndAmt trdAmt =>
       FetchServiceAddr ssnName; get_ssnaddr <- service_addr[ssnName]; ssnaddr = option_bystr20_value get_ssnaddr;
-      amount = Some{ Uint128 } amt; Payment stakezil amount;
+      amount_ = Some{ Uint128 } amt; Payment stakezil amount_;
       current_agent <- agent; is_agent = builtin eq current_agent ssnaddr;
       match is_agent with
       | True =>
-      | False => Payment id amount end;
+      | False => Payment id amount_ end;
       accept; msg = let m = { _tag: "DelegateStake"; _recipient: addr; _amount: amt;
         ssnaddr: ssnaddr } in one_msg m; send msg end end
 
