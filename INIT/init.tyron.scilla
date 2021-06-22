@@ -1,19 +1,18 @@
-(*
-  INIT.tyron: SSI initialization & DNS smart contract.
-  Self-Sovereign Identity Protocol.
-  Copyright (C) Tyron Pungtas and its affiliates.
-  www.ssiprotocol.com
+(* v1.1.0
+INIT.tyron: SSI initialization & DNS smart contract.
+Self-Sovereign Identity Protocol.
+Copyright (C) Tyron Pungtas and its affiliates.
+www.ssiprotocol.com
 
-  This program is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-  This program is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-*)
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.*)
 
 scilla_version 0
 
@@ -70,6 +69,7 @@ library INIT_tyron
     | CodeNotAdmin
     | CodeWrongCaller
     | CodeWrongSignature
+    | CodeUndefinedKey
     | CodeSameKey
     | CodeNotValid
     | CodeDomainTaken
@@ -81,10 +81,11 @@ library INIT_tyron
     | CodeNotAdmin               => Int32 -2
     | CodeWrongCaller            => Int32 -3
     | CodeWrongSignature         => Int32 -4
-    | CodeSameKey                => Int32 -5
-    | CodeNotValid               => Int32 -6
-    | CodeDomainTaken            => Int32 -7
-    | CodeInsufficientFunds      => Int32 -8
+    | CodeUndefinedKey           => Int32 -5
+    | CodeSameKey                => Int32 -6
+    | CodeNotValid               => Int32 -7
+    | CodeDomainTaken            => Int32 -8
+    | CodeInsufficientFunds      => Int32 -9
     end in { _exception: "Error"; code: result }
     
   let zero = Uint128 0
@@ -127,7 +128,6 @@ contract INIT_tyron(
   field admin_: ByStr20 = initAdmin
   field did_: String = ""    (* the decentralized identifier *)
   field did_status_: DIDstatus = Deployed
-  
 
   (* Verification methods @key: ID (key purpose) @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
   field verification_methods_: Map String ByStr33 = Emp String ByStr33
@@ -396,7 +396,6 @@ transition DidDeactivate(
   deactivated_services_ = Emp String Endpoint; services__ := deactivated_services_;
   new_status = Deactivated; did_status_ := new_status; Timestamp end
 
-
 (* The init.tyron contract *)
 
 (* Publish .tyron code *)
@@ -463,6 +462,20 @@ transition UpdatePSCFee(
   fee: Uint128
   )
   VerifyAdmin; psc_fee[id] := fee end
+  
+procedure PremiumDomainNameNFT_( premium: Pair String String )
+  domain = let fst_element = @fst String String in fst_element premium;
+  username = let snd_element = @snd String String in snd_element premium;
+  taken <- exists dns[domain][username];
+  match taken with
+  | True => err = CodeDomainTaken; ThrowError err
+  | False => current_admin <- admin_; dns[domain][username] := current_admin end end
+  
+transition PremiumDomainNameNFT(
+  premium: List( Pair String String )
+  )
+  IsOperational; VerifyAdmin;
+  forall premium PremiumDomainNameNFT_ end
 
 procedure AddAgent(
   username: String,
@@ -474,14 +487,16 @@ procedure AddAgent(
   | False => new_agent = Pair{ ByStr20 Uint128 } addr zero; fund[username] := new_agent end
 end
 
-transition BuyDomainNameNFT( userDomain: Pair String String )
-  username = let fst_element = @fst String String in fst_element userDomain;
-  domain = let snd_element = @snd String String in snd_element userDomain;
-  taken <- exists dns[domain][username];
+transition BuyDomainNameNFT(
+  username: String,
+  domain: String
+  )
+  IsOperational; taken <- exists dns[domain][username];
   match taken with
   | True => err = CodeDomainTaken; ThrowError err
   | False => 
-      get_fee <- psc_fee[domain];
+      domain_ = domain;
+      get_fee <- psc_fee[domain_];
       match get_fee with
       | None => err = CodeNotValid; ThrowError err
       | Some fee =>
@@ -494,13 +509,11 @@ transition BuyDomainNameNFT( userDomain: Pair String String )
               match is_zero_refund with
               | True =>
               | False =>
-                  msg = let m = { _tag: "AddFunds"; _recipient: _sender; _amount: refund } in one_msg m; send msg
-              end;
+                  msg = let m = { _tag: "AddFunds"; _recipient: _sender; _amount: refund } in one_msg m; send msg end;
               is_agent = builtin eq domain agent;
               match is_agent with
               | True => AddAgent username _sender
-              | False =>
-              end;
+              | False => end;
               dns[domain][username] := _sender
           | False => err = CodeInsufficientFunds; ThrowError err end end end end
 
@@ -516,11 +529,10 @@ procedure UpdateAgentAddr(
   }; event e end
 
 transition TransferDomainNameNFT(
-  userDomain: Pair String String,
+  username: String,
+  domain: String,
   newAddr: ByStr20
   )
-  username = let fst_element = @fst String String in fst_element userDomain;
-  domain = let snd_element = @snd String String in snd_element userDomain;
   get_owner <- dns[domain][username];
   match get_owner with
   | Some owner =>
@@ -528,7 +540,8 @@ transition TransferDomainNameNFT(
       match is_sender with
       | False => err = CodeWrongCaller; ThrowError err
       | True =>
-          get_fee <- psc_fee[domain];
+          domain_ = domain;
+          get_fee <- psc_fee[domain_];
           match get_fee with
           | None => err = CodeNotValid; ThrowError err
           | Some fee =>
@@ -541,16 +554,11 @@ transition TransferDomainNameNFT(
                   match is_zero_refund with
                   | True =>
                   | False =>
-                    msg = let m = { _tag: "AddFunds"; _recipient: _sender; _amount: refund } in one_msg m; send msg
-                  end;
+                    msg = let m = { _tag: "AddFunds"; _recipient: _sender; _amount: refund } in one_msg m; send msg end;
                   is_agent = builtin eq domain agent;
                   match is_agent with
                   | True => UpdateAgentAddr username newAddr
-                  | False =>
-                  end;
+                  | False => end;
                   dns[domain][username] := newAddr
-              | False => err = CodeInsufficientFunds; ThrowError err
-              end
-          end
-      end
+              | False => err = CodeInsufficientFunds; ThrowError err end end end
   | None => err = CodeNotValid; ThrowError err end end
