@@ -1,4 +1,4 @@
-(* v0.9.0
+(* v0.9.3
 DIDxWallet.tyron: decentralized identifier smart wallet.
 Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -65,6 +65,9 @@ library DIDxWallet
   let didsr = "socialrecovery"
   let actionAdd = "add"
   let actionRemove = "remove"
+  let empty_methods = Emp String ByStr33
+  let empty_services = Emp String ByStr20
+  let empty_services_ = Emp String Endpoint
   
   let one_msg = fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
@@ -79,6 +82,7 @@ library DIDxWallet
     | CodeWrongSignature
     | CodeUndefinedKey
     | CodeSameKey
+    | CodeSameId
     | CodeNotValid
     | CodeDidLocked
  
@@ -90,8 +94,9 @@ library DIDxWallet
     | CodeWrongSignature         => Int32 -4
     | CodeUndefinedKey           => Int32 -5
     | CodeSameKey                => Int32 -6
-    | CodeNotValid               => Int32 -7
-    | CodeDidLocked              => Int32 -8
+    | CodeSameId                 => Int32 -8
+    | CodeNotValid               => Int32 -9
+    | CodeDidLocked              => Int32 -10
     end in { _exception: "Error"; code: result }
   
   let zero = Uint128 0
@@ -126,21 +131,21 @@ library DIDxWallet
 
 contract DIDxWallet(
   initAdmin: ByStr20,
-  init_tyron: ByStr20 with contract field services_: Map String ByStr20, field dns: Map String ( Map String ByStr20 ), field psc_fee: Map String Uint128 end
+  init_tyron: ByStr20 with contract field services_: Map String ByStr20, field dns: Map String ( Map String ByStr20 with contract field verification_methods_: Map String ByStr33 end ), field psc_fee: Map String Uint128 end
   )
   field admin_: ByStr20 = initAdmin
   field did_: String = ""    (* the decentralized identifier *)
   field did_status_: DIDstatus = Deployed
   
-  field init_: ByStr20 with contract field services_: Map String ByStr20, field dns: Map String ( Map String ByStr20 ), field psc_fee: Map String Uint128 end = init_tyron
+  field init_: ByStr20 with contract field services_: Map String ByStr20, field dns: Map String ( Map String ByStr20 with contract field verification_methods_: Map String ByStr33 end ), field psc_fee: Map String Uint128 end = init_tyron
   field agent: ByStr20 = initAdmin
 
   (* Verification methods @key: key purpose @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
-  field verification_methods_: Map String ByStr33 = Emp String ByStr33
+  field verification_methods_: Map String ByStr33 = empty_methods
   
   (* Services @key: ID @value: endpoint *)
-  field services_: Map String ByStr20 = Emp String ByStr20
-  field services__: Map String Endpoint = Emp String Endpoint
+  field services_: Map String ByStr20 = empty_services
+  field services__: Map String Endpoint = empty_services_
   field service_addr: Map String ByStr20 = Emp String ByStr20
   
   field document_hash: ByStr = zero_bystr
@@ -182,59 +187,78 @@ procedure Payment(
   id: String,
   amount: Option Uint128
   )
-  current_init <- init_;
-  get_fee <-& current_init.psc_fee[id]; fee = option_uint128_value get_fee;
+  init <- init_;
+  get_fee <-& init.psc_fee[id]; fee = option_uint128_value get_fee;
   is_zero = builtin eq fee zero;
   match is_zero with
   | True => err = CodeNotValid; ThrowError err
   | False => 
       match amount with
-      | None => accept; msg = let m = { _tag: "AddFunds"; _recipient: current_init; _amount: fee; id: id } in one_msg m; send msg
+      | None => accept; msg = let m = { _tag: "AddFunds"; _recipient: init; _amount: fee; id: id } in one_msg m; send msg
       | Some amt => 
           fee_ = let percent = builtin div amt one_hundred in builtin mul fee percent;
-          accept; msg = let m = { _tag: "AddFunds"; _recipient: current_init; _amount: fee_; id: id } in one_msg m; send msg end end end
+          accept; msg = let m = { _tag: "AddFunds"; _recipient: init; _amount: fee_; id: id } in one_msg m; send msg end end end
 
 transition UpdateAdmin( addr: ByStr20 )
   IsOperational; VerifyAdmin; Payment update fixed; admin_ := addr end
 
 transition UpdateInit(
-  addr: ByStr20 with contract field services_: Map String ByStr20, field dns: Map String ( Map String ByStr20 ), field psc_fee: Map String Uint128 end
+  addr: ByStr20 with contract field services_: Map String ByStr20, field dns: Map String ( Map String ByStr20 with contract field verification_methods_: Map String ByStr33 end ), field psc_fee: Map String Uint128 end
   )
   IsOperational; VerifyAdmin; Payment update fixed; init_ := addr end
 
-transition UpdateAgent( addr: ByStr20 with contract field verification_methods_: Map String ByStr33 end )
-  IsOperational; VerifyAdmin; Payment update fixed; agent := addr end
+transition UpdateAgent( addrName: String )
+  IsOperational; VerifyAdmin; Payment update fixed;
+  init <- init_; agent_ = "agent";
+  get_addr <-& init.dns[agent_][addrName]; addr = option_bystr20_value get_addr;
+  agent := addr end
 
 transition EnableSocialRecovery(
-  addr1: ByStr20 with contract field verification_methods_: Map String ByStr33 end,
-  addr2: ByStr20 with contract field verification_methods_: Map String ByStr33 end
+  recovererName: String,
+  recovererDomain: String,
+  sndRecovererName: String,
+  sndRecovererDomain: String
   )
   IsOperational; VerifyAdmin; Payment update fixed;
-  recoverers = let sr = Pair{ ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end } addr1 addr2
-    in Some{( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )} sr;
-  social_recovery_ := recoverers end
+  init <- init_;
+  get_addr <-& init.dns[recovererDomain][recovererName];
+  get_sndAddr <-& init.dns[sndRecovererDomain][sndRecovererName];
+  match get_addr with
+  | Some addr => match get_sndAddr with
+      | Some sndAddr =>
+          recoverers = let sr = Pair{ ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end } addr sndAddr
+            in Some{( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )} sr;
+          social_recovery_ := recoverers
+      | None => err = CodeNotValid; ThrowError err end
+  | None => err = CodeNotValid; ThrowError err end end
   
 transition UpdateSocialRecoverer(
   recoverer: Recoverer,
-  addr: ByStr20 with contract field verification_methods_: Map String ByStr33 end
+  recovererName: String,
+  recovererDomain: String
   )
   IsOperational; VerifyAdmin; Payment update fixed;
   social_recovery <- social_recovery_;
-  match social_recovery with
-  | Some recoverers =>
-      match recoverer with
-      | First =>
-          sr2addr = let snd_element = @snd ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end in snd_element recoverers;
-          updated_sr = let sr = Pair{ ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end } addr sr2addr
-           in Some{( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )} sr;
-          social_recovery_ := updated_sr
-      | Second =>
-          sr1addr = let fst_element = @fst ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end in fst_element recoverers;
-          updated_sr = let sr = Pair{ ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end } sr1addr addr
-           in Some{( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )} sr;
-          social_recovery_ := updated_sr end
+  init <- init_;
+  get_addr <-& init.dns[recovererDomain][recovererName];
+  match get_addr with
+  | Some addr =>
+      match social_recovery with
+      | Some recoverers =>
+          match recoverer with
+          | First =>
+              sr2addr = let snd_element = @snd ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end in snd_element recoverers;
+              updated_sr = let sr = Pair{ ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end } addr sr2addr
+               in Some{( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )} sr;
+              social_recovery_ := updated_sr
+          | Second =>
+              sr1addr = let fst_element = @fst ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end in fst_element recoverers;
+              updated_sr = let sr = Pair{ ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end } sr1addr addr
+               in Some{( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )} sr;
+              social_recovery_ := updated_sr end
+      | None => err = CodeWrongStatus; ThrowError err end
   | None => err = CodeNotValid; ThrowError err end end
-
+  
 transition Lock()
   IsOperational; VerifyAdmin; Payment update fixed; 
   social_recovery <- social_recovery_;
@@ -279,13 +303,13 @@ transition SocialRecovery(
           | True =>
           | False => err = CodeWrongSignature; ThrowError err end
       | False => err = CodeWrongSignature; ThrowError err end
-  | None => err = CodeNotValid; ThrowError err end;
+  | None => err = CodeWrongStatus; ThrowError err end;
   admin_ := addr end
 
 transition BuyDomainNameNFT( username: String )
-  IsOperational; VerifyAdmin; current_init <- init_;
-  get_fee <-& current_init.psc_fee[domain_]; fee = option_uint128_value get_fee;
-  accept; msg = let m = { _tag: "BuyDomainNameNFT"; _recipient: current_init; _amount: fee;
+  IsOperational; VerifyAdmin; init <- init_;
+  get_fee <-& init.psc_fee[domain_]; fee = option_uint128_value get_fee;
+  accept; msg = let m = { _tag: "BuyDomainNameNFT"; _recipient: init; _amount: fee;
     username: username;
     domain: domain_ } in one_msg m; send msg end
       
@@ -293,9 +317,9 @@ transition TransferDomainNameNFT(
   username: String,
   newAddr: ByStr20
   )
-  IsOperational; VerifyAdmin; current_init <- init_;
-  get_fee <-& current_init.psc_fee[domain_]; fee = option_uint128_value get_fee;
-  accept; msg = let m = { _tag: "TransferDomainNameNFT"; _recipient: current_init; _amount: fee;
+  IsOperational; VerifyAdmin; init <- init_;
+  get_fee <-& init.psc_fee[domain_]; fee = option_uint128_value get_fee;
+  accept; msg = let m = { _tag: "TransferDomainNameNFT"; _recipient: init; _amount: fee;
     username: username;
     domain: domain_;
     newAddr: newAddr } in one_msg m; send msg end
@@ -383,25 +407,31 @@ procedure UpdateDocument( document: Document )
       match action with
       | Add =>
           match key_exists with
-          | True => err = CodeNotValid; ThrowError err
+          | True =>
+              is_update = builtin eq purpose update;
+              match is_update with
+              | True => verification_methods_[update] := key
+              | False => err = CodeSameId; ThrowError err end
           | False => verification_methods_[purpose] := key end
       | Remove =>
           match key_exists with
           | True => delete verification_methods_[purpose]
           | False => err = CodeNotValid; ThrowError err end end
   | Service action id endpoint =>
-      service_exists <- exists services_[id];
+      is_service_ <- exists services_[id];
+      is_service__ <- exists services__[id];
+      service_exists = orb is_service_ is_service__;
       match action with
       | Add =>
           match service_exists with
-          | True => err = CodeNotValid; ThrowError err
+          | True => err = CodeSameId; ThrowError err
           | False => 
               match endpoint with
               | Address addr => services_[id] := addr
               | Uri eType protocol uri => services__[id] := endpoint end end
       | Remove =>
           match service_exists with
-          | True => delete services_[id]
+          | True => delete services_[id]; delete services__[id]
           | False => err = CodeNotValid; ThrowError err end end end end
 
 procedure ValidateDocument(
@@ -477,9 +507,14 @@ transition DidRecover(
   document: List Document,
   signature: Option ByStr64
   )
-  IsOperational; VerifyAdmin; Payment crud fixed;
+  did_status <- did_status_;
+  match did_status with
+  | Created => | Recovered => | Updated =>
+  | _ => err = CodeWrongStatus; ThrowError err end;
+  VerifyAdmin; Payment crud fixed;
   get_recovery_key <- verification_methods_[recovery]; did_recovery = option_bystr33_value get_recovery_key;
   get_update_key <- verification_methods_[update]; did_update = option_bystr33_value get_update_key;
+  verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
   VerifyDocument didRecovery document signature;
   VerifyDIDkeys didRecovery did_recovery did_update;
   new_status = Recovered; did_status_ := new_status; Timestamp end
@@ -488,7 +523,11 @@ transition DidUpdate(
   document: List Document,
   signature: Option ByStr64
   )
-  IsOperational; VerifyAdmin; Payment crud fixed;
+  did_status <- did_status_;
+  match did_status with
+  | Created => | Recovered => | Updated =>
+  | _ => err = CodeWrongStatus; ThrowError err end;
+  VerifyAdmin; Payment update fixed;
   get_recovery_key <- verification_methods_[recovery]; did_recovery = option_bystr33_value get_recovery_key;
   get_update_key <- verification_methods_[update]; did_update = option_bystr33_value get_update_key;
   VerifyDocument didUpdate document signature;
@@ -499,11 +538,13 @@ transition DidDeactivate(
   document: List Document,
   signature: Option ByStr64
   ) 
-  IsOperational; VerifyAdmin; Payment crud fixed;
+  did_status <- did_status_;
+  match did_status with
+  | Created => | Recovered => | Updated =>
+  | _ => err = CodeWrongStatus; ThrowError err end;
+  VerifyAdmin; Payment crud fixed;
   VerifyDocument didRecovery document signature;
-  deactivated_methods = Emp String ByStr33; verification_methods_ := deactivated_methods;
-  deactivated_services = Emp String ByStr20; services_ := deactivated_services;
-  deactivated_services_ = Emp String Endpoint; services__ := deactivated_services_;
+  verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
   new_status = Deactivated; did_status_ := new_status; Timestamp end
 
 (* Receive $ZIL native funds *)
@@ -518,14 +559,14 @@ transition SendFunds(
   IsOperational; VerifyAdmin; Payment education fixed;
   match beneficiary with
   | UserDomain username domain =>
-      current_init <- init_;
-      get_addr <-& current_init.dns[domain][username]; addr = option_bystr20_value get_addr;
+      init <- init_;
+      get_addr <-& init.dns[domain][username]; addr = option_bystr20_value get_addr;
       accept; msg = let m = { _tag: tag; _recipient: addr; _amount: _amount } in one_msg m; send msg
   | BeneficiaryAddr addr =>
       accept; msg = let m = { _tag: tag; _recipient: addr; _amount: _amount } in one_msg m; send msg end end
 
 procedure FetchServiceAddr( id: String )
-  current_init <- init_; get_service <-& current_init.services_[id]; addr = option_bystr20_value get_service; service_addr[id] := addr end
+  init <- init_; get_service <-& init.services_[id]; addr = option_bystr20_value get_service; service_addr[id] := addr end
 
 transition Transfer(
   addrName: String,
@@ -536,8 +577,8 @@ transition Transfer(
   FetchServiceAddr addrName; get_token_addr <- service_addr[addrName]; token_addr = option_bystr20_value get_token_addr;
   match beneficiary with
   | UserDomain username domain =>
-      current_init <- init_;
-      get_addr <-& current_init.dns[domain][username]; addr = option_bystr20_value get_addr;
+      init <- init_;
+      get_addr <-& init.dns[domain][username]; addr = option_bystr20_value get_addr;
       accept; msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
         to: addr;
         amount: amount } in one_msg m ; send msg
@@ -607,7 +648,7 @@ transition AddLiquidity(
   )
   IsOperational; VerifyCaller data signature;
   match data with
-  | Data id addrName sndAddrName amt sndAmt trdAmt =>
+  | Data id addrName none amt sndAmt none_ =>
       IncreaseAllowance addrName amt;
       get_zilswap <- service_addr[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
       get_addr <- service_addr[addrName]; addr = option_bystr20_value get_addr;
@@ -626,7 +667,7 @@ transition RemoveLiquidity(
   )
   IsOperational; VerifyCaller data signature;
   match data with
-  | Data id addrName sndAddrName amt sndAmt trdAmt =>
+  | Data id addrName none_ amt sndAmt trdAmt =>
       FetchServiceAddr zilswap; get_zilswap <- service_addr[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
       FetchServiceAddr addrName; get_addr <- service_addr[addrName]; addr = option_bystr20_value get_addr;
       current_block <- &BLOCKNUMBER; deadline <- deadline_block; this_deadline = builtin badd current_block deadline;
@@ -645,7 +686,7 @@ transition SwapExactZILForTokens(
   )
   IsOperational; VerifyCaller data signature;
   match data with
-  | Data id addrName sndAddrName amt sndAmt trdAmt =>
+  | Data id addrName none amt sndAmt none_ =>
     FetchServiceAddr zilswap; get_zilswap <- service_addr[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
     FetchServiceAddr addrName; get_addr <- service_addr[addrName]; addr = option_bystr20_value get_addr;
     current_block <- &BLOCKNUMBER; deadline <- deadline_block; this_deadline = builtin badd current_block deadline;
@@ -663,7 +704,7 @@ transition SwapExactTokensForZIL(
   )
   IsOperational; VerifyCaller data signature; Payment education fixed;
   match data with
-  | Data id addrName sndAddrName amt sndAmt trdAmt =>
+  | Data id addrName none amt sndAmt none_ =>
     IncreaseAllowance addrName amt;
     get_zilswap <- service_addr[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
     get_addr <- service_addr[addrName]; addr = option_bystr20_value get_addr;
@@ -682,11 +723,11 @@ transition SwapExactTokensForTokens(
   )
   IsOperational; VerifyCaller data signature; Payment education fixed;
   match data with
-  | Data id addrName sndAddrName amt sndAmt trdAmt =>
-    IncreaseAllowance addrName amt;
+  | Data id tokenName toTokenName amt sndAmt trdAmt =>
+    IncreaseAllowance tokenName amt;
     get_zilswap <- service_addr[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
-    get_addr <- service_addr[addrName]; addr = option_bystr20_value get_addr;
-    FetchServiceAddr sndAddrName; get_sndAddr <- service_addr[sndAddrName]; sndAddr = option_bystr20_value get_sndAddr;
+    get_addr <- service_addr[tokenName]; addr = option_bystr20_value get_addr;
+    FetchServiceAddr toTokenName; get_sndAddr <- service_addr[toTokenName]; sndAddr = option_bystr20_value get_sndAddr;
     current_block <- &BLOCKNUMBER; deadline <- deadline_block; this_deadline = builtin badd current_block deadline;
     accept; msg = let m = {
       _tag: "SwapExactTokensForTokens"; _recipient: zilswap_addr; _amount: zero;
@@ -723,7 +764,7 @@ transition WithdrawStakeRewards(
   IsOperational; VerifyCaller data signature;
   FetchServiceAddr stakezil; get_addr <- service_addr[stakezil]; addr = option_bystr20_value get_addr;
   match data with
-  | Data id ssnName sndAddrName amt sndAmt trdAmt =>
+  | Data id ssnName none none_ none__ none___ =>
       FetchServiceAddr ssnName; get_ssnaddr <- service_addr[ssnName]; ssnaddr = option_bystr20_value get_ssnaddr;
       Payment education fixed;
       current_agent <- agent; is_agent = builtin eq current_agent ssnaddr;
