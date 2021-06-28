@@ -1,4 +1,4 @@
-(* v0.9.4
+(* v0.9.5
 DIDxWallet.tyron: decentralized identifier smart wallet.
 Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -423,7 +423,9 @@ procedure ValidateDocument(
   document: List Document
   )
   match operation with
-  | Recovery => forall document SaveDocument
+  | Recovery => 
+      verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
+      forall document SaveDocument
   | Update => forall document UpdateDocument end end
 
 procedure HashDocument( document: Document )
@@ -498,7 +500,6 @@ transition DidRecover(
   VerifyAdmin; Payment crd fixed;
   get_recovery_key <- verification_methods_[recovery]; did_recovery = option_bystr33_value get_recovery_key;
   get_update_key <- verification_methods_[update]; did_update = option_bystr33_value get_update_key;
-  verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
   VerifyDocument didRecovery document signature;
   VerifyDIDkeys didRecovery did_recovery did_update;
   new_status = Recovered; did_status_ := new_status; Timestamp end
