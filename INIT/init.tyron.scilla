@@ -1,4 +1,4 @@
-(* v1.1.0
+(* v1.2.1
 INIT.tyron: SSI initialization & DNS smart contract.
 Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -16,7 +16,7 @@ GNU General Public License for more details.*)
 
 scilla_version 0
 
-import PairUtils IntUtils
+import PairUtils IntUtils BoolUtils
 
 library INIT_tyron
   
@@ -51,12 +51,13 @@ library INIT_tyron
   
   let didRecovery = Recovery
   let didUpdate = Update
-  let update = "update"
   let recovery = "recovery"
-  let didsr = "socialrecovery"
+  let update = "update"
   let actionAdd = "add"
   let actionRemove = "remove"
-  let psc = "psc"    (* profit-sharing community *)
+  let empty_methods = Emp String ByStr33
+  let empty_services = Emp String ByStr20
+  let empty_services_ = Emp String Endpoint
   
   let one_msg = fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
@@ -71,7 +72,9 @@ library INIT_tyron
     | CodeWrongSignature
     | CodeUndefinedKey
     | CodeSameKey
+    | CodeSameId
     | CodeNotValid
+    | CodeDidLocked
     | CodeDomainTaken
     | CodeInsufficientFunds
  
@@ -83,14 +86,15 @@ library INIT_tyron
     | CodeWrongSignature         => Int32 -4
     | CodeUndefinedKey           => Int32 -5
     | CodeSameKey                => Int32 -6
-    | CodeNotValid               => Int32 -7
-    | CodeDomainTaken            => Int32 -8
-    | CodeInsufficientFunds      => Int32 -9
+    | CodeSameId                 => Int32 -7
+    | CodeNotValid               => Int32 -8
+    | CodeDidLocked              => Int32 -9
+    | CodeDomainTaken            => Int32 -10
+    | CodeInsufficientFunds      => Int32 -11
     end in { _exception: "Error"; code: result }
     
   let zero = Uint128 0
   let zeroByStr20 = 0x0000000000000000000000000000000000000000
-  let zeroByStr32 = 0x0000000000000000000000000000000000000000000000000000000000000000
   let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
   let zeroByStr64 = 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
   let zero_bystr = builtin to_bystr zeroByStr20
@@ -98,8 +102,7 @@ library INIT_tyron
   let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
     match input with
     | Some v => v
-    | None => default
-    end
+    | None => default end
   let option_uint128_value = let f = @option_value Uint128 in f zero
   let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
   let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
@@ -109,7 +112,7 @@ library INIT_tyron
   
   type Code =
     | Code of String ( Pair Uint128 String )
-    
+
   let agent = "agent"
   let zeroFund = Pair{ ByStr20 Uint128 } zeroByStr20 zero
   let option_fund = let f = @option_value( Pair ByStr20 Uint128 ) in f zeroFund
@@ -129,12 +132,12 @@ contract INIT_tyron(
   field did_: String = ""    (* the decentralized identifier *)
   field did_status_: DIDstatus = Deployed
 
-  (* Verification methods @key: ID (key purpose) @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
-  field verification_methods_: Map String ByStr33 = Emp String ByStr33
+  (* Verification methods @key: key purpose @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
+  field verification_methods_: Map String ByStr33 = empty_methods
   
   (* Services @key: ID @value: endpoint *)
-  field services_: Map String ByStr20 = Emp String ByStr20
-  field services__: Map String Endpoint = Emp String Endpoint
+  field services_: Map String ByStr20 = empty_services
+  field services__: Map String Endpoint = empty_services_
   
   field document_hash: ByStr = zero_bystr
   
@@ -177,7 +180,7 @@ procedure VerifyAdmin()
   verified = builtin eq current_admin _sender;
   match verified with
   | True =>
-  | False => err= CodeNotAdmin; ThrowError err end end
+  | False => err = CodeNotAdmin; ThrowError err end end
 
 transition UpdateAdmin( addr: ByStr20 )
   IsOperational; VerifyAdmin; admin_ := addr end
@@ -191,8 +194,8 @@ procedure VerifySignature(
   get_did_key <- verification_methods_[id];
   is_right_signature = let did_key = option_bystr33_value get_did_key in builtin schnorr_verify did_key signedData signature;
   match is_right_signature with
-    | True =>
-    | False => err = CodeWrongSignature; ThrowError err end end
+  | True =>
+  | False => err = CodeWrongSignature; ThrowError err end end
 
 procedure ThrowIfNoKey( optKey: Option ByStr33 )
   match optKey with
@@ -224,8 +227,7 @@ procedure VerifyDIDkeys(
 procedure Timestamp()
   current_block <- &BLOCKNUMBER; ledger_time_ := current_block;
   latest_tx_number <- crud_tx_number_;
-  new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor; crud_tx_number_ := new_tx_number
-end
+  new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor; crud_tx_number_ := new_tx_number end
 
 procedure SaveDocument( document: Document )
   match document with
@@ -257,9 +259,7 @@ transition DidCreate(
     ThrowIfSameKey did_recovery did_update;
     new_status = Created; did_status_ := new_status;
     current_block <- &BLOCKNUMBER; did_created_ := current_block; Timestamp
-  | _ => err = CodeWrongStatus; ThrowError err
-  end
-end
+  | _ => err = CodeWrongStatus; ThrowError err end end
 
 procedure UpdateDocument( document: Document )
   match document with
@@ -268,25 +268,31 @@ procedure UpdateDocument( document: Document )
       match action with
       | Add =>
           match key_exists with
-          | True => err = CodeNotValid; ThrowError err
+          | True =>
+              is_update = builtin eq purpose update;
+              match is_update with
+              | True => verification_methods_[update] := key
+              | False => err = CodeSameId; ThrowError err end
           | False => verification_methods_[purpose] := key end
       | Remove =>
           match key_exists with
           | True => delete verification_methods_[purpose]
           | False => err = CodeNotValid; ThrowError err end end
   | Service action id endpoint =>
-      service_exists <- exists services_[id];
+      is_service_ <- exists services_[id];
+      is_service__ <- exists services__[id];
+      service_exists = orb is_service_ is_service__;
       match action with
       | Add =>
           match service_exists with
-          | True => err = CodeNotValid; ThrowError err
+          | True => err = CodeSameId; ThrowError err
           | False => 
               match endpoint with
               | Address addr => services_[id] := addr
               | Uri eType protocol uri => services__[id] := endpoint end end
       | Remove =>
           match service_exists with
-          | True => delete services_[id]
+          | True => delete services_[id]; delete services__[id]
           | False => err = CodeNotValid; ThrowError err end end end end
 
 procedure ValidateDocument(
@@ -295,9 +301,7 @@ procedure ValidateDocument(
   )
   match operation with
   | Recovery => forall document SaveDocument
-  | Update => forall document UpdateDocument
-  end
-end
+  | Update => forall document UpdateDocument end end
 
 procedure HashDocument( document: Document )
   doc_hash <- document_hash;
@@ -317,8 +321,7 @@ procedure HashDocument( document: Document )
             in let h2 = builtin sha256hash purpose
             in builtin concat h1 h2;
           doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-          document_hash := doc_hash_
-      end
+          document_hash := doc_hash_ end
   | Service action id endpoint =>
       match action with
       | Add =>
@@ -338,8 +341,7 @@ procedure HashDocument( document: Document )
               in let h1_2 = builtin concat h1 h2
               in builtin concat h1_2 h3;
               doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-              document_hash := doc_hash_
-          end
+              document_hash := doc_hash_ end
       | Remove =>
           hash = let h1 = builtin sha256hash actionRemove
           in let h2 = builtin sha256hash id
@@ -358,8 +360,7 @@ procedure VerifyDocument(
   sig = option_bystr64_value signature;
   id = match operation with
   | Recovery => recovery
-  | Update => update
-  end;
+  | Update => update end;
   VerifySignature id doc_hash sig;
   ValidateDocument operation document end
 
@@ -367,9 +368,14 @@ transition DidRecover(
   document: List Document,
   signature: Option ByStr64
   )
-  IsOperational; VerifyAdmin;
+  did_status <- did_status_;
+  match did_status with
+  | Created => | Recovered => | Updated =>
+  | _ => err = CodeWrongStatus; ThrowError err end;
+  VerifyAdmin;
   get_recovery_key <- verification_methods_[recovery]; did_recovery = option_bystr33_value get_recovery_key;
   get_update_key <- verification_methods_[update]; did_update = option_bystr33_value get_update_key;
+  verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
   VerifyDocument didRecovery document signature;
   VerifyDIDkeys didRecovery did_recovery did_update;
   new_status = Recovered; did_status_ := new_status; Timestamp end
@@ -378,7 +384,11 @@ transition DidUpdate(
   document: List Document,
   signature: Option ByStr64
   )
-  IsOperational; VerifyAdmin;
+  did_status <- did_status_;
+  match did_status with
+  | Created => | Recovered => | Updated =>
+  | _ => err = CodeWrongStatus; ThrowError err end;
+  VerifyAdmin;
   get_recovery_key <- verification_methods_[recovery]; did_recovery = option_bystr33_value get_recovery_key;
   get_update_key <- verification_methods_[update]; did_update = option_bystr33_value get_update_key;
   VerifyDocument didUpdate document signature;
@@ -389,11 +399,12 @@ transition DidDeactivate(
   document: List Document,
   signature: Option ByStr64
   ) 
-  IsOperational; VerifyAdmin;
-  VerifyDocument didRecovery document signature;
-  deactivated_methods = Emp String ByStr33; verification_methods_ := deactivated_methods;
-  deactivated_services = Emp String ByStr20; services_ := deactivated_services;
-  deactivated_services_ = Emp String Endpoint; services__ := deactivated_services_;
+  did_status <- did_status_;
+  match did_status with
+  | Created => | Recovered => | Updated =>
+  | _ => err = CodeWrongStatus; ThrowError err end;
+  VerifyAdmin; VerifyDocument didRecovery document signature;
+  verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
   new_status = Deactivated; did_status_ := new_status; Timestamp end
 
 (* The init.tyron contract *)
@@ -495,15 +506,14 @@ transition BuyDomainNameNFT(
   match taken with
   | True => err = CodeDomainTaken; ThrowError err
   | False => 
-      domain_ = domain;
-      get_fee <- psc_fee[domain_];
+      get_fee <- psc_fee[domain];
       match get_fee with
       | None => err = CodeNotValid; ThrowError err
       | Some fee =>
           is_enough = uint128_ge _amount fee;
           match is_enough with
           | True =>
-              IncreaseFunds psc;
+              IncreaseFunds domain;
               refund = builtin sub _amount fee;
               is_zero_refund = builtin eq refund zero;
               match is_zero_refund with
@@ -540,15 +550,14 @@ transition TransferDomainNameNFT(
       match is_sender with
       | False => err = CodeWrongCaller; ThrowError err
       | True =>
-          domain_ = domain;
-          get_fee <- psc_fee[domain_];
+          get_fee <- psc_fee[domain];
           match get_fee with
           | None => err = CodeNotValid; ThrowError err
-          | Some fee =>
-              is_enough = builtin lt fee _amount;
+          | Some fee =>  
+              is_enough = uint128_ge _amount fee;
               match is_enough with
               | True =>
-                  IncreaseFunds psc;
+                  IncreaseFunds domain;
                   refund = builtin sub _amount fee;
                   is_zero_refund = builtin eq refund zero;
                   match is_zero_refund with
