@@ -1,18 +1,18 @@
-(*
-  PST.tyron: profit-sharing token Zilliqa reference contract - Proxy smart contract.
-  Self-Sovereign Identity Protocol.
-  Copyright (C) Tyron Pungtas and its affiliates.
+(* v0.2.0
+PST.tyron: profit-sharing token Zilliqa reference contract - Proxy smart contract.
+Self-Sovereign Identity Protocol.
+Copyright (C) Tyron Pungtas and its affiliates.
+www.ssiprotocol.com
 
-  This program is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-  This program is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-*)
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.*)
 
 scilla_version 0
 
@@ -77,7 +77,7 @@ library PST
   
 contract PST(
   initAdmin: ByStr20,
-  initTreasury: ByStr20,
+  initFund: ByStr20,
   name: String,
   symbol: String,
   decimals: Uint32,
@@ -103,7 +103,7 @@ contract PST(
       in andb name_symbol_ok decimals_ok
   =>
   field admin: ByStr20 = initAdmin
-  field treasury: ByStr20 = initTreasury
+  field fund: ByStr20 = initFund
   field implementation: ByStr20 = initAdmin
   field total_supply: Uint128 = initSupply
   field accounts: Map ByStr20 ( Pair Uint128 ( Pair Uint128 Bool )) = let emp_map = Emp ByStr20 ( Pair Uint128 ( Pair Uint128 Bool )) 
@@ -155,13 +155,13 @@ transition UpdateAdmin(
   }; event e
 end
 
-transition UpdateTreasuryAddr(
+transition UpdatefundAddr(
   newAddr: ByStr20
   )
   current_admin <- admin; VerifyCaller current_admin;
-  treasury := newAddr;
+  fund := newAddr;
   e = {
-    _eventname: "TreasuryAddressUpdated";
+    _eventname: "fundAddressUpdated";
     newAddress: newAddr
   }; event e
 end
@@ -486,8 +486,8 @@ transition SwapZILForPSTAndDistributeCallBack(
   current_impl <- implementation; VerifyCaller current_impl;
   get_account <- accounts[originator]; bal = account_balance get_account;
   nbal = builtin div bal f; income := nbal;
-  current_treasury <- treasury; is_treasury = builtin eq originator current_treasury;
-  match is_treasury with
+  current_fund <- fund; is_fund = builtin eq originator current_fund;
+  match is_fund with
   | True =>
       zero_yes = VotedYes zero; voted_yes := zero_yes; 
       zero_no = VotedNo zero; voted_no := zero_no;
