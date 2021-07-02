@@ -26,9 +26,7 @@ user_profit_share = P/f * share
 
 #### Vote
 
-A vote can be Yes or No, and It defaults to Yes. In all profit distributions (when counting and collecting the voting decisions), every user vote defaults back to Yes. If the user wants so, they can change their vote by calling the ChangeVote transition.
-
-A vote can be Yes or No. It defaults to Yes, which means that after every profit distribution when the voting decision gets collected, each user vote defaults back to Yes. If the user wants so, they can change their vote by calling the ```Change Vote``` transition.
+A vote can be Yes or No, and it defaults to Yes. In all profit distributions (when counting and collecting the voting decisions), every user vote defaults back to Yes. If the user wants so, they can change their vote by calling the ```Change Vote``` transition.
 
 The voting decision gets settled by the ```Update Vote Decision``` procedure (which gets called by the ```Distribute Profit``` procedure).
 
@@ -42,7 +40,7 @@ The voting decision gets settled by the ```Update Vote Decision``` procedure (wh
 
 - Pause & unpause
 
-- Blacklist & unblacklist
+- Block & unblock
 
 - Increase and decrease minter allowance
 
@@ -61,5 +59,3 @@ The voting decision gets settled by the ```Update Vote Decision``` procedure (wh
 - Swap $ZIL for $PST and distribute & its callback: any address can send $ZIL to buy $PST directly from ZilSwap and distribute them among a list of beneficiaries.
 
 - Change vote
-
-
