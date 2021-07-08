@@ -1,5 +1,5 @@
-(* v0.2.1
-XPSTi.tyron: wrapped profit-sharing token Zilliqa reference contract - Implementation smart contract.
+(* v0.3.0
+xPSTi.tyron: wrapped profit-sharing token Zilliqa reference contract - Implementation smart contract.
 Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
@@ -20,6 +20,9 @@ import BoolUtils IntUtils ListUtils PairUtils
 
 library XPSTi
 
+  type Account =
+    | Account of Uint128 Uint128 Bool
+    
   let one_msg = fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
@@ -53,15 +56,15 @@ library XPSTi
     | CodeNotAdmin               => Int32 -2
     | CodeNotPauser              => Int32 -3
     | CodeNotLister              => Int32 -4
-    | CodeIsPaused               => Int32 -7
-    | CodeNotPaused              => Int32 -8
-    | CodeIsBlocked              => Int32 -9
-    | CodeNotBlocked             => Int32 -10
-    | CodeSameAddress            => Int32 -11
-    | CodeIsNull                 => Int32 -12
-    | CodeInsufficientFunds      => Int32 -13
-    | CodeInsufficientAllowance  => Int32 -14
-    | CodeNotValid               => Int32 -15
+    | CodeIsPaused               => Int32 -5
+    | CodeNotPaused              => Int32 -6
+    | CodeIsBlocked              => Int32 -7
+    | CodeNotBlocked             => Int32 -8
+    | CodeSameAddress            => Int32 -9
+    | CodeIsNull                 => Int32 -10
+    | CodeInsufficientFunds      => Int32 -11
+    | CodeInsufficientAllowance  => Int32 -12
+    | CodeNotValid               => Int32 -13
     end in { _exception: "Error"; code: result }
 
   let zero = Uint128 0
@@ -69,7 +72,6 @@ library XPSTi
   let hundred = Uint128 100
   let yes = True
   let no = False
-  let zeroAccount = let i = Pair{ Uint128 Bool } zero yes in Pair{ Uint128 ( Pair Uint128 Bool )} zero i
   let none_uint128 = None{ Uint128 }
   let null_address = 0x0000000000000000000000000000000000000000
 
@@ -77,14 +79,14 @@ library XPSTi
     match opt_val with
     | Some v => v
     | None => default end
-  
-  let option_account = let f = @option_value ( Pair Uint128 ( Pair Uint128 Bool )) in f zeroAccount
     
-  let account_balance = fun( getAccount: Option( Pair Uint128 ( Pair Uint128 Bool ))) =>
-    let account = option_account getAccount
-    in let fst_element = @fst Uint128 ( Pair Uint128 Bool )
-    in fst_element account
+  let option_account = let f = @option_value Account in let noAccount = Account zero zero no in f noAccount
 
+  let account_balance = fun( getAccount: Option Account ) =>
+    let account = option_account getAccount
+    in match account with
+    | Account balance share vote => balance end
+    
   let option_uint128_value = let f = @option_value Uint128 in f zero
 
   let better_subtract = fun( a: Uint128 ) => fun( b: Uint128 ) =>
@@ -97,7 +99,7 @@ contract XPSTi(
   initAdmin: ByStr20,
   proxyAddr: ByStr20 with contract 
     field total_supply: Uint128,
-    field accounts: Map ByStr20 ( Pair Uint128 ( Pair Uint128 Bool )),
+    field accounts: Map ByStr20 Account,
     field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) end,
   zilswapAddr: ByStr20,
   tokenAddr: ByStr20
@@ -216,7 +218,7 @@ transition RecipientAcceptTransferFrom(
   sender: ByStr20,
   recipient: ByStr20,
   amount: Uint128
-)
+  )
   is_valid_transfer_to_self =
     let self_triggered = builtin eq initiator _this_address
     in let is_transfer_to_self = builtin eq recipient _this_address
@@ -230,15 +232,14 @@ transition TransferFromSuccessCallBack(
   sender: ByStr20,
   recipient: ByStr20,
   amount: Uint128
-) end
+  ) end
 
 transition UpdateAdmin( newAdmin: ByStr20 )
   isAdmin; isNotPaused; isNotNull newAdmin;
   current_admin <- admin;
   ThowIfSameAddr current_admin newAdmin; admin := newAdmin;
   e = { _eventname: "AdminUpdated";
-    previousAdmin: current_admin;
-    newAdmin: newAdmin
+    admin_updated: newAdmin
   }; event e end
 
 transition UpdatePauser( newPauser: ByStr20 )
@@ -246,21 +247,20 @@ transition UpdatePauser( newPauser: ByStr20 )
   current_pauser <- pauser;
   ThowIfSameAddr current_pauser newPauser; pauser := newPauser;
   e = { _eventname: "PauserUpdated";
-    pauser: newPauser;
-    admin: _origin
+    pauser_updated: newPauser
   }; event e end
 
 transition Pause()
   ThrowIfNotProxy; isPauser;
   isNotPaused; paused := yes;
-  e = { _eventname: "Paused";
+  e = { _eventname: "SmartContractPaused";
     pauser: _origin
   }; event e end
 
 transition Unpause()
   ThrowIfNotProxy; isPauser;
   isPaused; paused := no;
-  e = { _eventname: "Unpaused";
+  e = { _eventname: "SmartContractUnpaused";
     pauser: _origin
   }; event e end
 
@@ -269,8 +269,7 @@ transition UpdateLister( newLister: ByStr20 )
   current_lister <- lister;
   ThowIfSameAddr current_lister newLister; lister:= newLister;
   e = { _eventname: "ListerUpdated";
-    lister: newLister;
-    admin: _origin
+    lister_updated: newLister
   }; event e end
 
 transition Block( addr: ByStr20 )
@@ -421,10 +420,10 @@ transition IncreaseAllowance(
   isNotBlocked originator; isNotBlocked spender; ThowIfSameAddr originator spender;
   get_allowance <-& proxyAddr.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
   new_allowance = builtin add allowance amount;
-  e = { _eventname: "IncreasedAllowance";
+  e = { _eventname: "AllowanceIncreased";
     originator: originator;
     spender: spender;
-    newAllowance : new_allowance
+    allowance_updated: new_allowance
   }; event e;
   msg = let m = { _tag: "AllowanceCallBack";
     _recipient: _sender;
@@ -443,10 +442,10 @@ transition DecreaseAllowance(
   isNotBlocked originator; isNotBlocked spender; ThowIfSameAddr originator spender;
   get_allowance <-& proxyAddr.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
   new_allowance = better_subtract allowance amount;
-  e = { _eventname: "DecreasedAllowance";
+  e = { _eventname: "AllowanceDecreased";
     originator: originator;
     spender: spender;
-    newAllowance: new_allowance
+    allowance_updated: new_allowance
   }; event e;
   msg = let m = { _tag: "AllowanceCallBack";
     _recipient: _sender;

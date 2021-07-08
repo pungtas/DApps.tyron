@@ -1,4 +1,4 @@
-(* v0.2.1
+(* v0.3.0
 PSTi.tyron: profit-sharing token Zilliqa reference contract (ZRC) - Implementation smart contract.
 Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -20,6 +20,9 @@ import BoolUtils IntUtils ListUtils PairUtils
 
 library PSTi
 
+  type Account =
+    | Account of Uint128 Uint128 Bool
+    
   let one_msg = fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
@@ -37,7 +40,7 @@ library PSTi
     | CodeNotAdmin
     | CodeNotPauser
     | CodeNotLister
-    | CodeNotMasterMinter
+    | CodeNotMainMinter
     | CodeNotMinter
     | CodeIsPaused
     | CodeNotPaused
@@ -54,12 +57,12 @@ library PSTi
     | CodeNotAdmin               => Int32 -2
     | CodeNotPauser              => Int32 -3
     | CodeNotLister              => Int32 -4
-    | CodeNotMasterMinter        => Int32 -5
+    | CodeNotMainMinter          => Int32 -5
     | CodeNotMinter              => Int32 -6
     | CodeIsPaused               => Int32 -7
     | CodeNotPaused              => Int32 -8
-    | CodeIsBlocked            => Int32 -9
-    | CodeNotBlocked           => Int32 -10
+    | CodeIsBlocked              => Int32 -9
+    | CodeNotBlocked             => Int32 -10
     | CodeSameAddress            => Int32 -11
     | CodeIsNull                 => Int32 -12
     | CodeInsufficientFunds      => Int32 -13
@@ -72,23 +75,22 @@ library PSTi
   let none_uint128 = None{ Uint128 }
   let yes = True
   let no = False
-  let zeroAccount = let i = Pair{ Uint128 Bool } zero yes in Pair{ Uint128 ( Pair Uint128 Bool )} zero i
   let null_address = 0x0000000000000000000000000000000000000000
 
   let option_value = tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) =>
     match opt_val with
     | Some v => v
     | None => default end
-  
-  let option_account = let f = @option_value ( Pair Uint128 ( Pair Uint128 Bool )) in f zeroAccount
     
-  let account_balance = fun( getAccount: Option( Pair Uint128 ( Pair Uint128 Bool ))) =>
-    let account = option_account getAccount
-    in let fst_element = @fst Uint128 ( Pair Uint128 Bool )
-    in fst_element account
+  let option_account = let f = @option_value Account in let noAccount = Account zero zero no in f noAccount
 
+  let account_balance = fun( getAccount: Option Account ) =>
+    let account = option_account getAccount
+    in match account with
+    | Account balance share vote => balance end
+    
   let option_uint128_value = let f = @option_value Uint128 in f zero
-  
+   
   let option2_uint128_value = fun( input: Option( Option Uint128 )) =>
     match input with
     | Some (Some a) => a
@@ -110,14 +112,14 @@ contract PSTi(
   initAdmin: ByStr20,
   proxyAddr: ByStr20 with contract 
     field total_supply: Uint128,
-    field accounts: Map ByStr20 ( Pair Uint128 ( Pair Uint128 Bool )),
+    field accounts: Map ByStr20 Account,
     field allowances: Map ByStr20 ( Map ByStr20 Uint128 )
     end,
   zilswapAddr: ByStr20
   )
   field admin: ByStr20 = initAdmin
   field pauser: ByStr20 = initAdmin
-  field master_minter: ByStr20 = initAdmin
+  field main_minter: ByStr20 = initAdmin
   field paused: Bool = False
   field lister: ByStr20 = initAdmin
   field blocked: Map ByStr20 Uint128 = Emp ByStr20 Uint128
@@ -125,9 +127,7 @@ contract PSTi(
   field zilswap: ByStr20 = zilswapAddr
   field deadline_block: BNum = BNum 0
 
-procedure ThrowError(
-  err: Error
-  )
+procedure ThrowError( err: Error )
   e = make_error err; throw e end
 
 procedure ThrowIfNotProxy()
@@ -187,12 +187,12 @@ procedure isNotNull( addr: ByStr20 )
   | True => err = CodeIsNull; ThrowError err
   | False => end end
 
-procedure isMasterMinter()
-  current_master_minter <- master_minter;
-  is_master_minter = builtin eq current_master_minter _origin;
-  match is_master_minter with
+procedure isMainMinter()
+  current_main_minter <- main_minter;
+  is_main_minter = builtin eq current_main_minter _origin;
+  match is_main_minter with
   | True  =>
-  | False => err = CodeNotMasterMinter; ThrowError err end end
+  | False => err = CodeNotMainMinter; ThrowError err end end
 
 procedure isMinter()
   is_minter <- minter_allowances[_origin];
@@ -232,8 +232,7 @@ transition UpdateAdmin( newAdmin: ByStr20 )
   current_admin <- admin;
   ThowIfSameAddr current_admin newAdmin; admin := newAdmin;
   e = { _eventname: "AdminUpdated";
-    previousAdmin: current_admin;
-    newAdmin: newAdmin
+    admin_updated: newAdmin
   }; event e end
 
 transition UpdatePauser( newPauser: ByStr20 )
@@ -241,21 +240,20 @@ transition UpdatePauser( newPauser: ByStr20 )
   current_pauser <- pauser;
   ThowIfSameAddr current_pauser newPauser; pauser := newPauser;
   e = { _eventname: "PauserUpdated";
-    pauser: newPauser;
-    admin: _origin
+    pauser_updated: newPauser
   }; event e end
 
 transition Pause()
   ThrowIfNotProxy; isPauser;
   isNotPaused; paused := yes;
-  e = { _eventname: "Paused";
+  e = { _eventname: "SmartContractPaused";
     pauser: _origin
   }; event e end
 
 transition Unpause()
   ThrowIfNotProxy; isPauser;
   isPaused; paused := no;
-  e = { _eventname: "Unpaused";
+  e = { _eventname: "SmartContractUnpaused";
     pauser: _origin
   }; event e end
 
@@ -264,8 +262,7 @@ transition UpdateLister( newLister: ByStr20 )
   current_lister <- lister;
   ThowIfSameAddr current_lister newLister; lister:= newLister;
   e = { _eventname: "ListerUpdated";
-    lister: newLister;
-    admin: _origin
+    lister_updated: newLister
   }; event e end
 
 transition Block( addr: ByStr20 )
@@ -284,41 +281,40 @@ transition Unblock( addr: ByStr20 )
     lister: _origin
   }; event e end
 
-transition UpdateMasterMinter( newMasterMinter: ByStr20 )
-  isAdmin; isNotPaused; isNotNull newMasterMinter;
-  current_master_minter <- master_minter;
-  ThowIfSameAddr current_master_minter newMasterMinter; master_minter := newMasterMinter;
-  e = { _eventname: "MasterMinterUpdated";
-    newMasterMinter: newMasterMinter;
-    admin: _origin
+transition UpdateMainMinter( newMainMinter: ByStr20 )
+  isAdmin; isNotPaused; isNotNull newMainMinter;
+  current_main_minter <- main_minter;
+  ThowIfSameAddr current_main_minter newMainMinter; main_minter := newMainMinter;
+  e = { _eventname: "MainMinterUpdated";
+    main_minter_updated: newMainMinter
   }; event e end
 
 transition IncreaseMinterAllowance(
   minter: ByStr20,
   amount: Uint128
   )
-  ThrowIfNotProxy; isNotPaused; isMasterMinter; isNotNull minter;
+  ThrowIfNotProxy; isNotPaused; isMainMinter; isNotNull minter;
   get_minter_allowance <- minter_allowances[minter]; minter_allowance = option2_uint128_value get_minter_allowance;
   new_minter_allowance = builtin add minter_allowance amount; new_option_minter_allowance = option_uint128 new_minter_allowance;
   minter_allowances[minter] := new_option_minter_allowance;
-  e = { _eventname: "IncreasedMinterAllowance";
+  e = { _eventname: "MinterAllowanceIncreased";
     minter: minter;
-    newAllowance: new_minter_allowance;
-    masterMinter: _origin
+    allowance_updated: new_minter_allowance;
+    main_minter: _origin
   }; event e end
 
 transition DecreaseMinterAllowance(
   minter: ByStr20,
   amount: Uint128
   )
-  ThrowIfNotProxy; isNotPaused; isMasterMinter; isNotNull minter;
+  ThrowIfNotProxy; isNotPaused; isMainMinter; isNotNull minter;
   get_minter_allowance <- minter_allowances[minter]; minter_allowance = option2_uint128_value get_minter_allowance;
   new_minter_allowance = better_subtract minter_allowance amount; new_option_minter_allowance = option_uint128 new_minter_allowance;
   minter_allowances[minter] := new_option_minter_allowance;
-  e = { _eventname: "DecreasedMinterAllowance";
+  e = { _eventname: "MinterAllowanceDecreased";
     minter: minter;
-    newAllowance : new_option_minter_allowance;
-    masterMinter: _origin
+    allowance_updated: new_option_minter_allowance;
+    main_minter: _origin
   }; event e end
 
 transition Mint(
