@@ -1,4 +1,4 @@
-(* v0.3.0
+(* v0.3.1
 xPSTi.tyron: wrapped profit-sharing token Zilliqa reference contract - Implementation smart contract.
 Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -83,8 +83,8 @@ library XPSTi
   let option_account = let f = @option_value Account in let noAccount = Account zero zero no in f noAccount
 
   let account_balance = fun( getAccount: Option Account ) =>
-    let account = option_account getAccount
-    in match account with
+    let account = option_account getAccount in
+    match account with
     | Account balance share vote => balance end
     
   let option_uint128_value = let f = @option_value Uint128 in f zero
@@ -96,21 +96,21 @@ library XPSTi
     | False => zero end
 
 contract XPSTi(
-  initAdmin: ByStr20,
-  proxyAddr: ByStr20 with contract 
+  init_admin: ByStr20,
+  proxy_addr: ByStr20 with contract 
     field total_supply: Uint128,
     field accounts: Map ByStr20 Account,
     field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) end,
-  zilswapAddr: ByStr20,
-  tokenAddr: ByStr20
+  zilswap_addr: ByStr20,
+  token: ByStr20
   )
-  field admin: ByStr20 = initAdmin
-  field pauser: ByStr20 = initAdmin
-  field zilswap: ByStr20 = zilswapAddr
-  field token_addr: ByStr20 = tokenAddr
+  field admin: ByStr20 = init_admin
+  field pauser: ByStr20 = init_admin
+  field zilswap: ByStr20 = zilswap_addr
+  field token_addr: ByStr20 = token
   
   field paused: Bool = False
-  field lister: ByStr20 = initAdmin
+  field lister: ByStr20 = init_admin
   field blocked: Map ByStr20 Uint128 = Emp ByStr20 Uint128
   field deadline_block: BNum = BNum 0
 
@@ -118,57 +118,57 @@ procedure ThrowError( err: Error )
   e = make_error err; throw e end
 
 procedure ThrowIfNotProxy()
-  verified = builtin eq proxyAddr _sender;
+  verified = builtin eq proxy_addr _sender;
   match verified with
   | True =>
   | False => err = CodeNotProxy; ThrowError err end end
 
-procedure isAdmin()
+procedure IsAdmin()
   current_admin <- admin;
   is_admin = builtin eq current_admin _origin;
   match is_admin with
   | True =>
   | False => err = CodeNotAdmin; ThrowError err end end
 
-procedure isPauser()
+procedure IsPauser()
   current_pauser <- pauser;
   is_pauser = builtin eq current_pauser _origin;
   match is_pauser with
   | True  =>
   | False => err = CodeNotPauser; ThrowError err end end
 
-procedure isPaused()
+procedure IsPaused()
   is_paused <- paused;
   match is_paused with
   | True =>
   | False => err = CodeNotPaused; ThrowError err end end
 
-procedure isNotPaused()
+procedure IsNotPaused()
   is_paused <- paused;
   match is_paused with
   | True => err = CodeIsPaused; ThrowError err
   | False => end end
 
-procedure isLister()
+procedure IsLister()
   current_lister <- lister;
   is_lister = builtin eq current_lister _origin;
   match is_lister with
   | True  =>
   | False => err = CodeNotLister; ThrowError err end end
 
-procedure isBlocked( addr: ByStr20 )
+procedure IsBlocked( addr: ByStr20 )
   is_blocked <- exists blocked[addr];
   match is_blocked with
   | True =>
   | False => err = CodeNotBlocked; ThrowError err end end
 
-procedure isNotBlocked( addr: ByStr20 )
+procedure IsNotBlocked( addr: ByStr20 )
   is_blocked <- exists blocked[addr];
   match is_blocked with
   | True => err = CodeIsBlocked; ThrowError err
   | False => end end
 
-procedure isNotNull( addr: ByStr20 )
+procedure IsNotNull( addr: ByStr20 )
   is_null = builtin eq null_address addr;
   match is_null with
   | True => err = CodeIsNull; ThrowError err
@@ -183,7 +183,7 @@ procedure ThowIfSameAddr(
   | True => err = CodeSameAddress; ThrowError err
   | False => end end
 
-procedure isSufficientFunds(
+procedure IsSufficientFunds(
   funds: Uint128,
   amount: Uint128
   )
@@ -192,7 +192,7 @@ procedure isSufficientFunds(
   | True =>
   | False => err = CodeInsufficientFunds; ThrowError err end end
 
-procedure isSufficientAllowance(
+procedure IsSufficientAllowance(
   allowance: Uint128,
   amount: Uint128
   )
@@ -234,70 +234,94 @@ transition TransferFromSuccessCallBack(
   amount: Uint128
   ) end
 
-transition UpdateAdmin( newAdmin: ByStr20 )
-  isAdmin; isNotPaused; isNotNull newAdmin;
+transition UpdateAdmin( new_admin: ByStr20 )
+  IsAdmin; IsNotPaused; IsNotNull new_admin;
   current_admin <- admin;
-  ThowIfSameAddr current_admin newAdmin; admin := newAdmin;
+  ThowIfSameAddr current_admin new_admin; admin := new_admin;
   e = { _eventname: "AdminUpdated";
-    admin_updated: newAdmin
+    admin_updated: new_admin
   }; event e end
 
-transition UpdatePauser( newPauser: ByStr20 )
-  isAdmin; isNotPaused; isNotNull newPauser;
+transition UpdatePauser( new_pauser: ByStr20 )
+  IsAdmin; IsNotPaused; IsNotNull new_pauser;
   current_pauser <- pauser;
-  ThowIfSameAddr current_pauser newPauser; pauser := newPauser;
+  ThowIfSameAddr current_pauser new_pauser; pauser := new_pauser;
   e = { _eventname: "PauserUpdated";
-    pauser_updated: newPauser
+    pauser_updated: new_pauser
   }; event e end
 
 transition Pause()
-  ThrowIfNotProxy; isPauser;
-  isNotPaused; paused := yes;
+  ThrowIfNotProxy; IsPauser;
+  IsNotPaused; paused := yes;
   e = { _eventname: "SmartContractPaused";
     pauser: _origin
   }; event e end
 
 transition Unpause()
-  ThrowIfNotProxy; isPauser;
-  isPaused; paused := no;
+  ThrowIfNotProxy; IsPauser;
+  IsPaused; paused := no;
   e = { _eventname: "SmartContractUnpaused";
     pauser: _origin
   }; event e end
 
-transition UpdateLister( newLister: ByStr20 )
-  isAdmin; isNotPaused; isNotNull newLister;
+transition UpdateLister( new_lister: ByStr20 )
+  IsAdmin; IsNotPaused; IsNotNull new_lister;
   current_lister <- lister;
-  ThowIfSameAddr current_lister newLister; lister:= newLister;
+  ThowIfSameAddr current_lister new_lister; lister:= new_lister;
   e = { _eventname: "ListerUpdated";
-    lister_updated: newLister
+    lister_updated: new_lister
   }; event e end
 
 transition Block( addr: ByStr20 )
-  ThrowIfNotProxy; isLister;
-  isNotPaused; isNotNull addr; isNotBlocked addr; blocked[addr] := one;
+  ThrowIfNotProxy; IsLister;
+  IsNotPaused; IsNotNull addr; IsNotBlocked addr; blocked[addr] := one;
   e = { _eventname: "AddressBlocked";
     address: addr;
     lister: _origin
   }; event e end
 
 transition Unblock( addr: ByStr20 )
-  ThrowIfNotProxy; isLister;
-  isNotPaused; isNotNull addr; isBlocked addr; delete blocked[addr];
+  ThrowIfNotProxy; IsLister;
+  IsNotPaused; IsNotNull addr; IsBlocked addr; delete blocked[addr];
   e = { _eventname: "AddressUnblocked";
     address: addr;
     lister: _origin
   }; event e end
+
+transition LawEnforcementWipingBurn( addr: ByStr20 )
+  ThrowIfNotProxy; IsLister;
+  IsNotPaused; IsBlocked addr; IsNotBlocked _origin;
+  get_account <-& proxy_addr.accounts[addr]; bal = account_balance get_account;
+  current_supply <-& proxy_addr.total_supply;
+  new_supply = builtin sub current_supply bal;
+  e = { _eventname: "LawEnforcementWipingBurnt";
+    lister: _origin;
+    address: addr;
+    amount: bal
+  }; event e;
+  msg_to_proxy = { _tag: "LawEnforcementWipingBurnCallBack";
+    _recipient: _sender;
+    _amount: zero;
+    addr: addr;
+    new_supply : new_supply
+  };
+  msg_to_lister = { _tag: "LawEnforcementWipingBurnSuccessCallBack";
+    _recipient: _origin;
+    _amount: zero;
+    addr: addr;
+    amount: bal
+  }; msgs = two_msgs msg_to_proxy msg_to_lister; send msgs end
 
 transition Mint(
   originator: ByStr20,
   beneficiary: ByStr20, (* self-triggered, i.e. the originator is the beneficiary *)
   amount: Uint128
   )
-  ThrowIfNotProxy; isNotPaused;
-  isNotBlocked originator;
-  current_supply <-& proxyAddr.total_supply;
+  ThrowIfNotProxy; IsNotPaused;
+  IsNotBlocked originator;
+  current_supply <-& proxy_addr.total_supply;
   new_supply = builtin add current_supply amount;
-  get_account <-& proxyAddr.accounts[originator]; bal = account_balance get_account;
+  get_account <-& proxy_addr.accounts[originator]; bal = account_balance get_account;
   new_bal = builtin add bal amount;
   token_address <- token_addr;
   msg_to_token = { _tag: "TransferFrom"; _recipient: token_address; _amount: zero;
@@ -307,8 +331,8 @@ transition Mint(
   };
   msg_to_proxy = { _tag: "MintCallBack"; _recipient: _sender; _amount: zero;
     beneficiary: originator;
-    newBalance: new_bal;
-    newSupply: new_supply
+    new_balance: new_bal;
+    new_supply: new_supply
   };
   msg_to_originator = { _tag: "RecipientAcceptMint"; _recipient: originator; _amount: zero;
     minter: originator;
@@ -320,12 +344,12 @@ transition Burn(
   originator: ByStr20,
   amount: Uint128
   )
-  ThrowIfNotProxy; isNotPaused;
-  isNotBlocked originator;
-  get_account <-& proxyAddr.accounts[originator]; bal = account_balance get_account;
-  isSufficientFunds bal amount;
+  ThrowIfNotProxy; IsNotPaused;
+  IsNotBlocked originator;
+  get_account <-& proxy_addr.accounts[originator]; bal = account_balance get_account;
+  IsSufficientFunds bal amount;
   new_balance = builtin sub bal amount;
-  current_supply <-& proxyAddr.total_supply;
+  current_supply <-& proxy_addr.total_supply;
   new_supply = builtin sub current_supply amount;
   e = { _eventname: "XBurnt";
     originator: originator;
@@ -338,37 +362,13 @@ transition Burn(
   };
   msg_to_proxy = { _tag: "BurnCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
-    newBalance: new_balance;
-    newSupply: new_supply
+    new_balance: new_balance;
+    new_supply: new_supply
   };
   msg_to_originator = {  _tag: "BurnSuccessCallBack"; _recipient: originator; _amount: zero;
     amount: amount
   };
   msgs = three_msgs msg_to_token msg_to_proxy msg_to_originator; send msgs end
-
-transition LawEnforcementWipingBurn( addr: ByStr20 )
-  ThrowIfNotProxy; isLister;
-  isNotPaused; isBlocked addr; isNotBlocked _origin;
-  get_account <-& proxyAddr.accounts[addr]; bal = account_balance get_account;
-  current_supply <-& proxyAddr.total_supply;
-  new_supply = builtin sub current_supply bal;
-  e = { _eventname: "LawEnforcementWipingBurnt";
-    lister: _origin;
-    address: addr;
-    amount: bal
-  }; event e;
-  msg_to_proxy = { _tag: "LawEnforcementWipingBurnCallBack";
-    _recipient: _sender;
-    _amount: zero;
-    addr: addr;
-    newSupply : new_supply
-  };
-  msg_to_lister = { _tag: "LawEnforcementWipingBurnSuccessCallBack";
-    _recipient: _origin;
-    _amount: zero;
-    addr: addr;
-    amount: bal
-  }; msgs = two_msgs msg_to_proxy msg_to_lister; send msgs end
 
 transition Transfer(
   originator: ByStr20,
@@ -376,36 +376,29 @@ transition Transfer(
   amount: Uint128
   )
   ThrowIfNotProxy;
-  isNotPaused; isNotBlocked originator; isNotNull beneficiary; isNotBlocked beneficiary; ThowIfSameAddr originator beneficiary;
-  get_originator_account <-& proxyAddr.accounts[originator]; originator_bal = account_balance get_originator_account;
-  isSufficientFunds originator_bal amount;
+  IsNotPaused; IsNotBlocked originator; IsNotNull beneficiary; IsNotBlocked beneficiary; ThowIfSameAddr originator beneficiary;
+  get_originator_account <-& proxy_addr.accounts[originator]; originator_bal = account_balance get_originator_account;
+  IsSufficientFunds originator_bal amount;
   new_originator_bal = builtin sub originator_bal amount;
-  get_beneficiary_account <-& proxyAddr.accounts[beneficiary]; beneficiary_bal = account_balance get_beneficiary_account;
+  get_beneficiary_account <-& proxy_addr.accounts[beneficiary]; beneficiary_bal = account_balance get_beneficiary_account;
   new_beneficiary_bal = builtin add beneficiary_bal amount;
   e = { _eventname: "TransferSuccess";
     originator: originator;
     beneficiary: beneficiary;
     amount: amount
   }; event e;
-  msg_to_proxy = {
-    _tag: "TransferCallBack";
-    _recipient: _sender;
-    _amount: zero;
+  msg_to_proxy = { _tag: "TransferCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     beneficiary: beneficiary;
-    newOriginatorBal: new_originator_bal;
-    newBeneficiaryBal: new_beneficiary_bal
+    new_originator_bal: new_originator_bal;
+    new_beneficiary_bal: new_beneficiary_bal
   };
-  msg_to_originator = { _tag: "TransferSuccessCallBack";
-    _recipient: originator;
-    _amount: zero;
+  msg_to_originator = { _tag: "TransferSuccessCallBack"; _recipient: originator; _amount: zero;
     sender: originator;
     recipient: beneficiary;
     amount: amount
   };
-  msg_to_beneficiary = { _tag: "RecipientAcceptTransfer";
-    _recipient: beneficiary;
-    _amount: zero;
+  msg_to_beneficiary = { _tag: "RecipientAcceptTransfer"; _recipient: beneficiary; _amount: zero;
     sender: originator;
     recipient: beneficiary;
     amount: amount
@@ -416,21 +409,19 @@ transition IncreaseAllowance(
   spender: ByStr20,
   amount: Uint128
   )
-  ThrowIfNotProxy; isNotPaused; 
-  isNotBlocked originator; isNotBlocked spender; ThowIfSameAddr originator spender;
-  get_allowance <-& proxyAddr.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
+  ThrowIfNotProxy; IsNotPaused; 
+  IsNotBlocked originator; IsNotBlocked spender; ThowIfSameAddr originator spender;
+  get_allowance <-& proxy_addr.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
   new_allowance = builtin add allowance amount;
   e = { _eventname: "AllowanceIncreased";
     originator: originator;
     spender: spender;
     allowance_updated: new_allowance
   }; event e;
-  msg = let m = { _tag: "AllowanceCallBack";
-    _recipient: _sender;
-    _amount: zero;
+  msg = let m = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     spender: spender;
-    newAllowance: new_allowance
+    new_allowance: new_allowance
   } in one_msg m; send msg end
 
 transition DecreaseAllowance(
@@ -438,21 +429,19 @@ transition DecreaseAllowance(
   spender: ByStr20,
   amount: Uint128
   )
-  ThrowIfNotProxy; isNotPaused;
-  isNotBlocked originator; isNotBlocked spender; ThowIfSameAddr originator spender;
-  get_allowance <-& proxyAddr.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
+  ThrowIfNotProxy; IsNotPaused;
+  IsNotBlocked originator; IsNotBlocked spender; ThowIfSameAddr originator spender;
+  get_allowance <-& proxy_addr.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
   new_allowance = better_subtract allowance amount;
   e = { _eventname: "AllowanceDecreased";
     originator: originator;
     spender: spender;
     allowance_updated: new_allowance
   }; event e;
-  msg = let m = { _tag: "AllowanceCallBack";
-    _recipient: _sender;
-    _amount: zero;
+  msg = let m = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     spender: spender;
-    newAllowance: new_allowance
+    new_allowance: new_allowance
   } in one_msg m; send msg end
 
 transition TransferFrom(
@@ -461,15 +450,15 @@ transition TransferFrom(
   beneficiary: ByStr20, 
   amount: Uint128
   )
-  ThrowIfNotProxy; isNotPaused; 
-  isNotBlocked originator; isNotBlocked spender; isNotBlocked beneficiary; isNotNull beneficiary; ThowIfSameAddr originator beneficiary;
-  get_originator_account <-& proxyAddr.accounts[originator]; originator_bal = account_balance get_originator_account;
-  isSufficientFunds originator_bal amount;
-  get_allowance <-& proxyAddr.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
-  isSufficientAllowance allowance amount;
+  ThrowIfNotProxy; IsNotPaused; 
+  IsNotBlocked originator; IsNotBlocked spender; IsNotBlocked beneficiary; IsNotNull beneficiary; ThowIfSameAddr originator beneficiary;
+  get_originator_account <-& proxy_addr.accounts[originator]; originator_bal = account_balance get_originator_account;
+  IsSufficientFunds originator_bal amount;
+  get_allowance <-& proxy_addr.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
+  IsSufficientAllowance allowance amount;
   new_originator_bal = builtin sub originator_bal amount;
   new_allowance = builtin sub allowance amount;
-  get_beneficiary_account <-& proxyAddr.accounts[beneficiary]; beneficiary_bal = account_balance get_beneficiary_account;
+  get_beneficiary_account <-& proxy_addr.accounts[beneficiary]; beneficiary_bal = account_balance get_beneficiary_account;
   new_beneficiary_bal = builtin add beneficiary_bal amount;
   e = { _eventname: "TransferFromSuccess";
     originator: originator;
@@ -477,74 +466,66 @@ transition TransferFrom(
     beneficiary: beneficiary;
     amount: amount
   }; event e;
-  msg_to_proxy_balances = { _tag: "TransferFromCallBack";
-    _recipient: _sender;
-    _amount: zero;
+  msg_to_proxy_balances = { _tag: "TransferFromCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     beneficiary: beneficiary;
-    newOriginatorBal: new_originator_bal;
-    newBeneficiaryBal: new_beneficiary_bal
+    new_originator_bal: new_originator_bal;
+    new_beneficiary_bal: new_beneficiary_bal
   };
-  msg_to_proxy_allowance = { _tag: "AllowanceCallBack";
-    _recipient: _sender;
-    _amount: zero;
+  msg_to_proxy_allowance = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     spender: spender;
-    newAllowance: new_allowance
+    new_allowance: new_allowance
   };
-  msg_to_spender = { _tag: "TransferFromSuccessCallBack";
-    _recipient: spender;
-    _amount: zero;
+  msg_to_spender = { _tag: "TransferFromSuccessCallBack"; _recipient: spender; _amount: zero;
     initiator: spender;
     sender: originator;
     recipient: beneficiary;
     amount: amount
   };
-  msg_to_beneficiary = { _tag: "RecipientAcceptTransferFrom";
-    _recipient: beneficiary;
-    _amount: zero;
+  msg_to_beneficiary = { _tag: "RecipientAcceptTransferFrom"; _recipient: beneficiary; _amount: zero;
     initiator: spender;
     sender: originator;
     recipient: beneficiary;
     amount: amount
   }; msgs = four_msgs msg_to_proxy_balances msg_to_proxy_allowance msg_to_spender msg_to_beneficiary; send msgs end
 
-transition UpdateZilswap( newAddr: ByStr20 )
-  isAdmin; zilswap := newAddr end
+transition UpdateZilswap( new_addr: ByStr20 )
+  IsAdmin; zilswap := new_addr end
 
-transition UpdateTokenAddr( newAddr: ByStr20 )
-  isAdmin; token_addr := newAddr end
+transition UpdateTokenAddr( new_addr: ByStr20 )
+  IsAdmin; token_addr := new_addr end
 
-procedure UpdateDeadline( blockDeadline: Uint128 )
+procedure UpdateDeadline( deadline: Uint128 )
   current_block <- &BLOCKNUMBER;
-  deadline = builtin badd current_block blockDeadline;
-  deadline_block := deadline end
+  new_deadline = builtin badd current_block deadline;
+  deadline_block := new_deadline end
 
 transition SwapZILForPSTAndDistribute(
-  pstAmount: Uint128,
+  amount: Uint128,
   originator: ByStr20,
   beneficiary: Option( List ByStr20 ),
-  blockDeadline: Uint128
+  deadline: Uint128
   )
   ThrowIfNotProxy;
-  UpdateDeadline blockDeadline; deadline <- deadline_block;
-  zilswap_addr <- zilswap; token_address <- token_addr;
-  accept; msg = let m = { _tag: "SwapZILForExactTokens"; _recipient: zilswap_addr; _amount: _amount;
+  UpdateDeadline deadline; get_deadline <- deadline_block;
+  zilswap_address <- zilswap; token_address <- token_addr;
+  accept; msg = let m = { _tag: "SwapZILForExactTokens"; _recipient: zilswap_address; _amount: _amount;
     token_address: token_address;
-    token_amount: pstAmount;
-    deadline_block: deadline;
+    token_amount: amount;
+    deadline_block: get_deadline;
     recipient_address: _this_address
   } in one_msg m; send msg;
-  get_originator_account <-& proxyAddr.accounts[originator]; originator_bal = account_balance get_originator_account;
-  new_originator_bal = builtin add originator_bal pstAmount;
-  current_supply <-& proxyAddr.total_supply;
-  new_supply = builtin add pstAmount current_supply;
-  msg = let m = { _tag: "MintCallBack"; _recipient: proxyAddr; _amount: zero;
+  get_originator_account <-& proxy_addr.accounts[originator]; originator_bal = account_balance get_originator_account;
+  new_originator_bal = builtin add originator_bal amount;
+  current_supply <-& proxy_addr.total_supply;
+  new_supply = builtin add amount current_supply;
+  msg = let m = { _tag: "MintCallBack"; _recipient: proxy_addr; _amount: zero;
     beneficiary: originator;
-    newBeneficiaryBal: new_originator_bal;
-    newSupply: new_supply
+    new_beneficiary_bal: new_originator_bal;
+    new_supply: new_supply
   } in one_msg m; send msg;
-  msg = let m = { _tag: "SwapZILForPSTAndDistributeCallBack"; _recipient: proxyAddr; _amount: zero;
+  msg = let m = { _tag: "SwapZILForPSTAndDistributeCallBack"; _recipient: proxy_addr; _amount: zero;
     originator: originator;
     beneficiary: beneficiary
   } in one_msg m; send msg end
