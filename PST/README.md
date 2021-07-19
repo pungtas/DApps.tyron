@@ -86,8 +86,6 @@ The profit-sharing token implementation can be a:
 
 > You can also access any other <code>.tyron</code> smart contract open-source code by searching in the [SSI Browser](https://ssibrowser.com) by name, e.g. ```pst.tyron```, ```psti.tyron```, ```xpsti.tyron```, etc.
 
-Both implementations share the following:
-
 ### Implementations transitions
 
 Both implementations share the following transitions:

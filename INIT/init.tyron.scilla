@@ -1,4 +1,4 @@
-(* v1.2.1
+(* v1.2.2
 INIT.tyron: SSI initialization & DNS smart contract.
 Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -113,6 +113,8 @@ library INIT_tyron
   type Code =
     | Code of String ( Pair Uint128 String )
 
+  let did = "did"
+  let coop = "coop"
   let agent = "agent"
   let zeroFund = Pair{ ByStr20 Uint128 } zeroByStr20 zero
   let option_fund = let f = @option_value( Pair ByStr20 Uint128 ) in f zeroFund
@@ -150,20 +152,24 @@ contract INIT_tyron(
   (* A monotonically increasing number representing the amount of DID CRUD transactions that have taken place *)
   field crud_tx_number_: Uint128 = zero
 
-  (* Tyron Pungtas Funds @key: ID, e.g. "psc", "education" @value: Pair address balance *)
-  field fund: Map String ( Pair ByStr20 Uint128 ) = Emp String ( Pair ByStr20 Uint128 )
+  (* Tyron Pungtas Funds @key: ID, e.g. "coop", "education" @value: Pair address balance *)
+  field fund: Map String ( Pair ByStr20 Uint128 ) = let emp = Emp String ( Pair ByStr20 Uint128 ) 
+    in let fund = Pair{ ByStr20 Uint128 } initAdmin zero in let map = builtin put emp did fund in builtin put map coop fund
   
-  (* SSI domains: "tyron", did", "coop", ssi", "mapu" *)
+  (* SSI domains: "did", "coop", ssi", "mapu" *)
   
   (* Tyron smart contracts' code by version @key: SSI domain @value: map of version number & hex-encoded code *)
   field tyron_code: Map String ( Map String String ) = Emp String ( Map String String )
   
   (* DNS records @key: SSI domain @value: map of username & address *)
-  field dns: Map String ( Map String ByStr20 ) = Emp String ( Map String ByStr20 )
+  field dns: Map String ( Map String ByStr20 ) = let emp1 = Emp String ByStr20 in let init ="init" in let map1 = builtin put emp1 init _this_address 
+    in let emp = Emp String ( Map String ByStr20 ) in builtin put emp did map1
 
   (* Fees of the profit-sharing community @key: ID, e.g. SSI domain or agent's ID @value: fee in $ZIL *)
-  field psc_fee: Map String Uint128 = Emp String Uint128
-
+  field psc_fee: Map String Uint128 = let emp = Emp String Uint128 
+    in let one_hundred_zil = Uint128 100000000000000 in let map = builtin put emp did one_hundred_zil
+    in let ten_zil = Uint128 10000000000000 in builtin put map coop ten_zil
+  
 (* The DID backbone *)
 
 procedure ThrowError( err: Error )
@@ -194,8 +200,8 @@ procedure VerifySignature(
   get_did_key <- verification_methods_[id];
   is_right_signature = let did_key = option_bystr33_value get_did_key in builtin schnorr_verify did_key signedData signature;
   match is_right_signature with
-  | True =>
-  | False => err = CodeWrongSignature; ThrowError err end end
+    | True =>
+    | False => err = CodeWrongSignature; ThrowError err end end
 
 procedure ThrowIfNoKey( optKey: Option ByStr33 )
   match optKey with
@@ -300,7 +306,9 @@ procedure ValidateDocument(
   document: List Document
   )
   match operation with
-  | Recovery => forall document SaveDocument
+  | Recovery => 
+      verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
+      forall document SaveDocument
   | Update => forall document UpdateDocument end end
 
 procedure HashDocument( document: Document )
@@ -375,7 +383,6 @@ transition DidRecover(
   VerifyAdmin;
   get_recovery_key <- verification_methods_[recovery]; did_recovery = option_bystr33_value get_recovery_key;
   get_update_key <- verification_methods_[update]; did_update = option_bystr33_value get_update_key;
-  verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
   VerifyDocument didRecovery document signature;
   VerifyDIDkeys didRecovery did_recovery did_update;
   new_status = Recovered; did_status_ := new_status; Timestamp end
@@ -403,7 +410,8 @@ transition DidDeactivate(
   match did_status with
   | Created => | Recovered => | Updated =>
   | _ => err = CodeWrongStatus; ThrowError err end;
-  VerifyAdmin; VerifyDocument didRecovery document signature;
+  VerifyAdmin;
+  VerifyDocument didRecovery document signature;
   verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
   new_status = Deactivated; did_status_ := new_status; Timestamp end
 
