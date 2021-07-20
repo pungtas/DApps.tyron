@@ -10,9 +10,12 @@ The profit distribution is coded into the [PST.tyron smart contract](./pst.tyron
 
 The organization behind a PST enacts a profit-sharing community (PSC), and its governance should aim at being decentralized. For that purpose, the PST has a voting mechanism when distributing the profits: the smart contract collects the vote of each token holder and ponderates their votes according to their shares, which means that if you own 1% of the PST supply, you will have 1% of the voting decision. Through decentralized governance, the PSC decides what the quorum is and how much the fees are. Fees can get collected depending on the products and services provided by the organization. Communities can also be charities or receive donations, peer-to-peer.
 
+
+We use the FATF Travel Rule terminology of Originator and Beneficiary to refer to the sender and receiver of a token transfer.
+
 ## Proxy smart contract
 
-The PST proxy smart contract keeps track of the user accounts and the address of the implementation contract to upgrade the latter when necessary. Every user call must be to the proxy, and then this sends a message to the current implementation.
+The PST Proxy smart contract keeps track of the user accounts and the address of the  the contract to upgrade the latter when necessary. Every user call must be to the Proxy, and then this sends a message to the current Implementation.
 
 ### User account
 
@@ -48,7 +51,7 @@ A vote can be ```Yes``` or ```No```, and it defaults to ```Yes```. In all profit
 
 ### Proxy transitions
 
-- Upgrade implementation.
+- Upgrade Implementation.
 
 - Update Admin.
 
@@ -72,13 +75,13 @@ A vote can be ```Yes``` or ```No```, and it defaults to ```Yes```. In all profit
 
 - Transfer from & its callback.
 
-- Swap $ZIL for $PST and distribute & its callback: any address can send $ZIL to buy $PST directly from ZilSwap and distribute them among a list of beneficiaries.
+- Swap $ZIL for $PST and distribute & its callback: any address can send $ZIL to buy $PST directly from ZilSwap and distribute them among a list of Beneficiaries.
 
 - Change vote.
 
 ## Implementations
 
-The profit-sharing token implementation can be a:
+The profit-sharing token Implementation can be a:
 
 - new token: [PSTi.tyron smart contract](./new-token/PSTi.tyron.scilla)
 
@@ -88,29 +91,49 @@ The profit-sharing token implementation can be a:
 
 ### Implementations transitions
 
-Both implementations share the following transitions:
+Both Implementations share the following transitions:
 
-- Update Admin: to set the administrator's address up to date, the Admin calls this transition directly (i.e. not through the proxy).
+- Update Admin: to set the administrator's address up to date, the Admin calls this transition directly (i.e. not through the Proxy).
 
 - Update pauser: direct call from Admin to update the address of the pauser.
 
-- Pause & unpause: only the pauser can call these transitions through the proxy. When the contract is on pause, no incoming transaction other than ```Unpause``` will go through the implementation.
+- Pause & unpause: only the pauser can call these transitions through the Proxy. When the contract is on pause, no incoming transaction other than ```Unpause``` will go through the Implementation.
 
 - Update Lister: direct call from Admin to update the address of the Lister, that is the entity responsible for blocking and unblocking user addresses.
 
-- Block & unblock: the implementation makes sure that the Lister is the ```_origin``` of these transactions and that they come from the proxy.
+- Block & unblock: the Implementation makes sure that the Lister is the ```_origin``` of these transactions and that they come from the Proxy.
 
 - Law enforcement wiping burn: when a user's address gets blocked, their account can get removed by the Lister calling this transition.
 
+- Transfer: a transfer request gets accepted when being made through the Proxy. Then the Implementation remote reads the Originator's account from the Proxy and makes sure their balance is sufficient. It remote reads the Beneficiary's account and adds the transfer amount to their account's balance. Finally, sends a message back to the Proxy with the updated balances and messages to both the Originator and Beneficiary.
+
+- Increase and decrease Spender allowance: a Spender is anyone authorized by the user to spend their funds - it is a third party that can transfer the allowance that the user has specified in the ```Increase Allowance``` transition. When both increasing and decreasing allowance, the Implementation remote reads from the Proxy the current allowance of the given Spender and adds or subtracts the allowance amount, respectively. Lastly, the Implementation sends a message to the Proxy with the new allowance.
+
+- Transfer from: this transaction gets executed by a Spender through the Proxy. The Implementation remote reads from the Proxy the Originator's and Beneficiary's accounts, as well as the Spender's allowance. Then it makes the corresponding updates.
+
+### New token transitions
+
+The ```Mint```, ```Burn``` and ```Swap ZIL For PST And Distribute``` transitions vary depending on the Implementation.
+
 - Update Main Minter: direct call from Admin to update the address of the Main Minter, that is the entity responsible for increasing and decreasing Minters' allowances.
 
-- Increase and decrease Minter allowance: the Main Minter must be the ```_origin``` of this transaction.
+- Increase and decrease Minter allowance: the Main Minter must be the ```_origin``` of these transactions.
 
-- Transfer.
+- Mint: a Minter can create new tokens according to their allowance and send them to a Beneficiary.
 
-- Increase and decrease Spender allowance.
+- Burn: a Minter can eliminate their balance's funds in a ```Burn``` transaction.
 
-- Transfer from.
+- Swap $ZIL for $PST and distribute: the Proxy makes this call to the Implementation, so the latter executes a swap on ZilSwap, exchanging the amount of $ZIL sent by the Originator for $PST. Therefore, the profit-sharing community generates demand for the profit-sharing token directly on ZilSwap.
+
+### Wrapped token transitions
+
+A wrapped PST has no Minters since every new PST is a wrap of an existing token.
+
+- Mint: to create a wrapped token, the Originator must first increase the allowance of the Implementation as the Spender of the initial token. Then the Implementation will execute a ```Transfer From``` transition to itself, create the wrapped tokens and send them to the Beneficiary.
+
+- Burn: any user can burn their balance of PST which means transferring the initial token back to them (i.e. the Implementation executes a ```Transfer``` of the initial token to the Originator).
+
+- Swap $ZIL for $PST and distribute: the Proxy makes this call to the Implementation, so the latter executes a swap on ZilSwap, exchanging the amount of $ZIL sent by the Originator for the initial token. Then, the Implementation wraps these tokens, minting new wrapped profit-sharing tokens. A different version of this Implementation could swap $ZIL for the $PST instead.
 
 ## Acknowledgements
 
