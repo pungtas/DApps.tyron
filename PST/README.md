@@ -10,12 +10,13 @@ The profit distribution is coded into the [PST.tyron smart contract](./pst.tyron
 
 The organization behind a PST enacts a profit-sharing community (PSC), and its governance should aim at being decentralized. For that purpose, the PST has a voting mechanism when distributing the profits: the smart contract collects the vote of each token holder and ponderates their votes according to their shares, which means that if you own 1% of the PST supply, you will have 1% of the voting decision. Through decentralized governance, the PSC decides what the quorum is and how much the fees are. Fees can get collected depending on the products and services provided by the organization. Communities can also be charities or receive donations, peer-to-peer.
 
+> We are also looking into implementing other voting mechanisms such as Quadratic Voting.
 
-We use the FATF Travel Rule terminology of Originator and Beneficiary to refer to the sender and receiver of a token transfer.
+These specifications use the FATF Travel Rule terminology of Originator and Beneficiary to refer to the sender and receiver of a token transfer.
 
 ## Proxy smart contract
 
-The PST Proxy smart contract keeps track of the user accounts and the address of the  the contract to upgrade the latter when necessary. Every user call must be to the Proxy, and then this sends a message to the current Implementation.
+The PST Proxy smart contract keeps track of the user accounts and the address of the Implementation smart contract to upgrade the latter when necessary. Every user call must be to the Proxy, and then this sends a message to the current Implementation.
 
 ### User account
 
