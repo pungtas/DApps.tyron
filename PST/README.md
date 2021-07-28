@@ -112,7 +112,9 @@ Both Implementations share the following transitions:
 
 - Transfer from: this transaction gets executed by a Spender through the Proxy. The Implementation remote reads from the Proxy the Originator's and Beneficiary's accounts, as well as the Spender's allowance. Then it makes the corresponding updates.
 
-### New token transitions
+- Update ZilSwap: the Admin calls this transition to update the blockchain address of ZilSwap.
+
+### New-token transitions
 
 The ```Mint```, ```Burn``` and ```Swap ZIL For PST And Distribute``` transitions vary depending on the Implementation.
 
@@ -126,15 +128,23 @@ The ```Mint```, ```Burn``` and ```Swap ZIL For PST And Distribute``` transitions
 
 - Swap $ZIL for $PST and distribute: the Proxy makes this call to the Implementation, so the latter executes a swap on ZilSwap, exchanging the amount of $ZIL sent by the Originator for $PST. Therefore, the profit-sharing community generates demand for the profit-sharing token directly on ZilSwap.
 
-### Wrapped token transitions
+### Wrapped-token transitions
 
 A wrapped PST has no Minters since every new PST is a wrap of an existing token.
 
-- Mint: to create a wrapped token, the Originator must first increase the allowance of the Implementation as the Spender of the initial token. Then the Implementation will execute a ```Transfer From``` transition to itself, create the wrapped tokens and send them to the Beneficiary.
+- Mint: to create this kind of profit-sharing token, the Originator must first increase the allowance of the xPST Implementation as the Spender of the wrapped token. Then the Implementation will execute a ```Transfer From``` transition to itself, create the PSTs and send them to the Beneficiary.
 
-- Burn: any user can burn their balance of PST which means transferring the initial token back to them (i.e. the Implementation executes a ```Transfer``` of the initial token to the Originator).
+> On the current version, the xPST Implementation holds the tokens that got wrapped. It could also send them to the Admin or a DAO smart contract.
 
-- Swap $ZIL for $PST and distribute: the Proxy makes this call to the Implementation, so the latter executes a swap on ZilSwap, exchanging the amount of $ZIL sent by the Originator for the initial token. Then, the Implementation wraps these tokens, minting new wrapped profit-sharing tokens. A different version of this Implementation could swap $ZIL for the $PST instead.
+- Upgrade implementation: by calling this transition, the Admin can transfer all tokens that got wrapped by the profit-sharing community to the new xPST Implementation address.
+
+- Update token address: transaction submitted by the Admin to update the address of the token to get wrapped by the profit-sharing community.
+
+- Update demanded token: the demanded token is the one to be bought on ZilSwap by ```Swap $ZIL for $PST and distribute``` transition. By submitting an  ```Update Demanded Token``` transition, the Admin can set the demanded token to the profit-sharing token (PST Proxy) or the token that the PSC wraps.
+
+- Burn: any user can burn their balance of PST which means unwrapping and transferring the token back to them (i.e. the xPST Implementation executes a ```Transfer``` to the Originator).
+
+- Swap $ZIL for $PST and distribute: the PST Proxy makes this call to the xPST Implementation, so the latter executes a trade on ZilSwap, exchanging the amount of $ZIL sent by the Originator for the demanded token. When the demanded token is not the PST, the xPST Implementation buys the token from ZilSwap and wraps them to mint new profit-sharing tokens.
 
 ## Acknowledgements
 

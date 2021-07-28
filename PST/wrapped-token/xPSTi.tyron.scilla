@@ -1,4 +1,4 @@
-(* v0.3.1
+(* v0.4.0
 xPSTi.tyron: wrapped profit-sharing token Zilliqa reference contract - Implementation smart contract.
 Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -102,15 +102,17 @@ contract XPSTi(
     field accounts: Map ByStr20 Account,
     field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) end,
   zilswap_addr: ByStr20,
-  token: ByStr20
+  token_addr: ByStr20
   )
   field admin: ByStr20 = init_admin
   field pauser: ByStr20 = init_admin
+  field lister: ByStr20 = init_admin
+  
+  field wrapped_token: ByStr20 = token_addr
   field zilswap: ByStr20 = zilswap_addr
-  field token_addr: ByStr20 = token
+  field demanded_token: ByStr20 = token_addr
   
   field paused: Bool = False
-  field lister: ByStr20 = init_admin
   field blocked: Map ByStr20 Uint128 = Emp ByStr20 Uint128
   field deadline_block: BNum = BNum 0
 
@@ -323,7 +325,7 @@ transition Mint(
   new_supply = builtin add current_supply amount;
   get_account <-& proxy_addr.accounts[originator]; bal = account_balance get_account;
   new_bal = builtin add bal amount;
-  token_address <- token_addr;
+  token_address <- wrapped_token;
   msg_to_token = { _tag: "TransferFrom"; _recipient: token_address; _amount: zero;
     from: originator;
     to: _this_address;
@@ -355,7 +357,7 @@ transition Burn(
     originator: originator;
     amount: amount
   }; event e;
-  token_address <- token_addr;
+  token_address <- wrapped_token;
   msg_to_token = { _tag: "Transfer"; _recipient: token_address; _amount: zero;
     to: originator;
     amount: amount
@@ -491,10 +493,29 @@ transition TransferFrom(
   }; msgs = four_msgs msg_to_proxy_balances msg_to_proxy_allowance msg_to_spender msg_to_beneficiary; send msgs end
 
 transition UpdateZilswap( new_addr: ByStr20 )
-  IsAdmin; zilswap := new_addr end
+  IsNotPaused; IsAdmin; zilswap := new_addr end
+
+transition UpgradeImplementation( new_implementation: ByStr20 )
+  IsNotPaused; IsAdmin;
+  token_address <- wrapped_token;
+  current_supply <-& proxy_addr.total_supply;
+  msg_to_token = { _tag: "Transfer"; _recipient: token_address; _amount: zero;
+    to: new_implementation;
+    amount: current_supply
+  };
+  e = { _eventname: "ImplementationUpgraded";
+    implementation_upgraded: new_implementation
+  }; event e end
 
 transition UpdateTokenAddr( new_addr: ByStr20 )
-  IsAdmin; token_addr := new_addr end
+  IsNotPaused; IsAdmin; wrapped_token := new_addr end
+
+transition UpdateDemandedToken( pst: Bool )
+  IsNotPaused; IsAdmin;
+  token_address <- wrapped_token;
+  match pst with
+  | True => demanded_token := proxy_addr
+  | False => demanded_token := token_address end end
 
 procedure UpdateDeadline( deadline: Uint128 )
   current_block <- &BLOCKNUMBER;
@@ -509,22 +530,32 @@ transition SwapZILForPSTAndDistribute(
   )
   ThrowIfNotProxy;
   UpdateDeadline deadline; get_deadline <- deadline_block;
-  zilswap_address <- zilswap; token_address <- token_addr;
-  accept; msg = let m = { _tag: "SwapZILForExactTokens"; _recipient: zilswap_address; _amount: _amount;
-    token_address: token_address;
-    token_amount: amount;
-    deadline_block: get_deadline;
-    recipient_address: _this_address
-  } in one_msg m; send msg;
-  get_originator_account <-& proxy_addr.accounts[originator]; originator_bal = account_balance get_originator_account;
-  new_originator_bal = builtin add originator_bal amount;
-  current_supply <-& proxy_addr.total_supply;
-  new_supply = builtin add amount current_supply;
-  msg = let m = { _tag: "MintCallBack"; _recipient: proxy_addr; _amount: zero;
-    beneficiary: originator;
-    new_beneficiary_bal: new_originator_bal;
-    new_supply: new_supply
-  } in one_msg m; send msg;
+  zilswap_address <- zilswap; token_address <- demanded_token;
+  is_pst = builtin eq token_address proxy_addr;
+  match is_pst with
+  | True =>
+      accept; msg = let m = { _tag: "SwapExactZILForTokens"; _recipient: zilswap_address; _amount: _amount;
+        token_address: proxy_addr;
+        min_token_amount: amount;
+        deadline_block: get_deadline;
+        recipient_address: originator
+      } in one_msg m; send msg
+  | False =>
+      accept; msg = let m = { _tag: "SwapZILForExactTokens"; _recipient: zilswap_address; _amount: _amount;
+        token_address: token_address;
+        token_amount: amount;
+        deadline_block: get_deadline;
+        recipient_address: _this_address
+      } in one_msg m; send msg;
+      get_originator_account <-& proxy_addr.accounts[originator]; originator_bal = account_balance get_originator_account;
+      new_originator_bal = builtin add originator_bal amount;
+      current_supply <-& proxy_addr.total_supply;
+      new_supply = builtin add amount current_supply;
+      msg = let m = { _tag: "MintCallBack"; _recipient: proxy_addr; _amount: zero;
+        beneficiary: originator;
+        new_beneficiary_bal: new_originator_bal;
+        new_supply: new_supply
+      } in one_msg m; send msg end;
   msg = let m = { _tag: "SwapZILForPSTAndDistributeCallBack"; _recipient: proxy_addr; _amount: zero;
     originator: originator;
     beneficiary: beneficiary
