@@ -1,20 +1,22 @@
-(*
-  DID.tyron: decentralized identifier smart contract.
-  Self-Sovereign Identity Protocol.
-  Copyright (C) Tyron Pungtas and its affiliates.
+(* v2.0.0
+did.tyron: W3C decentralized identifier smart contract
+Tyron Self-Sovereign Identity Protocol
+Copyright (C) Tyron Pungtas and its affiliates.
+www.ssiprotocol.com
 
-  This program is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-  This program is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-*)
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.*)
 
 scilla_version 0
+
+import PairUtils BoolUtils
 
 library DID
 
@@ -24,55 +26,12 @@ library DID
     | Updated
     | Recovered
     | Deactivated
+    | Locked
 
   type Operation =
     | Recovery
     | Update
-    | Tyron of String
-
-  let one_msg = fun( msg: Message ) =>
-    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
-
-  let two_msgs = fun( msg1: Message ) => fun( msg2: Message ) =>
-    let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
-
-  type Error =
-    | CodeWrongStatus
-    | CodeNotOwner
-    | CodeWrongSignature
-    | CodeUndefinedKey
-    | ThrownIfSameKey
-    | CodeNotValid
-
-  let make_error = fun( error: Error ) =>
-    let result = match error with
-    | CodeWrongStatus            => Int32 -1
-    | CodeNotOwner               => Int32 -2
-    | CodeWrongSignature         => Int32 -3
-    | CodeUndefinedKey           => Int32 -4
-    | ThrownIfSameKey            => Int32 -5
-    | CodeNotValid               => Int32 -6
-    end in { _exception: "Error"; code: result }
   
-  let recovery = Recovery
-  let update = Update
-  
-  let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
-    match input with
-    | Some v => v
-    | None => default
-    end
-
-  let zero = Uint128 0
-  let zeroByStr20 = 0x0000000000000000000000000000000000000000
-  let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
-  let zeroByStr64 = 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-  let option_uint128_value = let f = @option_value Uint128 in f zero
-  let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20  
-  let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
-  let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
-
-
   type Action =
     | Add
     | Remove
@@ -80,394 +39,414 @@ library DID
   type TransferProtocol =
     | Https
     | Git
-    | Zilliqa
-    | Arweave
 
-  type ServiceEndpoint =
-    | ServiceEndpoint of TransferProtocol String
-    
-  type DidService =
-    | DidService of String ServiceEndpoint  (* the type & endpoint *)
-    
+  type Endpoint =
+    | Address of ByStr20
+    | Uri of String TransferProtocol String   (* type, transfer protocol & uri *)
+
   type Document =
     | VerificationMethod of Action String ByStr33  (* string: key purpose OR service ID *)
-    | Service of Action String DidService
-    
-  let update_methods: forall 'A. List Document -> Map String ByStr33 -> Map String ByStr33 = tfun 'A => fun(l: List Document) => fun(prevMethods: Map String ByStr33) =>
-    let foldl = @list_foldl Document Map String ByStr33
-    in let iter = fun(map: Map String ByStr33) => fun(h: Document) =>
-      match h with
-      | VerificationMethod action purpose key =>
-          match action with
-            | Add =>
-                builtin put map purpose key
-            | Remove =>
-                builtin remove map purpose
-          end
-      | _ => map
-      end in foldl iter prevMethods l
+    | Service of Action String Endpoint
+  
+  type Recoverer =
+    | First
+    | Second
 
-  let make_endpoint = fun( input: DidService ) =>
+  let didRecovery = Recovery
+  let didUpdate = Update
+  let update = "update"
+  let recovery = "recovery"
+  let didsr = "socialrecovery"
+  let actionAdd = "add"
+  let actionRemove = "remove"
+  let empty_methods = Emp String ByStr33
+  let empty_services = Emp String ByStr20
+  let empty_services_ = Emp String Endpoint
+  
+  let one_msg = fun( msg: Message ) =>
+    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+
+  type Error =
+    | CodeWrongStatus
+    | CodeNotAdmin
+    | CodeWrongCaller
+    | CodeWrongSignature
+    | CodeUndefinedKey
+    | CodeSameKey
+    | CodeSameId
+    | CodeNotValid
+    | CodeDidLocked
+ 
+  let make_error = fun( error: Error ) =>
+    let result = match error with
+    | CodeWrongStatus            => Int32 -1
+    | CodeNotAdmin               => Int32 -2
+    | CodeWrongCaller            => Int32 -3
+    | CodeWrongSignature         => Int32 -4
+    | CodeUndefinedKey           => Int32 -5
+    | CodeSameKey                => Int32 -6
+    | CodeSameId                 => Int32 -8
+    | CodeNotValid               => Int32 -9
+    | CodeDidLocked              => Int32 -10
+    end in { _exception: "Error"; code: result }
+  
+  let zero = Uint128 0
+  let zeroByStr20 = 0x0000000000000000000000000000000000000000
+  let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
+  let zeroByStr64 = 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+  let zero_bystr = builtin to_bystr zeroByStr20
+
+  let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
     match input with
-    | DidService tipo endpoint =>
-        match endpoint with
-        | ServiceEndpoint transfer addr =>
-            match transfer
-            | Https =>
-                let prefix = "https://" in let uri = builtin concat prefix addr in
-                Pair{ String String } tipo uri
-            | Git =>
-                let prefix = "git://" in let uri = builtin concat prefix addr in
-                Pair{String String} tipo uri
-            | Zilliqa =>
-                let prefix = "zil://" in let uri = builtin concat prefix addr in
-                Pair{ String String } tipo uri
-            | Arweave =>
-                let prefix = "ar://" in let uri = builtin concat prefix addr in
-                Pair{ String String } tipo uri
-            end
-        end
-    end
-
-  let update_services: forall 'A. List Document -> Map String Pair String String -> Map String Pair String String = tfun 'A => fun( l: List Document ) => fun( prevServices: Map String Pair String String ) =>
-    let foldl = @list_foldl Document Map String Pair String String
-    in let iter = fun( map: Map String Pair String String ) => fun( h: Document ) =>
-      match h with
-      | Service action id didService =>
-          match action with
-          | Add =>
-              let endpoint = make_endpoint didService
-              in builtin put map id endpoint
-          | Remove =>
-              builtin remove map id
-          end
-      | _ => map
-      end in foldl iter prevServices l
-    
-contract DID(
-  initOwner: ByStr20, (* the Zilliqa address of the DID owner *)
-  init_tyron: ByStr20 (* the init.tyron smart contract *)
-  )
-
-  field did: String = "" (* the decentralized identifier *)
-  field did_status: DIDstatus = Deployed
+    | Some v => v
+    | None => default end
+  let option_uint128_value = let f = @option_value Uint128 in f zero
+  let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
+  let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
+  let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
   
-  field owner: ByStr20 = initOwner
-
-  (* Verification methods
-  @key: key purpose
-  @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
-  field verification_methods: Map String ByStr33 = Emp String ByStr33
+contract DID( init_admin: ByStr20 )
+  field admin_: ByStr20 = init_admin
+  field did_: String = ""    (* the W3C decentralized identifier *)
+  field did_status_: DIDstatus = Deployed
   
-  (* Services
-  @key: ID
-  @value: the type & URI *)
-  field services: Map String Pair String String = Emp String Pair String String
+  (* Verification methods @key: key purpose @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
+  field verification_methods_: Map String ByStr33 = empty_methods
   
-  (* The public key for the next DID Update operation *)
-  field did_update_key: Option ByStr33 = None{ ByStr33 }
+  (* Services @key: ID @value: endpoint *)
+  field services_: Map String ByStr20 = empty_services
+  field services__: Map String Endpoint = empty_services_
   
-  (* The public key for the next DID Recover or Deactivate operation *)
-  field did_recovery_key: Option ByStr33 = None{ ByStr33 }
+  field document_hash: ByStr = zero_bystr
+  
+  field social_recovery_: Option( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )
+    = None{( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )}
   
   (* The block number when the DID Create operation occurred *)
-  field created: BNum = BNum 0
+  field did_created_: BNum = BNum 0
   
-  (* The block number when the last DID operation occurred *)  
-  field ledger_time: BNum = BNum 0
+  (* The block number when the last DID CRUD operation occurred *)  
+  field ledger_time_: BNum = BNum 0
   
-  (* A monotonically increasing number representing the amount of DID operations that have taken place *)
-  field transaction_number: Uint128 = Uint128 0
-  
-  field records: Map ByStr20 ByStr20 = Emp ByStr20 ByStr20
+  (* A monotonically increasing number representing the amount of DID CRUD transactions that have taken place *)
+  field crud_tx_number_: Uint128 = zero
 
-procedure ThrowError(
-  err: Error
-  )
-  e = make_error err; throw e
-end
+procedure ThrowError( err: Error )
+  e = make_error err; throw e end
 
-procedure VerifyOwner()
-  current_owner <- owner;
-  is_owner = builtin eq current_owner _sender;
-  match is_owner with
-  | True =>
-  | False => err= CodeNotOwner; ThrowError err
-  end
-end
-
-(* Verifies that the DID is operational *)
 procedure IsOperational()
-  this_status <- did_status;
-  match this_status with
-  | Deactivated => err= CodeWrongStatus; ThrowError err
-  | _ =>
-  end
-end
+  did_status <- did_status_;
+  match did_status with
+  | Deactivated => err = CodeWrongStatus; ThrowError err
+  | Locked => err = CodeDidLocked; ThrowError err
+  | _ => end end
+
+procedure VerifyAdmin()
+  current_admin <- admin_;
+  verified = builtin eq current_admin _sender;
+  match verified with
+  | True =>
+  | False => err= CodeNotAdmin; ThrowError err end end
+
+transition UpdateAdmin( addr: ByStr20 )
+  IsOperational; VerifyAdmin; admin_ := addr end
+
+transition EnableSocialRecovery(
+  addr1: ByStr20 with contract field verification_methods_: Map String ByStr33 end,
+  addr2: ByStr20 with contract field verification_methods_: Map String ByStr33 end
+  )
+  IsOperational; VerifyAdmin;
+  recoverers = let sr = Pair{ ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end } addr1 addr2 in
+    Some{( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )} sr;
+  social_recovery_ := recoverers end
+
+transition UpdateSocialRecoverer(
+  recoverer: Recoverer,
+  addr: ByStr20 with contract field verification_methods_: Map String ByStr33 end
+  )
+  IsOperational; VerifyAdmin;
+  social_recovery <- social_recovery_;
+  match social_recovery with
+  | Some recoverers =>
+      match recoverer with
+      | First =>
+          sr2addr = let snd_element = @snd ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end in snd_element recoverers;
+          updated_sr = let sr = Pair{ ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end } addr sr2addr in
+            Some{( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )} sr;
+          social_recovery_ := updated_sr
+      | Second =>
+          sr1addr = let fst_element = @fst ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end in fst_element recoverers;
+          updated_sr = let sr = Pair{ ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end } sr1addr addr in
+            Some{( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )} sr;
+          social_recovery_ := updated_sr end
+  | None => err = CodeNotValid; ThrowError err end end
   
-procedure ThrowIfNoKey(
-  optKey: Option ByStr33
+transition Lock()
+  IsOperational; VerifyAdmin;
+  social_recovery <- social_recovery_;
+  match social_recovery with
+  | Some recoverers =>
+  | None => err = CodeNotValid; ThrowError err end;
+  locked = Locked; did_status_ := locked end
+  
+transition SocialRecovery( 
+  addr: ByStr20 with contract field verification_methods_: Map String ByStr33 end,
+  signature1: ByStr64,
+  signature2: ByStr64
   )
-  match optKey with
-  | Some key =>
-  | None => err = CodeUndefinedKey; ThrowError err
-  end
-end
-
-procedure ThrowIfSameKey(
-  key1: ByStr33,
-  key2: ByStr33
-  )
-  is_same_key = builtin eq key1 key2;
-  match is_same_key with
-  | True => err= ThrownIfSameKey; ThrowError err
-  | False =>
-  end
-end
-
-procedure VerifyDIDkeys(
-  operation: Operation,
-  recoveryKey: Option ByStr33,
-  updateKey: Option ByStr33
-  )
-  get_recovery_key <- did_recovery_key; did_recovery = option_bystr33_value get_recovery_key;
-  get_update_key <- did_update_key; did_update = option_bystr33_value get_update_key;
-  match operation with
-  | Recovery =>
-      ThrowIfNoKey recoveryKey; ThrowIfNoKey updateKey;
-      recovery_key = option_bystr33_value recoveryKey; update_key = option_bystr33_value updateKey;
-      ThrowIfSameKey recovery_key update_key; ThrowIfSameKey did_recovery recovery_key; ThrowIfSameKey did_recovery update_key; ThrowIfSameKey did_update recovery_key; ThrowIfSameKey did_update update_key;
-      did_recovery_key := recoveryKey; did_update_key := updateKey
-  | Update =>
-      ThrowIfNoKey updateKey;
-      update_key = option_bystr33_value updateKey;
-      ThrowIfSameKey did_update update_key; ThrowIfSameKey did_recovery update_key;
-      did_update_key := updateKey
-  | _ => (* upgrade verification of tyron key *)
-  end
-end
+  did_status <- did_status_;
+  match did_status with
+  | Deactivated => err = CodeWrongStatus; ThrowError err
+  | _ => end;
+  signed_data = builtin to_bystr addr;
+  social_recovery <- social_recovery_;
+  match social_recovery with
+  | Some recoverers =>
+      recoverer1addr = let fst_element = @fst
+        ByStr20 with contract field verification_methods_: Map String ByStr33 end
+        ByStr20 with contract field verification_methods_: Map String ByStr33 end
+      in fst_element recoverers;
+      recoverer2addr = let snd_element = @snd
+        ByStr20 with contract field verification_methods_: Map String ByStr33 end
+        ByStr20 with contract field verification_methods_: Map String ByStr33 end
+      in snd_element recoverers;
+      is_recoverer = let is_recoverer1 = builtin eq recoverer1addr _sender in let is_recoverer2 = builtin eq recoverer2addr _sender in orb is_recoverer1 is_recoverer2;
+      match is_recoverer with
+      | True =>
+      | False => err = CodeWrongCaller; ThrowError err end;
+      get_recoverer1key <-& recoverer1addr.verification_methods_[didsr]; did_sr1key = option_bystr33_value get_recoverer1key;
+      is_right_signature1 = builtin schnorr_verify did_sr1key signed_data signature1;
+      match is_right_signature1 with
+      | True =>
+          get_recoverer2key <-& recoverer2addr.verification_methods_[didsr]; did_sr2key = option_bystr33_value get_recoverer2key;
+          is_right_signature2 = builtin schnorr_verify did_sr2key signed_data signature2;
+          match is_right_signature2 with
+          | True =>
+          | False => err = CodeWrongSignature; ThrowError err end
+      | False => err = CodeWrongSignature; ThrowError err end
+  | None => err = CodeWrongStatus; ThrowError err end;
+  admin_ := addr end
 
 (* Verify Schnorr signature - signed data must correspond with a DID Key *)
 procedure VerifySignature(
-  operation: Operation,
+  id: String,
   signedData: ByStr,
-  signature: Option ByStr64
+  signature: ByStr64
   )
-  sig = option_bystr64_value signature;
+  get_did_key <- verification_methods_[id];
+  is_right_signature = let did_key = option_bystr33_value get_did_key in builtin schnorr_verify did_key signedData signature;
+  match is_right_signature with
+    | True =>
+    | False => err = CodeWrongSignature; ThrowError err end end
+
+procedure ThrowIfNoKey( optKey: Option ByStr33 )
+  match optKey with
+  | Some key =>
+  | None => err = CodeUndefinedKey; ThrowError err end end
+
+procedure ThrowIfSameKey(
+  key: ByStr33,
+  sndKey: ByStr33
+  )
+  is_same_key = builtin eq key sndKey;
+  match is_same_key with
+  | True => err= CodeSameKey; ThrowError err
+  | False => end end
+
+procedure VerifyDIDkeys(
+  operation: Operation,
+  didRecovery: ByStr33,
+  didUpdate: ByStr33
+  )
+  get_update_key <- verification_methods_[update]; new_update = option_bystr33_value get_update_key;
   match operation with
   | Recovery =>
-      get_recovery_key <- did_recovery_key;
-      did_recovery = option_bystr33_value get_recovery_key;
-      signature_is_right = builtin schnorr_verify did_recovery signedData sig;
-      correct_signature := signature_is_right
-  | Update =>
-      get_update_key <- did_update_key;
-      did_update = option_bystr33_value get_update_key;
-      signature_is_right = builtin schnorr_verify did_update signedData sig;
-      correct_signature := signature_is_right
-  | Tyron keyId =>
-      get_key <- verification_methods[keyId]; key = option_bystr33_value get_key;
-      signature_is_right = builtin schnorr_verify key signedData sig;
-      correct_signature := signature_is_right
-  end;
-  signature_verified <- correct_signature;
-  match signature_verified with
-    | True =>
-    | False => err= CodeWrongSignature; ThrowError err
-  end;
-  false = False; correct_signature := false
-end
+      get_recovery_key <- verification_methods_[recovery]; new_recovery = option_bystr33_value get_recovery_key;
+      ThrowIfSameKey new_recovery new_update;
+      ThrowIfSameKey new_recovery didRecovery; ThrowIfSameKey new_recovery didUpdate; ThrowIfSameKey new_update didRecovery; ThrowIfSameKey new_update didUpdate
+  | Update => ThrowIfSameKey new_update didUpdate; ThrowIfSameKey new_update didRecovery end end
 
-(* Update verification methods and services *)
-procedure UpdateDocument(
+procedure Timestamp()
+  current_block <- &BLOCKNUMBER; ledger_time_ := current_block;
+  latest_tx_number <- crud_tx_number_;
+  new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor; crud_tx_number_ := new_tx_number end
+
+procedure SaveDocument( document: Document )
+  match document with
+  | VerificationMethod action purpose key =>
+      match action with
+      | Add => verification_methods_[purpose] := key
+      | Remove => err = CodeNotValid; ThrowError err end
+  | Service action id endpoint =>
+      match action with
+      | Add =>
+          match endpoint with
+          | Address addr => services_[id] := addr
+          | Uri eType protocol uri => services__[id] := endpoint end
+      | Remove => err = CodeNotValid; ThrowError err end end end
+
+transition DidCreate(
+  document: List Document,
+  signature: Option ByStr64
+  )
+  did_status <- did_status_;
+  match did_status with
+  | Deployed =>
+    VerifyAdmin;
+    new_did = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address in
+      builtin concat did_prefix did_suffix; did_ := new_did;
+    forall document SaveDocument;
+    get_recovery_key <- verification_methods_[recovery]; ThrowIfNoKey get_recovery_key; did_recovery = option_bystr33_value get_recovery_key;
+    get_update_key <- verification_methods_[update]; ThrowIfNoKey get_update_key; did_update = option_bystr33_value get_update_key;
+    ThrowIfSameKey did_recovery did_update;
+    new_status = Created; did_status_ := new_status;
+    current_block <- &BLOCKNUMBER; did_created_ := current_block; Timestamp
+  | _ => err = CodeWrongStatus; ThrowError err end end
+
+procedure UpdateDocument( document: Document )
+  match document with
+  | VerificationMethod action purpose key =>
+      key_exists <- exists verification_methods_[purpose];
+      match action with
+      | Add =>
+          match key_exists with
+          | True =>
+              is_update = builtin eq purpose update;
+              match is_update with
+              | True => verification_methods_[update] := key
+              | False => err = CodeSameId; ThrowError err end
+          | False => verification_methods_[purpose] := key end
+      | Remove =>
+          match key_exists with
+          | True => delete verification_methods_[purpose]
+          | False => err = CodeNotValid; ThrowError err end end
+  | Service action id endpoint =>
+      is_service_ <- exists services_[id];
+      is_service__ <- exists services__[id];
+      service_exists = orb is_service_ is_service__;
+      match action with
+      | Add =>
+          match service_exists with
+          | True => err = CodeSameId; ThrowError err
+          | False => 
+              match endpoint with
+              | Address addr => services_[id] := addr
+              | Uri eType protocol uri => services__[id] := endpoint end end
+      | Remove =>
+          match service_exists with
+          | True => delete services_[id]; delete services__[id]
+          | False => err = CodeNotValid; ThrowError err end end end end
+
+procedure ValidateDocument(
   operation: Operation,
   document: List Document
   )
-  current_methods <- verification_methods; current_services <- services;
-  prev_methods = match operation with
-  | Recovery => Emp String ByStr33
-  | _ => current_methods
-  end;
-  update_methods = @update_methods Document; update_services = @update_services Document;
-  updated_methods = update_methods document prev_methods; verification_methods := updated_methods;
-  prev_services = match operation with
-  | Recovery => Emp String Pair String String
-  | _ => current_services
-  end;
-  updated_services = update_services document prev_services; services := updated_services
-end
+  match operation with
+  | Recovery => 
+      verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
+      forall document SaveDocument
+  | Update => forall document UpdateDocument end end
 
-procedure Timestamp()
-  current_block <- &BLOCKNUMBER; ledger_time := current_block;
-  latest_tx_number <- transaction_number;
-  new_tx_number =
-    let incrementor = Uint128 1 in builtin add latest_tx_number incrementor;
-  transaction_number := new_tx_number
-end
-
-procedure SetDomain(
-  domain: String
-  )
-  current_owner <- owner;
-  msg = let m = {
-		_tag: "SetDidDomain";
-		_recipient: current_owner;
-		_amount: zero;
-		domain: domain
-	} in one_msg m; send msg
-end
-
-transition UpdateOwner(
-  addr: ByStr20
-  )
-  VerifyOwner;
-  owner := addr
-end
-
-transition DIDcreate(
-  recoveryKey: Option ByStr33,
-  updateKey: Option ByStr33,
-  document: Option (List Document),
-  signedData: Option ByStr,
-  signature: Option ByStr64,
-  domain: String
-  )
-  VerifyOwner; IsOperational;
-  this_did =
-    let did_prefix = "did:tyron:zil:test:"
-    in let did_suffix = builtin to_string _this_address in builtin concat did_prefix did_suffix;
-  did := this_did;
-  VerifyDIDkeys recovery recoveryKey updateKey;
+procedure HashDocument( document: Document )
+  doc_hash <- document_hash;
   match document with
-  | None => err= CodeNotValid; ThrowError err
-  | Some doc =>
-      UpdateDocument recovery doc;
-      new_status = Created;
-      did_status := new_status;
-      current_block <- &BLOCKNUMBER;
-      created := current_block;
-      Timestamp
-  end;
-  SetDomain domain
-end
+  | VerificationMethod action purpose key =>
+      match action with
+      | Add =>
+          hash = let h1 = builtin sha256hash actionAdd in
+            let h2 = builtin sha256hash purpose in
+            let h3 = builtin sha256hash key in
+            let h1_2 = builtin concat h1 h2 in
+            builtin concat h1_2 h3;
+          doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
+          document_hash := doc_hash_
+      | Remove =>
+          hash = let h1 = builtin sha256hash actionRemove in
+            let h2 = builtin sha256hash purpose in
+            builtin concat h1 h2;
+          doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
+          document_hash := doc_hash_ end
+  | Service action id endpoint =>
+      match action with
+      | Add =>
+          match endpoint with
+          | Uri eType transfer uri =>
+              hash = let h1 = builtin sha256hash actionAdd in
+                let h2 = builtin sha256hash id in
+                let h3 = builtin sha256hash uri in
+                let h1_2 = builtin concat h1 h2 in
+                builtin concat h1_2 h3;
+              doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
+              document_hash := doc_hash_
+          | Address addr =>
+              hash = let h1 = builtin sha256hash actionAdd in
+                let h2 = builtin sha256hash id in
+                let h3 = builtin sha256hash addr in
+                let h1_2 = builtin concat h1 h2 in
+                builtin concat h1_2 h3;
+              doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
+              document_hash := doc_hash_ end
+      | Remove =>
+          hash = let h1 = builtin sha256hash actionRemove in
+            let h2 = builtin sha256hash id in
+            builtin concat h1 h2;
+          doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
+          document_hash := doc_hash_ end end end
 
-transition DIDrecover(
-  recoveryKey: Option ByStr33,
-  updateKey: Option ByStr33,
-  document: Option (List Document),
-  signedData: ByStr,
+procedure VerifyDocument(
+  operation: Operation,
+  document: List Document,
   signature: Option ByStr64
   )
-  VerifyOwner; IsOperational;
-  VerifyDIDkeys recovery recoveryKey updateKey;
-  match document with
-  | None => err= CodeNotValid; ThrowError err
-  | Some doc =>
-      IsRightSignature recovery signedData signature;
-      UpdateDocument recovery doc;
-      new_status = Recovered;
-      did_status := new_status;
-      Timestamp
-  end
-end
+  document_hash := zero_bystr;
+  forall document HashDocument;
+  doc_hash <- document_hash;
+  sig = option_bystr64_value signature;
+  id = match operation with
+  | Recovery => recovery
+  | Update => update end;
+  VerifySignature id doc_hash sig;
+  ValidateDocument operation document end
 
-transition DIDupdate(
-  recoveryKey: Option ByStr33,
-  updateKey: Option ByStr33,
-  document: Option (List Document),
-  signedData: ByStr,
+transition DidRecover(
+  document: List Document,
   signature: Option ByStr64
   )
-  VerifyOwner; IsOperational;
-  VerifyDIDkeys update recoveryKey updateKey;
-  match document with
-  | None => err= CodeNotValid; ThrowError err
-  | Some doc =>
-      IsRightSignature update signedData signature;
-      UpdateDocument update doc;
-      new_status = Updated;
-      did_status := new_status;
-      Timestamp
-  end
-end
+  did_status <- did_status_;
+  match did_status with
+  | Created => | Recovered => | Updated =>
+  | _ => err = CodeWrongStatus; ThrowError err end;
+  VerifyAdmin;
+  get_recovery_key <- verification_methods_[recovery]; did_recovery = option_bystr33_value get_recovery_key;
+  get_update_key <- verification_methods_[update]; did_update = option_bystr33_value get_update_key;
+  VerifyDocument didRecovery document signature;
+  VerifyDIDkeys didRecovery did_recovery did_update;
+  new_status = Recovered; did_status_ := new_status; Timestamp end
 
-transition DIDdeactivate(
-  signedData: ByStr,
+transition DidUpdate(
+  document: List Document,
+  signature: Option ByStr64
+  )
+  did_status <- did_status_;
+  match did_status with
+  | Created => | Recovered => | Updated =>
+  | _ => err = CodeWrongStatus; ThrowError err end;
+  VerifyAdmin;
+  get_recovery_key <- verification_methods_[recovery]; did_recovery = option_bystr33_value get_recovery_key;
+  get_update_key <- verification_methods_[update]; did_update = option_bystr33_value get_update_key;
+  VerifyDocument didUpdate document signature;
+  VerifyDIDkeys didUpdate did_recovery did_update;
+  new_status = Updated; did_status_ := new_status; Timestamp end
+
+transition DidDeactivate(
+  document: List Document,
   signature: Option ByStr64
   ) 
-  VerifyOwner; IsOperational;
-  IsRightSignature recovery signedData signature;
-  deactivated_key = None{ByStr33};
-  did_update_key := deactivated_key;
-  did_recovery_key := deactivated_key;
-  deactivated_methods = Emp String ByStr33; verification_methods := deactivated_methods;
-  deactivated_services = Emp String Pair String String; services := deactivated_services;
-  new_status = Deactivated; did_status := new_status;
-  Timestamp
-end
-
-(* Receive native funds ($ZIL) and send them to the SSI *)
-transition AddFunds()
-  IsOperational; accept;
-  e = {
-    _eventname: "ZILreceived";
-    sender: _sender;
-    amount: _amount
-  }; event e;
-  current_owner <- owner;
-  msg = let m = {
-    _tag: "AddFunds";
-    _recipient: current_owner;
-    _amount: _amount
-  } in one_msg m; send msg
-end
-
-procedure VerifyRecord()
-  current_owner <- owner;
-  accept;
-  msg = let m = {
-    _tag: "VerifyRecord";
-    _recipient: current_owner;
-    _amount: _amount;
-    sender: _sender
-  } in one_msg m ; send msg 
-end
-
-transition VerifyRecordCallBack(
-  implAddr: ByStr20,
-  proxyAddr: ByStr20
-  )
-  VerifyOwner;
-  records[implAddr] := proxyAddr
-end
-
-transition RecipientAcceptTransfer(
-  sender : ByStr20,
-  recipient : ByStr20,
-  amount : Uint128
-  )
-  IsOperational;
-  e = {
-    _eventname: "TransferReceived";
-    token: _sender;
-    sender: sender;
-    amount: amount
-  }; event e;
-  current_owner <- owner;
-  VerifyRecord;
-  get_proxy_addr <- records[_sender]; proxy_addr = option_bystr20_value get_proxy_addr;
-  msg = let m = {
-    _tag: "Transfer";
-    _recipient: proxy_addr;
-    _amount: zero;
-    to: current_owner;
-    amount: amount
-  } in one_msg m ; send msg 
-end
-
-transition TransferSuccessCallBack(
-  sender: ByStr20, 
-  recipient: ByStr20,
-  amount : Uint128
-  )
-end
+  did_status <- did_status_;
+  match did_status with
+  | Created => | Recovered => | Updated =>
+  | _ => err = CodeWrongStatus; ThrowError err end;
+  VerifyAdmin;
+  VerifyDocument didRecovery document signature;
+  verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
+  new_status = Deactivated; did_status_ := new_status; Timestamp end
