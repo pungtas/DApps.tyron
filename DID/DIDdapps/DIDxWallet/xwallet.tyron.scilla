@@ -1,4 +1,4 @@
-(* v1.0.0
+(* v1.1.0
 xwallet.tyron: decentralized identifier smart contract wallet (DIDxWallet)
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -19,6 +19,8 @@ scilla_version 0
 import PairUtils BoolUtils
 
 library DID
+
+  let tyronAddr = 0xA3725fA67FaA3a1cAe6869C57b475ff173D98Ba7
 
   type DIDstatus =
     | Deployed
@@ -131,10 +133,16 @@ contract DIDxWallet( init_admin: ByStr20 )
   (* A monotonically increasing number representing the amount of DID CRUD transactions that have taken place *)
   field crud_tx_number_: Uint128 = zero
   
-  field deadline_block: Uint128 = Uint128 21   (* approx. 15 minutes *)
+  field deadline: Uint128 = Uint128 21   (* approx. 15 minutes *)
   
 (* The DID backbone *)
 
+procedure SupportTyron( tyron: Option Uint128 )
+  match tyron with
+  | Some donation => 
+      accept; msg = let m = { _tag: ""; _recipient: tyronAddr; _amount: donation } in one_msg m; send msg
+  | None => end end
+  
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
 
@@ -145,30 +153,36 @@ procedure IsOperational()
   | Locked => err = CodeDidLocked; ThrowError err
   | _ => end end
 
-procedure VerifyAdmin()
+procedure VerifyAdmin( tyron: Option Uint128 )
   current_admin <- admin_;
   verified = builtin eq current_admin _sender;
   match verified with
-  | True =>
+  | True => SupportTyron tyron
   | False => err= CodeNotAdmin; ThrowError err end end
 
-transition UpdateAdmin( addr: ByStr20 )
-  IsOperational; VerifyAdmin; admin_ := addr end
+transition UpdateAdmin(
+  addr: ByStr20,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyAdmin tyron;
+  admin_ := addr end
 
 transition EnableSocialRecovery(
   addr1: ByStr20 with contract field verification_methods_: Map String ByStr33 end,
-  addr2: ByStr20 with contract field verification_methods_: Map String ByStr33 end
+  addr2: ByStr20 with contract field verification_methods_: Map String ByStr33 end,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
+  IsOperational; VerifyAdmin tyron;
   recoverers = let sr = Pair{ ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end } addr1 addr2 in
     Some{( Pair ByStr20 with contract field verification_methods_: Map String ByStr33 end ByStr20 with contract field verification_methods_: Map String ByStr33 end )} sr;
   social_recovery_ := recoverers end
 
 transition UpdateSocialRecoverer(
   recoverer: Recoverer,
-  addr: ByStr20 with contract field verification_methods_: Map String ByStr33 end
+  addr: ByStr20 with contract field verification_methods_: Map String ByStr33 end,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
+  IsOperational; VerifyAdmin tyron;
   social_recovery <- social_recovery_;
   match social_recovery with
   | Some recoverers =>
@@ -185,8 +199,8 @@ transition UpdateSocialRecoverer(
           social_recovery_ := updated_sr end
   | None => err = CodeNotValid; ThrowError err end end
   
-transition Lock()
-  IsOperational; VerifyAdmin;
+transition Lock( tyron: Option Uint128 )
+  IsOperational; VerifyAdmin tyron;
   social_recovery <- social_recovery_;
   match social_recovery with
   | Some recoverers =>
@@ -196,7 +210,8 @@ transition Lock()
 transition SocialRecovery( 
   addr: ByStr20 with contract field verification_methods_: Map String ByStr33 end,
   signature1: ByStr64,
-  signature2: ByStr64
+  signature2: ByStr64,
+  tyron: Option Uint128
   )
   did_status <- did_status_;
   match did_status with
@@ -228,8 +243,8 @@ transition SocialRecovery(
           | True =>
           | False => err = CodeWrongSignature; ThrowError err end
       | False => err = CodeWrongSignature; ThrowError err end
-  | None => err = CodeWrongStatus; ThrowError err end;
-  admin_ := addr end
+  | None => err = CodeNotValid; ThrowError err end;
+  SupportTyron tyron; admin_ := addr end
 
 (* Verify Schnorr signature - signed data must correspond with a DID Key *)
 procedure VerifySignature(
@@ -291,20 +306,21 @@ procedure SaveDocument( document: Document )
 
 transition DidCreate(
   document: List Document,
-  signature: Option ByStr64
+  signature: Option ByStr64,
+  tyron: Option Uint128
   )
   did_status <- did_status_;
   match did_status with
   | Deployed =>
-    VerifyAdmin;
-    new_did = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address in
-      builtin concat did_prefix did_suffix; did_ := new_did;
-    forall document SaveDocument;
-    get_recovery_key <- verification_methods_[recovery]; ThrowIfNoKey get_recovery_key; did_recovery = option_bystr33_value get_recovery_key;
-    get_update_key <- verification_methods_[update]; ThrowIfNoKey get_update_key; did_update = option_bystr33_value get_update_key;
-    ThrowIfSameKey did_recovery did_update;
-    new_status = Created; did_status_ := new_status;
-    current_block <- &BLOCKNUMBER; did_created_ := current_block; Timestamp
+      VerifyAdmin tyron;
+      new_did = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address in
+        builtin concat did_prefix did_suffix; did_ := new_did;
+      forall document SaveDocument;
+      get_recovery_key <- verification_methods_[recovery]; ThrowIfNoKey get_recovery_key; did_recovery = option_bystr33_value get_recovery_key;
+      get_update_key <- verification_methods_[update]; ThrowIfNoKey get_update_key; did_update = option_bystr33_value get_update_key;
+      ThrowIfSameKey did_recovery did_update;
+      new_status = Created; did_status_ := new_status;
+      current_block <- &BLOCKNUMBER; did_created_ := current_block; Timestamp
   | _ => err = CodeWrongStatus; ThrowError err end end
 
 procedure UpdateDocument( document: Document )
@@ -414,13 +430,14 @@ procedure VerifyDocument(
 
 transition DidRecover(
   document: List Document,
-  signature: Option ByStr64
+  signature: Option ByStr64,
+  tyron: Option Uint128
   )
   did_status <- did_status_;
   match did_status with
   | Created => | Recovered => | Updated =>
   | _ => err = CodeWrongStatus; ThrowError err end;
-  VerifyAdmin;
+  VerifyAdmin tyron;
   get_recovery_key <- verification_methods_[recovery]; did_recovery = option_bystr33_value get_recovery_key;
   get_update_key <- verification_methods_[update]; did_update = option_bystr33_value get_update_key;
   VerifyDocument didRecovery document signature;
@@ -429,13 +446,14 @@ transition DidRecover(
 
 transition DidUpdate(
   document: List Document,
-  signature: Option ByStr64
+  signature: Option ByStr64,
+  tyron: Option Uint128
   )
   did_status <- did_status_;
   match did_status with
   | Created => | Recovered => | Updated =>
   | _ => err = CodeWrongStatus; ThrowError err end;
-  VerifyAdmin;
+  VerifyAdmin tyron;
   get_recovery_key <- verification_methods_[recovery]; did_recovery = option_bystr33_value get_recovery_key;
   get_update_key <- verification_methods_[update]; did_update = option_bystr33_value get_update_key;
   VerifyDocument didUpdate document signature;
@@ -444,13 +462,14 @@ transition DidUpdate(
 
 transition DidDeactivate(
   document: List Document,
-  signature: Option ByStr64
+  signature: Option ByStr64,
+  tyron: Option Uint128
   ) 
   did_status <- did_status_;
   match did_status with
   | Created => | Recovered => | Updated =>
   | _ => err = CodeWrongStatus; ThrowError err end;
-  VerifyAdmin;
+  VerifyAdmin tyron;
   VerifyDocument didRecovery document signature;
   verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
   new_status = Deactivated; did_status_ := new_status; Timestamp end
@@ -464,17 +483,19 @@ transition AddFunds()
 (* Send $ZIL to any recipient that implements the tag, e.g. "AddFunds", "", etc. *)
 transition SendFunds(
   tag: String,
-  beneficiary: ByStr20
+  beneficiary: ByStr20,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
+  IsOperational; VerifyAdmin tyron;
   accept; msg = let m = { _tag: tag; _recipient: beneficiary; _amount: _amount } in one_msg m; send msg end
 
 transition Transfer(
   tokenAddr: ByStr20,
   beneficiary: ByStr20,
-  amount: Uint128
+  amount: Uint128,
+  tyron: Option Uint128
   ) 
-  IsOperational; VerifyAdmin;
+  IsOperational; VerifyAdmin tyron;
   accept; msg = let m = { _tag: "Transfer"; _recipient: tokenAddr; _amount: zero;
     to: beneficiary;
     amount: amount } in one_msg m ; send msg end
@@ -487,8 +508,12 @@ transition TransferSuccessCallBack( sender: ByStr20, recipient: ByStr20, amount 
 
 transition TransferFromSuccessCallBack( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsOperational end
 
-transition UpdateDeadline( amount: Uint128 )
-  IsOperational; VerifyAdmin; deadline_block := amount end
+transition UpdateDeadline(
+  blocks: Uint128,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyAdmin tyron;
+  deadline := blocks end
 
 procedure IncreaseAllowance(
   tokenAddr: ByStr20,
@@ -502,11 +527,12 @@ procedure IncreaseAllowance(
 transition AddLiquidity(
   tokenAddr: ByStr20,
   zilswapAddr: ByStr20,
-  amount: Uint128
+  amount: Uint128,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
+  IsOperational; VerifyAdmin tyron;
   IncreaseAllowance tokenAddr zilswapAddr amount;
-  current_block <- &BLOCKNUMBER; deadline <- deadline_block; this_deadline = builtin badd current_block deadline;
+  current_block <- &BLOCKNUMBER; get_deadline <- deadline; this_deadline = builtin badd current_block get_deadline;
   accept; msg = let m = { _tag: "AddLiquidity"; _recipient: zilswapAddr; _amount: _amount;
     token_address: tokenAddr;
     min_contribution_amount: amount;
@@ -518,10 +544,11 @@ transition RemoveLiquidity(
   zilswapAddr: ByStr20,
   amount: Uint128,
   minZilAmount: Uint128,
-  minTokenAmount: Uint128
+  minTokenAmount: Uint128,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
-  current_block <- &BLOCKNUMBER; deadline <- deadline_block; this_deadline = builtin badd current_block deadline;
+  IsOperational; VerifyAdmin tyron;
+  current_block <- &BLOCKNUMBER; get_deadline <- deadline; this_deadline = builtin badd current_block get_deadline;
   accept; msg = let m = { _tag: "RemoveLiquidity"; _recipient: zilswapAddr; _amount: zero;
     token_address: tokenAddr;
     contribution_amount: amount;
@@ -533,10 +560,11 @@ transition SwapExactZILForTokens(
   tokenAddr: ByStr20,
   zilswapAddr: ByStr20,
   amount: Uint128,
-  minTokenAmount: Uint128
+  minTokenAmount: Uint128,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
-  current_block <- &BLOCKNUMBER; deadline <- deadline_block; this_deadline = builtin badd current_block deadline;
+  IsOperational; VerifyAdmin tyron;
+  current_block <- &BLOCKNUMBER; get_deadline <- deadline; this_deadline = builtin badd current_block get_deadline;
   accept; msg = let m = { _tag: "SwapExactZILForTokens"; _recipient: zilswapAddr; _amount: amount;
     token_address: tokenAddr;
     min_token_amount: minTokenAmount;
@@ -547,11 +575,12 @@ transition SwapExactTokensForZIL(
   tokenAddr: ByStr20,
   zilswapAddr: ByStr20,
   amount: Uint128,
-  minZilAmount: Uint128
+  minZilAmount: Uint128,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
+  IsOperational; VerifyAdmin tyron;
   IncreaseAllowance tokenAddr zilswapAddr amount;
-  current_block <- &BLOCKNUMBER; deadline <- deadline_block; this_deadline = builtin badd current_block deadline;
+  current_block <- &BLOCKNUMBER; get_deadline <- deadline; this_deadline = builtin badd current_block get_deadline;
   accept; msg = let m = { _tag: "SwapExactTokensForZIL"; _recipient: zilswapAddr; _amount: zero;
     token_address: tokenAddr;
     token_amount: amount;
@@ -564,25 +593,27 @@ transition SwapExactTokensForTokens(
   zilswapAddr: ByStr20,
   toTokenAddr: ByStr20,
   amount: Uint128,
-  minTokenAmount: Uint128
+  minTokenAmount: Uint128,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
-    IncreaseAllowance tokenAddr zilswapAddr amount;
-    current_block <- &BLOCKNUMBER; deadline <- deadline_block; this_deadline = builtin badd current_block deadline;
-    accept; msg = let m = {
-      _tag: "SwapExactTokensForTokens"; _recipient: zilswapAddr; _amount: zero;
-      token0_address: tokenAddr;
-      token1_address: toTokenAddr;
-      token0_amount: amount;
-      min_token1_amount: minTokenAmount;
-      deadline_block: this_deadline;
-      recipient_address: _this_address } in one_msg m ; send msg end
+  IsOperational; VerifyAdmin tyron;
+  IncreaseAllowance tokenAddr zilswapAddr amount;
+  current_block <- &BLOCKNUMBER; get_deadline <- deadline; this_deadline = builtin badd current_block get_deadline;
+  accept; msg = let m = {
+    _tag: "SwapExactTokensForTokens"; _recipient: zilswapAddr; _amount: zero;
+    token0_address: tokenAddr;
+    token1_address: toTokenAddr;
+    token0_amount: amount;
+    min_token1_amount: minTokenAmount;
+    deadline_block: this_deadline;
+    recipient_address: _this_address } in one_msg m ; send msg end
 
 transition DelegateStake(
   stakingAddr: ByStr20,
-  ssnaddr: ByStr20
+  ssnaddr: ByStr20,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
+  IsOperational; VerifyAdmin tyron;
   accept; msg = let m = { _tag: "DelegateStake"; _recipient: stakingAddr; _amount: _amount;
     ssnaddr: ssnaddr } in one_msg m; send msg end
 
@@ -590,9 +621,10 @@ transition DelegateStakeSuccessCallBack( ssnaddr: ByStr20, amount: Uint128 ) IsO
 
 transition WithdrawStakeRewards(
   stakingAddr: ByStr20,
-  ssnAddr: ByStr20
+  ssnAddr: ByStr20,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
+  IsOperational; VerifyAdmin tyron;
   accept; msg = let m = { _tag: "WithdrawStakeRewards"; _recipient: stakingAddr; _amount: zero;
     ssnaddr: ssnAddr } in one_msg m; send msg end
 
@@ -601,17 +633,21 @@ transition WithdrawStakeRewardsSuccessCallBack( ssnaddr: ByStr20, rewards: Uint1
 transition WithdrawStakeAmt(
   stakingAddr: ByStr20,
   ssnAddr: ByStr20,
-  amount: Uint128
+  amount: Uint128,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
+  IsOperational; VerifyAdmin tyron;
   accept; msg = let m = { _tag: "WithdrawStakeAmt"; _recipient: stakingAddr; _amount: zero;
     ssnaddr: ssnAddr;
     amt: amount } in one_msg m; send msg end
 
 transition WithdrawStakeAmtSuccessCallBack( ssnaddr: ByStr20, amount: Uint128 ) IsOperational end
 
-transition CompleteWithdrawal( stakingAddr: ByStr20 )
-  IsOperational; VerifyAdmin;
+transition CompleteWithdrawal(
+  stakingAddr: ByStr20,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyAdmin tyron;
   accept; msg = let m = { _tag: "CompleteWithdrawal"; _recipient: stakingAddr; _amount: zero } in one_msg m; send msg end
 
 transition CompleteWithdrawalNoUnbondedStakeCallBack( amount: Uint128 ) IsOperational end
@@ -622,9 +658,10 @@ transition ReDelegateStake(
   stakingAddr: ByStr20,
   ssnAddr: ByStr20,
   toSsnAddr: ByStr20,
-  amount: Uint128
+  amount: Uint128,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
+  IsOperational; VerifyAdmin tyron;
   accept; msg = let m = { _tag: "ReDelegateStake"; _recipient: stakingAddr; _amount: zero;
     ssnaddr: ssnAddr;
     to_ssn: toSsnAddr;
@@ -634,30 +671,34 @@ transition ReDelegateStakeSuccessCallBack( ssnaddr: ByStr20, tossn: ByStr20, amo
 
 transition RequestDelegatorSwap( 
   stakingAddr: ByStr20,
-  newAddr: ByStr20
+  newAddr: ByStr20,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
+  IsOperational; VerifyAdmin tyron;
   accept; msg = let m = { _tag: "RequestDelegatorSwap"; _recipient: stakingAddr; _amount: zero;
     new_deleg_addr: newAddr } in one_msg m; send msg end
 
 transition ConfirmDelegatorSwap(
   stakingAddr: ByStr20,
-  requestor: ByStr20
+  requestor: ByStr20,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
+  IsOperational; VerifyAdmin tyron;
   accept; msg = let m = { _tag: "ConfirmDelegatorSwap"; _recipient: stakingAddr; _amount: zero;
     requestor: requestor } in one_msg m; send msg end
 
 transition RevokeDelegatorSwap(
-  stakingAddr: ByStr20
+  stakingAddr: ByStr20,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
+  IsOperational; VerifyAdmin tyron;
   accept; msg = let m = { _tag: "RevokeDelegatorSwap"; _recipient: stakingAddr; _amount: zero } in one_msg m; send msg end
 
 transition RejectDelegatorSwap( 
   stakingAddr: ByStr20,
-  requestor: ByStr20
+  requestor: ByStr20,
+  tyron: Option Uint128
   )
-  IsOperational; VerifyAdmin;
+  IsOperational; VerifyAdmin tyron;
   accept; msg = let m = { _tag: "RejectDelegatorSwap"; _recipient: stakingAddr; _amount: zero;
     requestor: requestor } in one_msg m; send msg end
