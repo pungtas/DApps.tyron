@@ -6,7 +6,7 @@ A profit-sharing token (PST) enables token holders to become shareholders of the
 
 - personal passive income to their members by distributing the organization's profits among token holders.
 
-The profit distribution is coded into the [PST.tyron smart contract](./pst.tyron.scilla) based on the share of each token holder, meaning that if you own 1% of the PST supply, you will get 1% of the profits in every cycle (be it monthly, quarterly, yearly or as defined by the organization).
+The profit distribution is coded into the [pst.tyron](./pst.tyron.scilla) smart contract based on the share of each token holder, meaning that if you own 1% of the PST supply, you will get 1% of the profits in every cycle (be it monthly, quarterly, yearly or as defined by the organization).
 
 The organization behind a PST enacts a profit-sharing community (PSC), and its governance should aim at being decentralized. For that purpose, the PST has a voting mechanism when distributing the profits: the smart contract collects the vote of each token holder and ponderates their votes according to their shares, which means that if you own 1% of the PST supply, you will have 1% of the voting decision. Through decentralized governance, the PSC decides what the quorum is and how much the fees are. Fees can get collected depending on the products and services provided by the organization. Communities can also be charities or receive donations, peer-to-peer.
 
@@ -82,13 +82,13 @@ A vote can be ```Yes``` or ```No```, and it defaults to ```Yes```. In all profit
 
 ## Implementations
 
-The profit-sharing token Implementation can be a:
+The PST Implementation can be a:
 
-- new token: [PSTi.tyron smart contract](./new-token/PSTi.tyron.scilla)
+- new token: [psti.tyron smart contract](./new-token/psti.tyron.scilla)
 
-- wrapped token: [xPSTi.tyron smart contract](./wrapped-token/xPSTi.tyron.scilla)
+- wrapped token: [wpsti.tyron smart contract](./wrapped-token/wpsti.tyron.scilla)
 
-> You can also access any other <code>.tyron</code> smart contract open-source code by searching in the [SSI Browser](https://ssibrowser.com) by name, e.g. ```pst.tyron```, ```psti.tyron```, ```xpsti.tyron```, etc.
+> You can also access any other <code>.tyron</code> smart contract open-source code by searching in the [SSI Browser](https://ssibrowser.com) by name, e.g. ```pst.tyron```, ```psti.tyron```, ```wpsti.tyron```, etc.
 
 ### Implementations transitions
 
@@ -132,19 +132,19 @@ The ```Mint```, ```Burn``` and ```Swap ZIL For PST And Distribute``` transitions
 
 A wrapped PST has no Minters since every new PST is a wrap of an existing token.
 
-- Mint: to create this kind of profit-sharing token, the Originator must first increase the allowance of the xPST Implementation as the Spender of the wrapped token. Then the Implementation will execute a ```Transfer From``` transition to itself, create the PSTs and send them to the Beneficiary.
+- Mint: to create this kind of profit-sharing token, the Originator must first increase the allowance of the wrapped PST Implementation as the Spender of the wrapped token. Then the Implementation will execute a ```Transfer From``` transition to itself, create the PSTs and send them to the Beneficiary.
 
-> On the current version, the xPST Implementation holds the tokens that got wrapped. It could also send them to the Admin or a DAO smart contract.
+> On the current version, the wrapped PST Implementation holds the tokens that got wrapped. It could also send them to the Admin or a DAO smart contract.
 
-- Upgrade implementation: by calling this transition, the Admin can transfer all tokens that got wrapped by the profit-sharing community to the new xPST Implementation address.
+- Upgrade implementation: by calling this transition, the Admin can transfer all tokens that got wrapped by the profit-sharing community to the new wrapped PST Implementation address.
 
 - Update token address: transaction submitted by the Admin to update the address of the token to get wrapped by the profit-sharing community.
 
 - Update demanded token: the demanded token is the one to be bought on ZilSwap by ```Swap $ZIL for $PST and distribute``` transition. By submitting an  ```Update Demanded Token``` transition, the Admin can set the demanded token to the profit-sharing token (PST Proxy) or the token that the PSC wraps.
 
-- Burn: any user can burn their balance of PST which means unwrapping and transferring the token back to them (i.e. the xPST Implementation executes a ```Transfer``` to the Originator).
+- Burn: any user can burn their balance of PST which means unwrapping and transferring the token back to them (i.e. the wrapped PST Implementation executes a ```Transfer``` to the Originator).
 
-- Swap $ZIL for $PST and distribute: the PST Proxy makes this call to the xPST Implementation, so the latter executes a trade on ZilSwap, exchanging the amount of $ZIL sent by the Originator for the demanded token. When the demanded token is not the PST, the xPST Implementation buys the token from ZilSwap and wraps them to mint new profit-sharing tokens.
+- Swap $ZIL for $PST and distribute: the PST Proxy makes this call to the wrapped PST Implementation, so the latter executes a trade on ZilSwap, exchanging the amount of $ZIL sent by the Originator for the demanded token. When the demanded token is not the PST, the wrapped PST Implementation buys the token from ZilSwap and wraps them to mint new profit-sharing tokens.
 
 ## Acknowledgements
 

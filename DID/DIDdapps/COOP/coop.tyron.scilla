@@ -1,6 +1,6 @@
-(* v1.2.2
-INIT.tyron: SSI initialization & DNS smart contract.
-Self-Sovereign Identity Protocol.
+(* v0.4.0
+coop.tyron: decentralized identifier NFT cooperative project
+Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
 
@@ -12,15 +12,15 @@ the Free Software Foundation, either version 3 of the License, or
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.*)
+GNU General Public License for more details. *)
 
 scilla_version 0
 
-import PairUtils IntUtils BoolUtils
+import IntUtils
 
-library INIT_tyron
-  
-  (* The DID library + additional init.tyron errors *)
+library NFT_coop
+
+  (* The DID library *)
 
   type DIDstatus =
     | Deployed
@@ -41,7 +41,7 @@ library INIT_tyron
     | Https
     | Git
 
-  type Endpoint =
+type Endpoint =
     | Address of ByStr20
     | Uri of String TransferProtocol String   (* type, transfer protocol & uri *)
 
@@ -49,15 +49,18 @@ library INIT_tyron
     | VerificationMethod of Action String ByStr33  (* string: key purpose OR service ID *)
     | Service of Action String Endpoint
   
+  type Beneficiary =
+    | UserDomain of String String
+    | BeneficiaryAddr of ByStr20
+    
   let didRecovery = Recovery
   let didUpdate = Update
-  let recovery = "recovery"
   let update = "update"
+  let recovery = "recovery"
+  let didsr = "socialrecovery"
   let actionAdd = "add"
   let actionRemove = "remove"
-  let empty_methods = Emp String ByStr33
-  let empty_services = Emp String ByStr20
-  let empty_services_ = Emp String Endpoint
+  let psc = "psc"    (* profit-sharing community *)
   
   let one_msg = fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
@@ -72,10 +75,7 @@ library INIT_tyron
     | CodeWrongSignature
     | CodeUndefinedKey
     | CodeSameKey
-    | CodeSameId
     | CodeNotValid
-    | CodeDidLocked
-    | CodeDomainTaken
     | CodeInsufficientFunds
  
   let make_error = fun( error: Error ) =>
@@ -86,15 +86,13 @@ library INIT_tyron
     | CodeWrongSignature         => Int32 -4
     | CodeUndefinedKey           => Int32 -5
     | CodeSameKey                => Int32 -6
-    | CodeSameId                 => Int32 -7
-    | CodeNotValid               => Int32 -8
-    | CodeDidLocked              => Int32 -9
-    | CodeDomainTaken            => Int32 -10
-    | CodeInsufficientFunds      => Int32 -11
+    | CodeNotValid               => Int32 -7
+    | CodeInsufficientFunds      => Int32 -8
     end in { _exception: "Error"; code: result }
-    
+  
   let zero = Uint128 0
   let zeroByStr20 = 0x0000000000000000000000000000000000000000
+  let zeroByStr32 = 0x0000000000000000000000000000000000000000000000000000000000000000
   let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
   let zeroByStr64 = 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
   let zero_bystr = builtin to_bystr zeroByStr20
@@ -102,44 +100,72 @@ library INIT_tyron
   let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
     match input with
     | Some v => v
-    | None => default end
+    | None => default
+    end
   let option_uint128_value = let f = @option_value Uint128 in f zero
   let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
   let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
   let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
   
-  (* The init.tyron library *)
+  (* The NFT.coop library *)
   
-  type Code =
-    | Code of String ( Pair Uint128 String )
-
-  let did = "did"
-  let coop = "coop"
-  let agent = "agent"
-  let zeroFund = Pair{ ByStr20 Uint128 } zeroByStr20 zero
-  let option_fund = let f = @option_value( Pair ByStr20 Uint128 ) in f zeroFund
-  let fund_addr = fun( getFund: Option( Pair ByStr20 Uint128 )) =>
-    let fund = option_fund getFund
-    in let fst_element = @fst ByStr20 Uint128
-    in fst_element fund
-  let fund_balance = fun( getFund: Option( Pair ByStr20 Uint128 )) =>
-    let fund = option_fund getFund
-    in let snd_element = @snd ByStr20 Uint128
-    in snd_element fund
-
-contract INIT_tyron(
-  initAdmin: ByStr20
+  type Account =
+    | Account of Uint128 Uint128 Uint128 Uint128   (* PRs, merged commits, balance & xPoints *)
+    
+  type PR =
+    | PR of ByStr20 Uint128   (* member & hours *)
+  
+  let domain_ = "coop"
+  let one = Uint128 1
+  let hundred = Uint128 100
+  let zeroAccount = Account zero zero zero zero
+  let option_account = let f = @option_value Account in f zeroAccount
+  
+  let account_prs = fun( getAccount: Option Account ) =>
+    let account = option_account getAccount
+    in match account with
+    | Account pull_requests merged balance xps => pull_requests end
+  
+  let account_merged = fun( getAccount: Option Account ) =>
+    let account = option_account getAccount
+    in match account with
+    | Account prs merged_commits balance xps => merged_commits end
+  
+  let account_balance = fun( getAccount: Option Account ) =>
+    let account = option_account getAccount
+    in match account with
+    | Account prs merged zil_balance xps => zil_balance end
+    
+    let account_xps = fun( getAccount: Option Account ) =>
+    let account = option_account getAccount
+    in match account with
+    | Account prs merged balance xpoints => xpoints end
+    
+  let pr_member = fun( pr: PR ) =>
+    match pr with
+    | PR member hours => member end
+    
+  let pr_hours = fun( pr: PR ) =>
+    match pr with
+    | PR member hours => hours end
+    
+contract NFT_coop(
+  initAdmin: ByStr20,
+  init_tyron: ByStr20 with contract field services_: Map String ByStr20, field dns: Map String ( Map String ByStr20 ), field psc_fee: Map String Uint128 end
   )
   field admin_: ByStr20 = initAdmin
   field did_: String = ""    (* the decentralized identifier *)
   field did_status_: DIDstatus = Deployed
-
+  
+  field init_: ByStr20 with contract field services_: Map String ByStr20, field dns: Map String ( Map String ByStr20 ), field psc_fee: Map String Uint128 end = init_tyron
+  
   (* Verification methods @key: key purpose @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
-  field verification_methods_: Map String ByStr33 = empty_methods
+  field verification_methods_: Map String ByStr33 = Emp String ByStr33
   
   (* Services @key: ID @value: endpoint *)
-  field services_: Map String ByStr20 = empty_services
-  field services__: Map String Endpoint = empty_services_
+  field services_: Map String ByStr20 = Emp String ByStr20
+  field services__: Map String Endpoint = Emp String Endpoint
+  field service_addr: Map String ByStr20 = Emp String ByStr20
   
   field document_hash: ByStr = zero_bystr
   
@@ -151,24 +177,16 @@ contract INIT_tyron(
   
   (* A monotonically increasing number representing the amount of DID CRUD transactions that have taken place *)
   field crud_tx_number_: Uint128 = zero
+  
+  (* Coop NFTs *)
+  
+  field members: Map ByStr20 Account = Emp ByStr20 Account
 
-  (* Tyron Pungtas Funds @key: ID, e.g. "coop", "education" @value: Pair address balance *)
-  field fund: Map String ( Pair ByStr20 Uint128 ) = let emp = Emp String ( Pair ByStr20 Uint128 ) 
-    in let fund = Pair{ ByStr20 Uint128 } initAdmin zero in let map = builtin put emp did fund in builtin put map coop fund
+  field contributions: Map ByStr32 PR = Emp ByStr32 PR
   
-  (* SSI domains: "did", "coop", ssi", "mapu" *)
+  field nfts: Map ByStr32 Uint128 = Emp ByStr32 Uint128   (* commit & performance *)
   
-  (* Tyron smart contracts' code by version @key: SSI domain @value: map of version number & hex-encoded code *)
-  field tyron_code: Map String ( Map String String ) = Emp String ( Map String String )
-  
-  (* DNS records @key: SSI domain @value: map of username & address *)
-  field dns: Map String ( Map String ByStr20 ) = let emp1 = Emp String ByStr20 in let init ="init" in let map1 = builtin put emp1 init _this_address 
-    in let emp = Emp String ( Map String ByStr20 ) in builtin put emp did map1
-
-  (* Fees of the profit-sharing community @key: ID, e.g. SSI domain or agent's ID @value: fee in $ZIL *)
-  field psc_fee: Map String Uint128 = let emp = Emp String Uint128 
-    in let one_hundred_zil = Uint128 100000000000000 in let map = builtin put emp did one_hundred_zil
-    in let ten_zil = Uint128 10000000000000 in builtin put map coop ten_zil
+  field hourly_wage: Uint128 = hundred   (* hourly wage divided by 100 *)
   
 (* The DID backbone *)
 
@@ -186,10 +204,43 @@ procedure VerifyAdmin()
   verified = builtin eq current_admin _sender;
   match verified with
   | True =>
-  | False => err = CodeNotAdmin; ThrowError err end end
+  | False => err= CodeNotAdmin; ThrowError err end end
 
 transition UpdateAdmin( addr: ByStr20 )
   IsOperational; VerifyAdmin; admin_ := addr end
+
+transition UpdateInit(
+  addr: ByStr20 with contract field services_: Map String ByStr20, field dns: Map String ( Map String ByStr20 ), field psc_fee: Map String Uint128 end
+  )
+  IsOperational; VerifyAdmin; init_ := addr end
+
+procedure Payment( id: String )
+  current_init <- init_;
+  get_fee <-& current_init.psc_fee[id]; fee = option_uint128_value get_fee;
+  is_zero = builtin eq fee zero;
+  match is_zero with
+  | True => err = CodeNotValid; ThrowError err
+  | False => accept; msg = let m = { _tag: "AddFunds"; _recipient: current_init; _amount: fee; id: id } in one_msg m; send msg end end
+
+transition BuyDomainNameNFT( username: String )
+  IsOperational; VerifyAdmin; current_init <- init_;
+  get_fee <-& current_init.psc_fee[domain_]; fee = option_uint128_value get_fee;
+  accept; msg = let m = { _tag: "BuyDomainNameNFT"; _recipient: current_init; _amount: fee;
+    username: username;
+    domain: domain_
+  } in one_msg m; send msg end
+      
+transition TransferDomainNameNFT(
+  username: String,
+  addr: ByStr20
+  )
+  IsOperational; VerifyAdmin; current_init <- init_;
+  get_fee <-& current_init.psc_fee[domain_]; fee = option_uint128_value get_fee;
+  accept; msg = let m = { _tag: "TransferDomainNameNFT"; _recipient: current_init; _amount: fee;
+    username: username;
+    domain: domain_;
+    newAddr: addr
+  } in one_msg m; send msg end
 
 (* Verify Schnorr signature - signed data must correspond with a DID Key *)
 procedure VerifySignature(
@@ -233,7 +284,8 @@ procedure VerifyDIDkeys(
 procedure Timestamp()
   current_block <- &BLOCKNUMBER; ledger_time_ := current_block;
   latest_tx_number <- crud_tx_number_;
-  new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor; crud_tx_number_ := new_tx_number end
+  new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor; crud_tx_number_ := new_tx_number
+end
 
 procedure SaveDocument( document: Document )
   match document with
@@ -265,7 +317,9 @@ transition DidCreate(
     ThrowIfSameKey did_recovery did_update;
     new_status = Created; did_status_ := new_status;
     current_block <- &BLOCKNUMBER; did_created_ := current_block; Timestamp
-  | _ => err = CodeWrongStatus; ThrowError err end end
+  | _ => err = CodeWrongStatus; ThrowError err
+  end
+end
 
 procedure UpdateDocument( document: Document )
   match document with
@@ -274,31 +328,25 @@ procedure UpdateDocument( document: Document )
       match action with
       | Add =>
           match key_exists with
-          | True =>
-              is_update = builtin eq purpose update;
-              match is_update with
-              | True => verification_methods_[update] := key
-              | False => err = CodeSameId; ThrowError err end
+          | True => err = CodeNotValid; ThrowError err
           | False => verification_methods_[purpose] := key end
       | Remove =>
           match key_exists with
           | True => delete verification_methods_[purpose]
           | False => err = CodeNotValid; ThrowError err end end
   | Service action id endpoint =>
-      is_service_ <- exists services_[id];
-      is_service__ <- exists services__[id];
-      service_exists = orb is_service_ is_service__;
+      service_exists <- exists services_[id];
       match action with
       | Add =>
           match service_exists with
-          | True => err = CodeSameId; ThrowError err
+          | True => err = CodeNotValid; ThrowError err
           | False => 
               match endpoint with
               | Address addr => services_[id] := addr
               | Uri eType protocol uri => services__[id] := endpoint end end
       | Remove =>
           match service_exists with
-          | True => delete services_[id]; delete services__[id]
+          | True => delete services_[id]
           | False => err = CodeNotValid; ThrowError err end end end end
 
 procedure ValidateDocument(
@@ -306,10 +354,10 @@ procedure ValidateDocument(
   document: List Document
   )
   match operation with
-  | Recovery => 
-      verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
-      forall document SaveDocument
-  | Update => forall document UpdateDocument end end
+  | Recovery => forall document SaveDocument
+  | Update => forall document UpdateDocument
+  end
+end
 
 procedure HashDocument( document: Document )
   doc_hash <- document_hash;
@@ -329,7 +377,8 @@ procedure HashDocument( document: Document )
             in let h2 = builtin sha256hash purpose
             in builtin concat h1 h2;
           doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-          document_hash := doc_hash_ end
+          document_hash := doc_hash_
+      end
   | Service action id endpoint =>
       match action with
       | Add =>
@@ -349,7 +398,8 @@ procedure HashDocument( document: Document )
               in let h1_2 = builtin concat h1 h2
               in builtin concat h1_2 h3;
               doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-              document_hash := doc_hash_ end
+              document_hash := doc_hash_
+          end
       | Remove =>
           hash = let h1 = builtin sha256hash actionRemove
           in let h2 = builtin sha256hash id
@@ -368,7 +418,8 @@ procedure VerifyDocument(
   sig = option_bystr64_value signature;
   id = match operation with
   | Recovery => recovery
-  | Update => update end;
+  | Update => update
+  end;
   VerifySignature id doc_hash sig;
   ValidateDocument operation document end
 
@@ -376,11 +427,7 @@ transition DidRecover(
   document: List Document,
   signature: Option ByStr64
   )
-  did_status <- did_status_;
-  match did_status with
-  | Created => | Recovered => | Updated =>
-  | _ => err = CodeWrongStatus; ThrowError err end;
-  VerifyAdmin;
+  IsOperational; VerifyAdmin;
   get_recovery_key <- verification_methods_[recovery]; did_recovery = option_bystr33_value get_recovery_key;
   get_update_key <- verification_methods_[update]; did_update = option_bystr33_value get_update_key;
   VerifyDocument didRecovery document signature;
@@ -391,11 +438,7 @@ transition DidUpdate(
   document: List Document,
   signature: Option ByStr64
   )
-  did_status <- did_status_;
-  match did_status with
-  | Created => | Recovered => | Updated =>
-  | _ => err = CodeWrongStatus; ThrowError err end;
-  VerifyAdmin;
+  IsOperational; VerifyAdmin;
   get_recovery_key <- verification_methods_[recovery]; did_recovery = option_bystr33_value get_recovery_key;
   get_update_key <- verification_methods_[update]; did_update = option_bystr33_value get_update_key;
   VerifyDocument didUpdate document signature;
@@ -406,176 +449,165 @@ transition DidDeactivate(
   document: List Document,
   signature: Option ByStr64
   ) 
-  did_status <- did_status_;
-  match did_status with
-  | Created => | Recovered => | Updated =>
-  | _ => err = CodeWrongStatus; ThrowError err end;
-  VerifyAdmin;
+  IsOperational; VerifyAdmin;
   VerifyDocument didRecovery document signature;
-  verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
+  deactivated_methods = Emp String ByStr33; verification_methods_ := deactivated_methods;
+  deactivated_services = Emp String ByStr20; services_ := deactivated_services;
+  deactivated_services_ = Emp String Endpoint; services__ := deactivated_services_;
   new_status = Deactivated; did_status_ := new_status; Timestamp end
 
-(* The init.tyron contract *)
-
-(* Publish .tyron code *)
-transition SetCode( 
-  domain: String,
-  version: String,
-  code: String
-  )
-  VerifyAdmin;
-  tyron_code[domain][version] := code;
-  e = { _eventname: "TyronCodeUpdated";
-    domain: domain;
-    version: version;
-    code: code
-  }; event e end
-
-procedure IncreaseFunds( id: String )
-  accept;
-  get_fund <- fund[id]; addr = fund_addr get_fund; balance = fund_balance get_fund;
-  not_registered = builtin eq addr zeroByStr20;
-  match not_registered with
-  | True => err = CodeNotValid; ThrowError err
-  | False =>
-      updated_fund = let new_balance = builtin add balance _amount
-      in Pair{ ByStr20 Uint128 } addr new_balance; fund[id] := updated_fund end end
-
 (* Receive $ZIL native funds *)
-transition AddFunds( id: String )
-  IsOperational; IncreaseFunds id end
+transition AddFunds()
+  IsOperational; accept end
 
-(* Withdraw $ZIL to the profit-sharing community *)
-transition WithdrawFunds(
-  id: String,   (* psc, development, education funds or agent id *)
+(* Send $ZIL to any recipient that implements the tag, e.g. "AddFunds", "", etc. *)
+transition SendFunds(
+  tag: String,
+  beneficiary: Beneficiary
+  )
+  IsOperational; VerifyAdmin;
+  match beneficiary with
+  | UserDomain username domain =>
+      current_init <- init_;
+      get_addr <-& current_init.dns[domain][username]; addr = option_bystr20_value get_addr;
+      accept; msg = let m = { _tag: tag; _recipient: addr; _amount: _amount } in one_msg m; send msg
+  | BeneficiaryAddr addr =>
+      accept; msg = let m = { _tag: tag; _recipient: addr; _amount: _amount } in one_msg m; send msg end end
+
+procedure FetchServiceAddr( id: String )
+  current_init <- init_; get_service <-& current_init.services_[id]; addr = option_bystr20_value get_service; service_addr[id] := addr end
+
+transition Transfer(
+  addrName: String,
+  beneficiary: Beneficiary,
+  amount: Uint128
+  ) 
+  IsOperational; VerifyAdmin;
+  FetchServiceAddr addrName; get_token_addr <- service_addr[addrName]; token_addr = option_bystr20_value get_token_addr;
+  match beneficiary with
+  | UserDomain username domain =>
+      current_init <- init_;
+      get_addr <-& current_init.dns[domain][username]; addr = option_bystr20_value get_addr;
+      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+        to: addr;
+        amount: amount
+      } in one_msg m ; send msg
+  | BeneficiaryAddr addr =>
+      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+        to: addr;
+        amount: amount
+      } in one_msg m ; send msg end end
+
+transition RecipientAcceptTransfer(
+  sender: ByStr20,
+  recipient: ByStr20,
   amount: Uint128
   )
-  IsOperational;
-  get_fund <- fund[id]; addr = fund_addr get_fund; balance = fund_balance get_fund;
-  is_sender = builtin eq addr _sender;
-  match is_sender with
-  | False => err = CodeWrongCaller; ThrowError err
-  | True =>
+  IsOperational end
+
+transition RecipientAcceptTransferFrom(
+  initiator: ByStr20,
+  sender: ByStr20,
+  recipient: ByStr20,
+  amount: Uint128
+  )
+  IsOperational end
+
+transition TransferSuccessCallBack(
+  sender: ByStr20, 
+  recipient: ByStr20,
+  amount : Uint128
+  )
+  IsOperational end
+
+transition TransferFromSuccessCallBack(
+  initiator: ByStr20,
+  sender: ByStr20,
+  recipient: ByStr20,
+  amount: Uint128
+  )
+  IsOperational end
+
+(* The NFT.coop backbone *)
+
+transition UpdateHourlyWage( amount: Uint128 )
+  VerifyAdmin; hourly_wage := amount end
+
+transition AddMember( addr: ByStr20 )
+  VerifyAdmin;
+  new_account = Account zero zero zero zero;
+  members[addr] := new_account end
+  
+transition NFTTransfer( beneficiary: Beneficiary ) 
+  IsOperational; get_account <- members[_sender];
+  match get_account with
+  | None => err = CodeWrongCaller; ThrowError err
+  | Some account =>
+      match beneficiary with
+      | UserDomain username domain =>
+          current_init <- init_; get_addr <-& current_init.dns[domain][username]; addr = option_bystr20_value get_addr;
+          members[addr] := account; delete members[_sender]
+      | BeneficiaryAddr addr =>
+          members[addr] := account; delete members[_sender] end end end
+
+transition AddWork(
+  transferProtocol: TransferProtocol,
+  uri: String,   
+  amount: Uint128   (* hours *)
+  )
+  IsOperational; get_account <- members[_sender];
+  match get_account with
+  | None => err = CodeWrongCaller; ThrowError err
+  | Some account =>
+      prs = account_prs get_account; merged = account_merged get_account; balance = account_balance get_account; xpoints = account_xps get_account;
+      current_block <- &BLOCKNUMBER;
+      commit = let h1 = builtin sha256hash _sender
+      in let h2 = builtin sha256hash uri
+      in let h3 = builtin sha256hash current_block
+      in let h1_2 = builtin concat h1 h2
+      in let h1__3 = builtin concat h1_2 h3
+      in builtin sha256hash h1__3;
+      new_endpoint = Uri domain_ transferProtocol uri; id = builtin to_string commit; services__[id] := new_endpoint;
+      new_pr = PR _sender amount; contributions[commit] := new_pr;
+      updated_account = let updated_prs = builtin add prs one in Account updated_prs merged balance xpoints; members[_sender] := updated_account end end
+
+transition AssessPerformance(
+  commit: ByStr32,
+  amount: Uint128   (* performance: 20(%) = 1 star, 100(%) = 5 stars *)
+  )
+  IsOperational; VerifyAdmin;
+  get_pr <- contributions[commit];
+  match get_pr with
+  | None => err = CodeNotValid; ThrowError err
+  | Some pr =>
+      member = pr_member pr; hours = pr_hours pr;
+      get_account <- members[member]; prs = account_prs get_account; merged = account_merged get_account; balance = account_balance get_account; xpoints = account_xps get_account;
+      nfts[commit] := amount;
+      current_hourly_wage <- hourly_wage;
+      updated_account = let updated_merged = builtin add merged one   (* transfer NFT value to contributor *)
+        in let earnings_percent = builtin mul hours current_hourly_wage
+        in let earnings = builtin mul earnings_percent amount
+        in let updated_balance = builtin add balance earnings
+        in let updated_xps = builtin add xpoints amount
+        in Account prs updated_merged updated_balance updated_xps; members[member] := updated_account;
+      id = builtin to_string commit; delete services_[id] end end
+
+transition RemoveService( commit: ByStr32 )
+  IsOperational; VerifyAdmin;
+  get_pr <- contributions[commit];
+  match get_pr with
+  | None => err = CodeNotValid; ThrowError err
+  | Some pr => delete contributions[commit]; id = builtin to_string commit; delete services_[id] end end
+  
+transition WithdrawEarnings( amount: Uint128 )
+  IsOperational; get_account <- members[_sender];
+  match get_account with
+  | None => err = CodeWrongCaller; ThrowError err
+  | Some account =>
+      prs = account_prs get_account; merged = account_merged get_account; balance = account_balance get_account; xpoints = account_xps get_account;
       sufficient_funds = uint128_ge balance amount;
       match sufficient_funds with
       | True =>
-          new_balance = builtin sub balance amount;
-          updated_fund = Pair{ ByStr20 Uint128 } addr new_balance; fund[id] := updated_fund;
-          msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: amount } in one_msg m; send msg
+          updated_account = let new_balance = builtin sub balance amount in Account prs merged new_balance xpoints; members[_sender] := updated_account;
+          msg = let m = { _tag: "AddFunds"; _recipient: _sender; _amount: amount } in one_msg m; send msg
       | False => err = CodeInsufficientFunds; ThrowError err end end end
-
-transition UpdateFundAddr(
-  id: String,
-  newAddr: ByStr20
-  )
-  VerifyAdmin;
-  get_fund <- fund[id]; balance = fund_balance get_fund;
-  updated_fund = Pair{ ByStr20 Uint128 } newAddr balance; fund[id] := updated_fund;
-  e = { _eventname: "FundAddressUpdated";
-    id: id;
-    newAddress: newAddr
-  }; event e end
-
-transition UpdatePSCFee(
-  id: String,
-  fee: Uint128
-  )
-  VerifyAdmin; psc_fee[id] := fee end
-  
-procedure PremiumDomainNameNFT_( premium: Pair String String )
-  domain = let fst_element = @fst String String in fst_element premium;
-  username = let snd_element = @snd String String in snd_element premium;
-  taken <- exists dns[domain][username];
-  match taken with
-  | True => err = CodeDomainTaken; ThrowError err
-  | False => current_admin <- admin_; dns[domain][username] := current_admin end end
-  
-transition PremiumDomainNameNFT(
-  premium: List( Pair String String )
-  )
-  IsOperational; VerifyAdmin;
-  forall premium PremiumDomainNameNFT_ end
-
-procedure AddAgent(
-  username: String,
-  addr: ByStr20
-  )
-  taken <- exists fund[username];
-  match taken with
-  | True => err = CodeDomainTaken; ThrowError err
-  | False => new_agent = Pair{ ByStr20 Uint128 } addr zero; fund[username] := new_agent end
-end
-
-transition BuyDomainNameNFT(
-  username: String,
-  domain: String
-  )
-  IsOperational; taken <- exists dns[domain][username];
-  match taken with
-  | True => err = CodeDomainTaken; ThrowError err
-  | False => 
-      get_fee <- psc_fee[domain];
-      match get_fee with
-      | None => err = CodeNotValid; ThrowError err
-      | Some fee =>
-          is_enough = uint128_ge _amount fee;
-          match is_enough with
-          | True =>
-              IncreaseFunds domain;
-              refund = builtin sub _amount fee;
-              is_zero_refund = builtin eq refund zero;
-              match is_zero_refund with
-              | True =>
-              | False =>
-                  msg = let m = { _tag: "AddFunds"; _recipient: _sender; _amount: refund } in one_msg m; send msg end;
-              is_agent = builtin eq domain agent;
-              match is_agent with
-              | True => AddAgent username _sender
-              | False => end;
-              dns[domain][username] := _sender
-          | False => err = CodeInsufficientFunds; ThrowError err end end end end
-
-procedure UpdateAgentAddr(
-  username: String,
-  newAddr: ByStr20
-  )
-  get_fund <- fund[username]; addr = fund_addr get_fund; balance = fund_balance get_fund;
-  updated_fund = Pair{ ByStr20 Uint128 } newAddr balance; fund[username] := updated_fund;
-  e = { _eventname: "AgentAddressUpdated";
-    username: username;
-    newAddress: newAddr
-  }; event e end
-
-transition TransferDomainNameNFT(
-  username: String,
-  domain: String,
-  newAddr: ByStr20
-  )
-  get_owner <- dns[domain][username];
-  match get_owner with
-  | Some owner =>
-      is_sender = builtin eq owner _sender;
-      match is_sender with
-      | False => err = CodeWrongCaller; ThrowError err
-      | True =>
-          get_fee <- psc_fee[domain];
-          match get_fee with
-          | None => err = CodeNotValid; ThrowError err
-          | Some fee =>  
-              is_enough = uint128_ge _amount fee;
-              match is_enough with
-              | True =>
-                  IncreaseFunds domain;
-                  refund = builtin sub _amount fee;
-                  is_zero_refund = builtin eq refund zero;
-                  match is_zero_refund with
-                  | True =>
-                  | False =>
-                    msg = let m = { _tag: "AddFunds"; _recipient: _sender; _amount: refund } in one_msg m; send msg end;
-                  is_agent = builtin eq domain agent;
-                  match is_agent with
-                  | True => UpdateAgentAddr username newAddr
-                  | False => end;
-                  dns[domain][username] := newAddr
-              | False => err = CodeInsufficientFunds; ThrowError err end end end
-  | None => err = CodeNotValid; ThrowError err end end
