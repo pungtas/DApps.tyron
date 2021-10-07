@@ -1,4 +1,4 @@
-(* v1.1.0
+(* v2.0.0
 xwallet.tyron: decentralized identifier smart contract wallet (DIDxWallet)
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -107,7 +107,13 @@ library DID
   let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
   let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
   
-contract DIDxWallet( init_admin: ByStr20 )
+  (* xWallet library *)
+  let domain_ = "did"
+
+contract DIDxWallet(
+  init_admin: ByStr20,
+  init_tyron: ByStr20 with contract field services_: Map String ByStr20, field dns: Map String (Map String ByStr20), field psc_fee: Map String Uint128 end
+  )
   field admin_: ByStr20 = init_admin
   field did_: String = ""    (* the W3C decentralized identifier *)
   field did_status_: DIDstatus = Deployed
@@ -134,8 +140,10 @@ contract DIDxWallet( init_admin: ByStr20 )
   field crud_tx_number_: Uint128 = zero
   
   field deadline: Uint128 = Uint128 21   (* approx. 15 minutes *)
+
+  field init_: ByStr20 with contract field services_: Map String ByStr20, field dns: Map String (Map String ByStr20), field psc_fee: Map String Uint128 end = init_tyron
   
-(* The DID backbone *)
+(* DID backbone *)
 
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
@@ -474,7 +482,35 @@ transition DidDeactivate(
   verification_methods_ := empty_methods; services_ := empty_services; services__ := empty_services_;
   new_status = Deactivated; did_status_ := new_status; Timestamp end
 
-(* The DIDxWallet backbone *)
+(* xWallet backbone *)
+
+transition UpdateInit(
+  addr: ByStr20 with contract field services_: Map String ByStr20, field dns: Map String (Map String ByStr20), field psc_fee: Map String Uint128 end,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyAdmin tyron; init_ := addr end
+
+transition BuyNFTUsername(
+  username: String,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyAdmin tyron; init <- init_;
+  get_fee <-& init.psc_fee[domain_]; fee = option_uint128_value get_fee;
+  accept; msg = let m = { _tag: "BuyDomainNameNFT"; _recipient: init; _amount: fee;
+    username: username;
+    domain: domain_ } in one_msg m; send msg end
+
+transition TransferNFTUsername(
+  username: String,
+  newAddr: ByStr20,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyAdmin tyron; init <- init_;
+  get_fee <-& init.psc_fee[domain_]; fee = option_uint128_value get_fee;
+  accept; msg = let m = { _tag: "TransferDomainNameNFT"; _recipient: init; _amount: fee;
+    username: username;
+    domain: domain_;
+    newAddr: newAddr } in one_msg m; send msg end
 
 (* Receive $ZIL native funds *)
 transition AddFunds()
