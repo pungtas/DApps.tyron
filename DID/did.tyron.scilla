@@ -1,4 +1,4 @@
-(* v3.1.0
+(* v3.2.0
 did.tyron: W3C decentralized identifier smart contract
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -132,8 +132,8 @@ contract DID( init_controller: ByStr20 )
   (* The block number when the last DID CRUD operation occurred *)  
   field ledger_time: BNum = BNum 0
   
-  (* A monotonically increasing number representing the amount of DID CRUD transactions that have taken place *)
-  field crud_tx_number: Uint128 = zero
+  (* A monotonically increasing number representing the amount of transactions that have taken place *)
+  field tx_number: Uint128 = zero
 
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
@@ -156,14 +156,19 @@ procedure VerifyController( tyron: Option Uint128 )
   verified = builtin eq _sender current_controller;
   match verified with
   | True => SupportTyron tyron
-  | False => err= CodeNotController; ThrowError err end end
+  | False => err = CodeNotController; ThrowError err end end
+
+procedure Timestamp()
+  current_block <- &BLOCKNUMBER; ledger_time := current_block;
+  latest_tx_number <- tx_number;
+  new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor; tx_number := new_tx_number end
 
 transition UpdateController(
   addr: ByStr20,
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron;
-  controller := addr end
+  controller := addr; Timestamp end
 
 transition EnableSocialRecovery(
   addr1: ByStr20 with contract field verification_methods: Map String ByStr33 end,
@@ -173,7 +178,7 @@ transition EnableSocialRecovery(
   IsOperational; VerifyController tyron;
   recoverers = let sr = Pair{ ByStr20 with contract field verification_methods: Map String ByStr33 end ByStr20 with contract field verification_methods: Map String ByStr33 end } addr1 addr2 in
     Some{( Pair ByStr20 with contract field verification_methods: Map String ByStr33 end ByStr20 with contract field verification_methods: Map String ByStr33 end )} sr;
-  social_recoverers := recoverers end
+  social_recoverers := recoverers; Timestamp end
 
 transition UpdateSocialRecoverer(
   recoverer: Recoverer,
@@ -194,7 +199,7 @@ transition UpdateSocialRecoverer(
           sr1addr = let fst_element = @fst ByStr20 with contract field verification_methods: Map String ByStr33 end ByStr20 with contract field verification_methods: Map String ByStr33 end in fst_element recoverers;
           updated_sr = let sr = Pair{ ByStr20 with contract field verification_methods: Map String ByStr33 end ByStr20 with contract field verification_methods: Map String ByStr33 end } sr1addr addr in
             Some{( Pair ByStr20 with contract field verification_methods: Map String ByStr33 end ByStr20 with contract field verification_methods: Map String ByStr33 end )} sr;
-          social_recoverers := updated_sr end
+          social_recoverers := updated_sr; Timestamp end
   | None => err = CodeNotValid; ThrowError err end end
   
 transition Lock( tyron: Option Uint128 )
@@ -203,7 +208,7 @@ transition Lock( tyron: Option Uint128 )
   match current_recoverers with
   | Some recoverers =>
   | None => err = CodeNotValid; ThrowError err end;
-  locked = Locked; did_status := locked end
+  locked = Locked; did_status := locked; Timestamp end
   
 transition SocialRecovery( 
   addr: ByStr20,
@@ -244,7 +249,7 @@ transition SocialRecovery(
   | None => err = CodeNotValid; ThrowError err end;
   SupportTyron tyron; controller := addr end
 
-(* Verify Schnorr signature - signed data must correspond with a DID Key *)
+(* Verify Schnorr signature - signed data must correspond with a DID key *)
 procedure VerifySignature(
   id: String,
   signedData: ByStr,
@@ -282,11 +287,6 @@ procedure VerifyDIDkeys(
       ThrowIfSameKey new_recovery new_update;
       ThrowIfSameKey new_recovery didRecovery; ThrowIfSameKey new_recovery didUpdate; ThrowIfSameKey new_update didRecovery; ThrowIfSameKey new_update didUpdate
   | Update => ThrowIfSameKey new_update didUpdate; ThrowIfSameKey new_update didRecovery end end
-
-procedure Timestamp()
-  current_block <- &BLOCKNUMBER; ledger_time := current_block;
-  latest_tx_number <- crud_tx_number;
-  new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor; crud_tx_number := new_tx_number end
 
 procedure SaveDocument( document: Document )
   match document with
