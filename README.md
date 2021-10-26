@@ -6,7 +6,13 @@ Welcome to the open-source ```.tyron``` smart contracts, which are the core of t
 
     - [xwallet.tyron](./DID/DIDdapps/DIDxWallet/xwallet.tyron.scilla): decentralized identifier smart contract wallet (DIDxWallet)
 
-    - [coop.tyron](./DID/DIDdapps/COOP/coop.tyron.scilla): decentralized identifier NFT cooperative project
+        xWallet domains:
+
+        - [.dex](./DID/DIDdapps/Dex/dex.tyron.scilla): DID decentralized exchange
+
+        - [.stake](./DID/DIDdapps/Stake/stake.tyron.scilla): DID staking programs
+            
+        - [.coop](./DID/DIDdapps/COOP/coop.tyron.scilla): DID NFT cooperative project
 
 - [permawallet.tyron](./PERMAWALLET/permawallet.tyron.js): permaweb wallet smart contract
 
