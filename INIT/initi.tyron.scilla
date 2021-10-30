@@ -1,6 +1,6 @@
-(* v3.3.0
-did.tyron: W3C decentralized identifier smart contract
-Tyron Self-Sovereign Identity Protocol
+(* v1.0.0
+initi.tyron: SSI initialization & DNS <> Implementation smart contract
+Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
 
@@ -11,16 +11,14 @@ the Free Software Foundation, either version 3 of the License, or
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-See the GNU General Public License for more details.*)
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.*)
 
 scilla_version 0
 
 import PairUtils BoolUtils ListUtils IntUtils
 
 library DID
-
-  let tyronAddr = 0xA3725fA67FaA3a1cAe6869C57b475ff173D98Ba7
 
   type DIDStatus =
     | Deployed
@@ -62,19 +60,29 @@ library DID
   let empty_services = Emp String ByStr20
   let empty_services_ = Emp String Endpoint
   
+  let did = "did"
+  let transfer = "transfer"
+  
   let one_msg = fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
+  
   type Error =
     | CodeWrongStatus
     | CodeNotController
+    | CodeWrongCaller
     | CodeWrongSignature
     | CodeUndefinedKey
     | CodeSameKey
     | CodeSameId
     | CodeNotValid
     | CodeDidLocked
- 
+    | CodeNotProxy
+    | CodeIsPaused
+    | CodeNotPaused
+    | CodeNFTUsernameTaken
+    | CodeInsufficientFunds
+    
   let make_error = fun( error: Error ) =>
     let result = match error with
     | CodeWrongStatus            => Int32 -1
@@ -85,6 +93,12 @@ library DID
     | CodeSameId                 => Int32 -6
     | CodeNotValid               => Int32 -7
     | CodeDidLocked              => Int32 -8
+    | CodeWrongCaller            => Int32 -9
+    | CodeNotProxy               => Int32 -10
+    | CodeIsPaused               => Int32 -11
+    | CodeNotPaused              => Int32 -12
+    | CodeNFTUsernameTaken       => Int32 -13
+    | CodeInsufficientFunds      => Int32 -14
     end in { _exception: "Error"; code: result }
   
   let zero = Uint128 0
@@ -102,12 +116,30 @@ library DID
   let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
   let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
 
-contract DID( init_controller: ByStr20 )
+  (* xWallet library *)
+  let empty_guardians = Emp ByStr32 Bool
+  let zero_ = Uint32 0
+  let one = Uint32 1
+  let two = Uint32 2
+  let three = Uint32 3
+  
+  type Beneficiary =
+    | NFTUsername of String
+    | Recipient of ByStr20
+
+contract InitI(
+  init_controller: ByStr20,
+  init: ByStr20 with contract
+    field services: Map String ByStr20,
+    field dns: Map String ByStr20,
+    field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end,
+    field fee: Map String Uint128 end
+  )
   field did: String = ""    (* the W3C decentralized identifier *)
   field controller: ByStr20 = init_controller
   field did_status: DIDStatus = Deployed
   
-  (* Verification methods @key: key purpose @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
+  (* Verification methods @key: key purpose @value: public DID key *)
   field verification_methods: Map String ByStr33 = empty_methods
   field dkms: Map String String = empty_dkms
   
@@ -123,15 +155,17 @@ contract DID( init_controller: ByStr20 )
   (* The block number when the last DID CRUD operation occurred *)  
   field ledger_time: BNum = BNum 0
   
-  (* A monotonically increasing number representing the amount of transactions that have taken place *)
+  (* A monotonically increasing number representing the amount of DID CRUD transactions that have taken place *)
   field tx_number: Uint128 = zero
-
-procedure SupportTyron( tyron: Option Uint128 )
-  match tyron with
-  | Some donation => 
-      accept; msg = let m = { _tag: ""; _recipient: tyronAddr; _amount: donation } in one_msg m; send msg
-  | None => end end
   
+  field social_guardians: Map ByStr32 Bool = empty_guardians
+  field counter: Uint32 = zero_
+  field signed_addr: ByStr = zero_bystr
+  
+  field dns: Map String ByStr20 = Emp String ByStr20
+  
+  field paused: Bool = False
+
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
 
@@ -146,7 +180,7 @@ procedure VerifyController( tyron: Option Uint128 )
   current_controller <- controller;
   verified = builtin eq _sender current_controller;
   match verified with
-  | True => SupportTyron tyron
+  | True =>
   | False => err = CodeNotController; ThrowError err end end
 
 procedure Timestamp()
@@ -394,3 +428,286 @@ transition DidDeactivate(
   VerifyDocument didRecovery document signature;
   verification_methods := empty_methods; services := empty_services; services_ := empty_services_;
   new_status = Deactivated; did_status := new_status; Timestamp end
+
+(* xWallet backbone *)
+
+procedure SaveGuardians( id: ByStr32 )
+  repeated <- exists social_guardians[id];
+  match repeated with
+  | True => err = CodeSameId; ThrowError err
+  | False => true = True; social_guardians[id] := true end end
+
+transition ConfigureSocialRecovery(
+  guardians: List ByStr32,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyController tyron;
+  length = let list_length = @list_length ByStr32 in list_length guardians; is_ok = uint32_ge length three;
+  match is_ok with
+  | False => err = CodeNotValid; ThrowError err
+  | True =>
+      social_guardians := empty_guardians; forall guardians SaveGuardians;
+      is_three = builtin eq length three;
+      min = match is_three with
+      | True => three
+      | False => let div_ = builtin div length two in builtin add div_ one end;
+      counter := min end;
+  Timestamp end
+
+transition Lock(
+  signature: ByStr64,
+  tyron: Option Uint128
+  )
+  IsOperational;
+  min <- counter; is_ok = uint32_ge min three;
+  match is_ok with
+  | False => err = CodeNotValid; ThrowError err
+  | True =>
+      this_did <- did; hash = let hash_ = builtin sha256hash this_did in builtin to_bystr hash_;
+      get_didkey <- verification_methods[didsr]; did_key = option_bystr33_value get_didkey;
+      is_right_signature = builtin schnorr_verify did_key hash signature;
+      match is_right_signature with
+      | False => err = CodeWrongSignature; ThrowError err
+      | True => locked = Locked; did_status := locked end end;
+  Timestamp end
+
+procedure VerifySocialRecovery( proof: Pair String ByStr64 )
+  guardian_name = let fst_element = @fst String ByStr64 in fst_element proof;
+  guardian_sig = let snd_element = @snd String ByStr64 in snd_element proof;
+  hash = builtin sha256hash guardian_name; is_valid <- exists social_guardians[hash];
+  match is_valid with
+  | False => err = CodeWrongCaller; ThrowError err
+  | True =>
+      get_addr <-& init.guardians[guardian_name];
+      match get_addr with
+      | None => err = CodeNotValid; ThrowError err
+      | Some addr =>
+          get_didkey <-& addr.verification_methods[didsr]; did_key = option_bystr33_value get_didkey;
+          signed_data <- signed_addr; is_right_signature = builtin schnorr_verify did_key signed_data guardian_sig;
+          match is_right_signature with
+          | False =>
+          | True => 
+              counter_ <- counter;
+              add_ = builtin add counter_ one; counter := add_ end end end end
+
+transition SocialRecovery( 
+  addr: ByStr20,
+  signatures: List( Pair String ByStr64 ),
+  tyron: Option Uint128
+  )
+  current_status <- did_status;
+  match current_status with
+  | Deactivated => err = CodeWrongStatus; ThrowError err
+  | _ => end;
+  signed_data = builtin to_bystr addr; signed_addr := signed_data;
+  sig = let list_length = @list_length( Pair String ByStr64 ) in list_length signatures;
+  min <- counter; is_ok = uint32_ge sig min;
+  match is_ok with
+  | False => err = CodeNotValid; ThrowError err
+  | True =>
+      counter := zero_;
+      forall signatures VerifySocialRecovery;
+      counter_ <- counter; is_ok_ = uint32_ge counter_ min;
+      match is_ok_ with
+      | False => err = CodeWrongSignature; ThrowError err
+      | True =>
+          controller := addr;
+          new_status = Recovered; did_status := new_status end end;
+  Timestamp end
+
+(* Receive $ZIL native funds *)
+transition AddFunds()
+  IsOperational; accept; Timestamp end
+
+(* Send $ZIL to any recipient that implements the tag, e.g. "AddFunds", "", etc. *)
+transition SendFunds(
+  tag: String,
+  beneficiary: Beneficiary,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyController tyron;
+  match beneficiary with
+  | NFTUsername username =>
+      get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr;
+      accept; msg = let m = { _tag: tag; _recipient: addr; _amount: _amount } in one_msg m; send msg
+  | Recipient addr =>
+      accept; msg = let m = { _tag: tag; _recipient: addr; _amount: _amount } in one_msg m; send msg end; Timestamp end
+
+transition Transfer(
+  addrName: String,
+  beneficiary: Beneficiary,
+  amount: Uint128,
+  tyron: Option Uint128
+  ) 
+  IsOperational; VerifyController tyron;
+  get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
+  match beneficiary with
+  | NFTUsername username =>
+      get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr;
+      accept; msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+        to: addr;
+        amount: amount } in one_msg m ; send msg
+  | Recipient addr =>
+      accept; msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+        to: addr;
+        amount: amount } in one_msg m ; send msg end; Timestamp end
+
+transition RecipientAcceptTransfer( sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsOperational end
+
+transition RecipientAcceptTransferFrom( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsOperational end
+
+transition TransferSuccessCallBack( sender: ByStr20, recipient: ByStr20, amount : Uint128 ) IsOperational end
+
+transition TransferFromSuccessCallBack( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsOperational end
+
+transition Dns(
+  addr: ByStr20,
+  domain: String,
+  didKey: ByStr33,
+  encrypted: String,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyController tyron;
+  verification_methods[domain] := didKey; dkms[domain] := encrypted;
+  dns[domain] := addr; Timestamp end
+
+(* init implementation backbone *)
+
+procedure ThrowIfNotProxy()
+  verified = builtin eq init _sender;
+  match verified with
+  | True =>
+  | False => err= CodeNotProxy; ThrowError err end end
+
+procedure IsNotPaused()
+  is_paused <- paused;
+  match is_paused with
+  | True => err = CodeIsPaused; ThrowError err
+  | False => end end
+
+procedure IsPaused()
+  is_paused <- paused;
+  match is_paused with
+  | True =>
+  | False => err = CodeNotPaused; ThrowError err end end
+
+transition Pause()
+  IsOperational; ThrowIfNotProxy;
+  IsNotPaused; true = True; paused := true;
+  e = { _eventname: "SmartContractPaused";
+    pauser: _origin
+  }; event e end
+
+transition Unpause()
+  IsOperational; ThrowIfNotProxy;
+  IsPaused; false = False; paused := false;
+  e = { _eventname: "SmartContractUnpaused";
+    pauser: _origin
+  }; event e end
+  
+procedure NFTUsernameCallBack(
+  username: String,
+  addr: ByStr20
+  )
+  msg = let m = { _tag: "NFTUsernameCallBack"; _recipient: _sender; _amount: zero;
+    username: username;
+    addr: addr
+  } in one_msg m; send msg end
+  
+procedure PremiumNFTUsername_( premium: String )
+  get_addr <-& init.dns[premium];
+  match get_addr with
+  | Some addr => err = CodeNFTUsernameTaken; ThrowError err
+  | None => NFTUsernameCallBack premium _this_address end end
+  
+transition PremiumNFTUsername( premium: List String )
+  IsOperational; ThrowIfNotProxy; IsNotPaused;
+  forall premium PremiumNFTUsername_ end
+
+procedure NFTGuardianshipCallBack(
+  username: String,
+  addr: ByStr20 with contract field verification_methods: Map String ByStr33 end
+  )
+  msg = let m = { _tag: "NFTGuardianshipCallBack"; _recipient: _sender; _amount: zero;
+    username: username;
+    addr: addr
+  } in one_msg m; send msg end
+
+transition BuyNFTUsername(
+  username: String,
+  addr: ByStr20,
+  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end
+  )
+  IsOperational; ThrowIfNotProxy; IsNotPaused; get_addr <-& init.dns[username];
+  match get_addr with
+  | Some addr_ => err = CodeNFTUsernameTaken; ThrowError err
+  | None =>
+      get_fee <-& init.fee[did];
+      match get_fee with
+      | None => err = CodeNotValid; ThrowError err
+      | Some fee_ =>
+          is_enough = uint128_ge _amount fee_;
+          match is_enough with
+          | True =>
+              accept;
+              refund = builtin sub _amount fee_;
+              is_zero_refund = builtin eq refund zero;
+              match is_zero_refund with
+              | True =>
+              | False =>
+                  msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: refund } in one_msg m; send msg end;
+              NFTUsernameCallBack username addr;
+              match guardianship with
+              | Some guardian => NFTGuardianshipCallBack username guardian
+              | None => end
+          | False => err = CodeInsufficientFunds; ThrowError err end end end end
+
+transition UpdateGuardianship(
+  username: String,
+  addr: ByStr20,
+  guardian: ByStr20 with contract field verification_methods: Map String ByStr33 end
+  )
+  IsOperational; ThrowIfNotProxy; IsNotPaused; get_addr <-& init.dns[username];
+  match get_addr with
+  | Some addr_ =>
+      is_owner = builtin eq addr addr_;
+      match is_owner with
+      | False => err = CodeWrongCaller; ThrowError err
+      | True => NFTGuardianshipCallBack username guardian end
+  | None => err = CodeNotValid; ThrowError err end end
+
+transition TransferNFTUsername(
+  username: String,
+  addr: ByStr20,
+  newAddr: ByStr20,
+  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end
+  )
+  IsOperational; ThrowIfNotProxy; IsNotPaused; get_addr <-& init.dns[username];
+  match get_addr with
+  | Some addr_ =>
+      is_owner = builtin eq addr addr_;
+      match is_owner with
+      | False => err = CodeWrongCaller; ThrowError err
+      | True =>
+          get_fee <-& init.fee[transfer];
+          match get_fee with
+          | None => err = CodeNotValid; ThrowError err
+          | Some fee_ =>  
+              is_enough = uint128_ge _amount fee_;
+              match is_enough with
+              | True =>
+                  accept;
+                  refund = builtin sub _amount fee_;
+                  is_zero_refund = builtin eq refund zero;
+                  match is_zero_refund with
+                  | True =>
+                  | False => msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: refund } in one_msg m; send msg end;
+                  NFTUsernameCallBack username newAddr;
+                  match guardianship with
+                  | Some guardian => NFTGuardianshipCallBack username guardian
+                  | None =>
+                      msg = let m = { _tag: "RemoveGuardianshipCallBack"; _recipient: _sender; _amount: zero;
+                        username: username
+                      } in one_msg m; send msg end
+              | False => err = CodeInsufficientFunds; ThrowError err end end end
+  | None => err = CodeNotValid; ThrowError err end end
