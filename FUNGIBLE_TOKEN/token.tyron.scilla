@@ -1,4 +1,4 @@
-(* v1.1.0
+(* v2.0.0
 token.tyron: fungible token <> Proxy smart contract
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -19,23 +19,35 @@ scilla_version 0
 import BoolUtils IntUtils
 
 library FungibleToken
-  let one_msg = fun( msg: Message ) =>
+  let one_msg =
+    fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
   type Error =
     | CodeWrongCaller
+    | CodeWrongStatus
     | CodeNotValid
 
   let make_error = fun( error: Error ) =>
     let result = match error with
     | CodeWrongCaller            => Int32 -1
-    | CodeNotValid               => Int32 -2
+    | CodeWrongStatus            => Int32 -2
+    | CodeNotValid               => Int32 -3
     end in { _exception: "Error"; code: result }
   
   let zero = Uint128 0
   
+  type Caller =
+    | Controller
+    | Implementation
+  
+  let controller_ = Controller
+  let implementation_ = Implementation
+  
 contract FungibleToken(
-  init_admin: ByStr20,
+  init_controller: ByStr20 with contract 
+    field controller: ByStr20,
+    field paused: Bool end,
   name: String,
   symbol: String,
   decimals: Uint32,
@@ -59,61 +71,36 @@ contract FungibleToken(
       andb decimals_at_least_6 decimals_no_more_than_18 in
       andb name_symbol_ok decimals_ok
   =>
-  field admin: ByStr20 = init_admin
-  field implementation: ByStr20 = init_admin
+  field implementation: ByStr20 with contract
+    field controller: ByStr20,
+    field paused: Bool end = init_controller
   field total_supply: Uint128 = init_supply
   field balances: Map ByStr20 Uint128 = init_balances
   field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
   
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
+  
+procedure VerifyCaller( caller: Caller )
+  current_impl <- implementation;
+  is_paused <-& current_impl.paused; match is_paused with
+  | False => | True => err = CodeWrongStatus; ThrowError err end;
+  match caller with
+  | Controller =>
+      controller <-& current_impl.controller;
+      verified = builtin eq _sender controller; match verified with
+      | True => | False => err = CodeWrongCaller; ThrowError err end
+  | Implementation =>
+      verified = builtin eq _sender current_impl; match verified with
+      | True => | False => err = CodeWrongCaller; ThrowError err end end end
 
-procedure VerifyCaller( addr: ByStr20 )
-  verified = builtin eq _sender addr; match verified with
-  | True =>
-  | False => err = CodeWrongCaller; ThrowError err end end
-
-transition UpdateAdmin( addr: ByStr20 )
-  current_admin <- admin; VerifyCaller current_admin;
-  is_same = builtin eq current_admin addr; match is_same with
-  | True => err = CodeNotValid; ThrowError err
-  | False => admin := addr end;
-  e = { _eventname: "AdminAddressUpdated";
-    new_admin: addr }; event e end
-
-transition UpdateImplementation( addr: ByStr20 )
-  current_admin <- admin; VerifyCaller current_admin; current_impl <- implementation;
+transition UpdateImplementation( addr: ByStr20 with contract field controller: ByStr20, field paused: Bool end )
+  VerifyCaller controller_; current_impl <- implementation;
   is_same = builtin eq current_impl addr; match is_same with
-  | True => err = CodeNotValid; ThrowError err
-  | False => implementation := addr end;
+  | False => | True => err = CodeNotValid; ThrowError err end;
+  implementation := addr;
   e = { _eventname: "ImplementationUpdated";
     new_implementation: addr }; event e end
-
-transition LawEnforcementWipingBurnCallBack(
-  addr: ByStr20,
-  new_supply: Uint128
-  )
-  current_impl <- implementation; VerifyCaller current_impl;
-  delete balances[addr];
-  total_supply := new_supply end
-
-transition MintCallBack(
-  beneficiary: ByStr20,
-  new_balance: Uint128,
-  new_supply: Uint128
-  )
-  current_impl <- implementation; VerifyCaller current_impl;
-  balances[beneficiary] := new_balance;
-  total_supply := new_supply end
-
-transition BurnCallBack(
-  originator: ByStr20,
-  new_balance: Uint128,
-  new_supply: Uint128
-  )
-  current_impl <- implementation; VerifyCaller current_impl;
-  balances[originator] := new_balance;
-  total_supply := new_supply end
 
 transition Transfer(
   to: ByStr20,
@@ -131,7 +118,7 @@ transition TransferCallBack(
   new_originator_bal: Uint128,
   new_beneficiary_bal: Uint128
   )
-  current_impl <- implementation; VerifyCaller current_impl;
+  current_impl <- implementation; VerifyCaller implementation_;
   balances[originator] := new_originator_bal;
   balances[beneficiary] := new_beneficiary_bal end
 
@@ -161,7 +148,7 @@ transition AllowanceCallBack(
   spender: ByStr20,
   new_allowance: Uint128
   )
-  current_impl <- implementation; VerifyCaller current_impl;
+  current_impl <- implementation; VerifyCaller implementation_;
   allowances[originator][spender] := new_allowance end
 
 transition TransferFrom(
@@ -182,6 +169,6 @@ transition TransferFromCallBack(
   new_originator_bal: Uint128,
   new_beneficiary_bal: Uint128
   )
-  current_impl <- implementation; VerifyCaller current_impl;
+  current_impl <- implementation; VerifyCaller implementation_;
   balances[originator] := new_originator_bal;
   balances[beneficiary] := new_beneficiary_bal end
