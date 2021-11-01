@@ -1,4 +1,4 @@
-(* v2.0.0
+(* v2.2.0
 init.tyron: SSI initialization & DNS <> Proxy smart contract
 Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -22,79 +22,51 @@ library Init
 
   type Error =
     | CodeWrongCaller
+    | CodeWrongStatus
  
   let make_error = fun( error: Error ) =>
     let result = match error with
     | CodeWrongCaller            => Int32 -1
+    | CodeWrongStatus            => Int32 -2
     end in { _exception: "Error"; code: result }
 
-contract Init( init: ByStr20 with contract field controller: ByStr20, field services: Map String ByStr20 end )
-  field implementation: ByStr20 with contract field controller: ByStr20, field services: Map String ByStr20 end = init
-  
-  (* Tyron smart contracts' code by version @key: domain @value: map of version number & hex-encoded code *)
-  field tyron_code: Map String ( Map String String ) = Emp String ( Map String String )
-  
+contract Init( init_controller: ByStr20 with contract 
+  field controller: ByStr20,
+  field services: Map String ByStr20,
+  field paused: Bool,
+  field utility: Map String Map String Uint128 end
+  )
+  field implementation: ByStr20 with contract
+    field controller: ByStr20,
+    field services: Map String ByStr20,
+    field paused: Bool,
+    field utility: Map String Map String Uint128 end = init_controller
+
   (* DNS records @key: NFT username @value: address *)
   field dns: Map String ByStr20 = Emp String ByStr20
   field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end = Emp String ByStr20 with contract field verification_methods: Map String ByStr33 end
-  
-  (* Fees @key: ID, e.g. domain @value: fee in $ZIL *)
-  field fee: Map String Uint128 = let emp = Emp String Uint128 in let did = "did" in
-    let one_hundred_zil = Uint128 100000000000000 in builtin put emp did one_hundred_zil
 
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
 
 procedure VerifyController()
   current_implementation <- implementation;
-  controller <-& current_implementation.controller;
-  verified = builtin eq _sender controller;
-  match verified with
-  | True =>
-  | False => err = CodeWrongCaller; ThrowError err end end
+  controller <-& current_implementation.controller; is_paused <-& current_implementation.paused;
+  verified = builtin eq _sender controller; match verified with
+  | True => | False => err = CodeWrongCaller; ThrowError err end;
+  match is_paused with
+  | False => | True => err = CodeWrongStatus; ThrowError err end end
 
-transition UpdateImplementation( addr: ByStr20 with contract field controller: ByStr20, field services: Map String ByStr20 end )
+transition UpdateImplementation( addr: ByStr20 with contract field controller: ByStr20, field services: Map String ByStr20, field paused: Bool, field utility: Map String Map String Uint128 end )
   VerifyController; implementation := addr; init_ = "init"; dns[init_] := addr;
   e = { _eventname: "ImplementationUpdated";
-    new_implementation: addr
-  }; event e end
+    new_implementation: addr }; event e end
 
 procedure VerifyImplementation()
   current_impl <- implementation;
-  verified = builtin eq _sender current_impl;
-  match verified with
-  | True =>
-  | False => err = CodeWrongCaller; ThrowError err end end
-  
-(* Publish contracts.tyron code *)
-transition SetCode( 
-  domain: String,
-  version: String,
-  code: String
-  )
-  VerifyController;
-  tyron_code[domain][version] := code;
-  e = { _eventname: "TyronCodeUpdated";
-    domain: domain;
-    version: version;
-    code: code
-  }; event e end
+  verified = builtin eq _sender current_impl; match verified with
+  | True => | False => err = CodeWrongCaller; ThrowError err end end
 
-transition SetFee(
-  id: String,
-  amount: Uint128
-  )
-  VerifyController; fee[id] := amount end
-  
-transition RemoveUtility( id: String )
-  VerifyController; delete fee[id] end
-
-transition PremiumNFTUsername( premium: List String )
-  VerifyController; current_impl <- implementation; zero = Uint128 0;
-  msg = let m = { _tag: "PremiumNFTUsername"; _recipient: current_impl; _amount: zero;
-    premium: premium
-  } in one_msg m; send msg end
-  
 transition NFTUsernameCallBack(
   username: String,
   addr: ByStr20
@@ -103,21 +75,21 @@ transition NFTUsernameCallBack(
 
 transition BuyNFTUsername(
   username: String,
-  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end
+  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
+  id: String
   )
   current_impl <- implementation;
   accept; msg = let m = { _tag: "BuyNFTUsername"; _recipient: current_impl; _amount: _amount;
     username: username;
     addr: _sender;
-    guardianship: guardianship
-  } in one_msg m; send msg end
+    guardianship: guardianship;
+    id: id } in one_msg m; send msg end
 
 transition NFTGuardianshipCallBack(
   username: String,
   addr: ByStr20 with contract field verification_methods: Map String ByStr33 end
   )
-  VerifyImplementation;
-  guardians[username] := addr end
+  VerifyImplementation; guardians[username] := addr end
   
 transition UpdateGuardianship(
   username: String,
@@ -127,8 +99,7 @@ transition UpdateGuardianship(
   accept; msg = let m = { _tag: "UpdateGuardianship"; _recipient: current_impl; _amount: _amount;
     username: username;
     addr: _sender;
-    guardian: addr
-  } in one_msg m; send msg end
+    guardian: addr } in one_msg m; send msg end
 
 transition RemoveGuardianshipCallBack( username: String )
   VerifyImplementation; delete guardians[username] end
@@ -136,12 +107,13 @@ transition RemoveGuardianshipCallBack( username: String )
 transition TransferNFTUsername(
   username: String,
   newAddr: ByStr20,
-  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end
+  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
+  id: String
   )
   current_impl <- implementation;
   accept; msg = let m = { _tag: "TransferNFTUsername"; _recipient: current_impl; _amount: _amount;
     username: username;
     addr: _sender;
     newAddr: newAddr;
-    guardianship: guardianship
-  } in one_msg m; send msg end
+    guardianship: guardianship;
+    id: id } in one_msg m; send msg end

@@ -67,7 +67,7 @@ library DID
 
   type Error =
     | CodeWrongStatus
-    | CodeNotController
+    | CodeWrongCaller
     | CodeWrongSignature
     | CodeUndefinedKey
     | CodeSameKey
@@ -78,7 +78,7 @@ library DID
   let make_error = fun( error: Error ) =>
     let result = match error with
     | CodeWrongStatus            => Int32 -1
-    | CodeNotController          => Int32 -2
+    | CodeWrongCaller            => Int32 -2
     | CodeWrongSignature         => Int32 -3
     | CodeUndefinedKey           => Int32 -4
     | CodeSameKey                => Int32 -5
@@ -144,14 +144,12 @@ procedure IsOperational()
 
 procedure VerifyController( tyron: Option Uint128 )
   current_controller <- controller;
-  verified = builtin eq _sender current_controller;
-  match verified with
+  verified = builtin eq _sender current_controller; match verified with
   | True => SupportTyron tyron
-  | False => err = CodeNotController; ThrowError err end end
+  | False => err = CodeWrongCaller; ThrowError err end end
 
 procedure Timestamp()
-  current_block <- &BLOCKNUMBER; ledger_time := current_block;
-  latest_tx_number <- tx_number;
+  current_block <- &BLOCKNUMBER;  latest_tx_number <- tx_number; ledger_time := current_block;
   new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor; tx_number := new_tx_number end
 
 transition UpdateController(
@@ -167,11 +165,10 @@ procedure VerifySignature(
   signedData: ByStr,
   signature: ByStr64
   )
-  get_did_key <- verification_methods[id];
-  is_right_signature = let did_key = option_bystr33_value get_did_key in builtin schnorr_verify did_key signedData signature;
-  match is_right_signature with
-    | True =>
-    | False => err = CodeWrongSignature; ThrowError err end end
+  get_did_key <- verification_methods[id]; did_key = option_bystr33_value get_did_key;
+  is_right_signature = builtin schnorr_verify did_key signedData signature; match is_right_signature with
+  | True =>
+  | False => err = CodeWrongSignature; ThrowError err end end
 
 procedure ThrowIfNoKey( optKey: Option ByStr33 )
   match optKey with
@@ -182,9 +179,8 @@ procedure ThrowIfSameKey(
   key: ByStr33,
   sndKey: ByStr33
   )
-  is_same_key = builtin eq key sndKey;
-  match is_same_key with
-  | True => err= CodeSameKey; ThrowError err
+  is_same_key = builtin eq key sndKey; match is_same_key with
+  | True => err = CodeSameKey; ThrowError err
   | False => end end
 
 procedure VerifyDIDkeys(

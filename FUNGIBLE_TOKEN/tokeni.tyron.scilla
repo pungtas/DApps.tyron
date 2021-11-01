@@ -1,4 +1,4 @@
-(* v1.0.0
+(* v1.1.0
 tokeni.tyron: fungible token <> Implementation smart contract
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -19,7 +19,6 @@ scilla_version 0
 import IntUtils
 
 library TokenI
-
   type Account =
     | Account of BNum Uint128 Uint128 Uint128
     
@@ -71,50 +70,50 @@ library TokenI
 
   let zero = Uint128 0
   let one  = Uint128 1
-  let yes = True
-  let no = False
+  let true = True
+  let false = False
   let null_address = 0x0000000000000000000000000000000000000000
 
-  let option_value = tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) =>
-    match opt_val with
+  let option_value =
+    tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) => match opt_val with
     | Some v => v
     | None => default end
 
-  let option_uint128_value = let f = @option_value Uint128 in f zero
+  let option_uint128_value =
+    let f = @option_value Uint128 in f zero
    
-  let option2_uint128_value = fun( input: Option( Option Uint128 )) =>
-    match input with
+  let option2_uint128_value =
+    fun( input: Option( Option Uint128 )) => match input with
     | Some (Some a) => a
     | _ => zero end
 
-  let option_uint128 = fun( input: Uint128 ) =>
-    let is_zero = builtin eq input zero in
-    match is_zero with
+  let option_uint128 =
+    fun( input: Uint128 ) =>
+    let is_zero = builtin eq input zero in match is_zero with
     | True => None{ Uint128 }
     | False => Some{ Uint128 } input end
 
-  let better_subtract = fun( a: Uint128 ) => fun( b: Uint128 ) =>
-    let a_ge_b = uint128_ge a b in
-    match a_ge_b with
+  let better_subtract =
+    fun( a: Uint128 ) => fun( b: Uint128 ) =>
+    let a_ge_b = uint128_ge a b in match a_ge_b with
     | True => builtin sub a b
     | False => zero end
 
 contract TokenI(
   init_admin: ByStr20,
-  init_fund: ByStr20,
-  proxy_addr: ByStr20 with contract 
+  proxy: ByStr20 with contract 
     field total_supply: Uint128,
     field balances: Map ByStr20 Uint128,
     field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) end
   )
   field admin: ByStr20 = init_admin
-  field fund: ByStr20 = init_fund
-  field pauser: ByStr20 = init_admin
-  field main_minter: ByStr20 = init_admin
   field paused: Bool = False
+  field fund: ByStr20 = init_admin
+  field main_minter: ByStr20 = init_admin
+  field pauser: ByStr20 = init_admin
   field lister: ByStr20 = init_admin
   field blocked: Map ByStr20 Uint128 = Emp ByStr20 Uint128
-  field minter_allowances: Map ByStr20 ( Option Uint128 ) = Emp ByStr20 ( Option Uint128 )
+  field minter_allowances: Map ByStr20 (Option Uint128) = Emp ByStr20 (Option Uint128)
   field accounts: Map ByStr20 Account = Emp ByStr20 Account
   field lockup_period: Uint128 = Uint128 1466791
 
@@ -122,72 +121,51 @@ procedure ThrowError( err: Error )
   e = make_error err; throw e end
 
 procedure ThrowIfNotProxy()
-  verified = builtin eq proxy_addr _sender;
-  match verified with
-  | True =>
-  | False => err= CodeNotProxy; ThrowError err end end
+  verified = builtin eq proxy _sender; match verified with
+  | True => | False => err= CodeNotProxy; ThrowError err end end
 
 procedure IsAdmin()
   current_admin <- admin;
-  is_admin = builtin eq current_admin _origin;
-  match is_admin with
-  | True =>
-  | False => err = CodeNotAdmin; ThrowError err end end
+  is_admin = builtin eq current_admin _origin; match is_admin with
+  | True => | False => err = CodeNotAdmin; ThrowError err end end
 
 procedure IsPauser()
   current_pauser <- pauser;
-  is_pauser = builtin eq current_pauser _origin;
-  match is_pauser with
-  | True  =>
-  | False => err = CodeNotPauser; ThrowError err end end
+  is_pauser = builtin eq current_pauser _origin; match is_pauser with
+  | True  => | False => err = CodeNotPauser; ThrowError err end end
 
 procedure IsPaused()
-  is_paused <- paused;
-  match is_paused with
-  | True =>
-  | False => err = CodeNotPaused; ThrowError err end end
+  is_paused <- paused; match is_paused with
+  | True => | False => err = CodeNotPaused; ThrowError err end end
 
 procedure IsNotPaused()
-  is_paused <- paused;
-  match is_paused with
-  | True => err = CodeIsPaused; ThrowError err
-  | False => end end
+  is_paused <- paused; match is_paused with
+  | False => | True => err = CodeIsPaused; ThrowError err end end
 
 procedure IsLister()
   current_lister <- lister;
-  is_lister = builtin eq current_lister _origin;
-  match is_lister with
-  | True  =>
-  | False => err = CodeNotLister; ThrowError err end end
+  is_lister = builtin eq current_lister _origin; match is_lister with
+  | True  => | False => err = CodeNotLister; ThrowError err end end
 
 procedure IsBlocked( addr: ByStr20 )
-  is_blocked <- exists blocked[addr];
-  match is_blocked with
-  | True =>
-  | False => err = CodeNotBlocked; ThrowError err end end
+  is_blocked <- exists blocked[addr]; match is_blocked with
+  | True => | False => err = CodeNotBlocked; ThrowError err end end
 
 procedure IsNotBlocked( addr: ByStr20 )
-  is_blocked <- exists blocked[addr];
-  match is_blocked with
-  | True => err = CodeIsBlocked; ThrowError err
-  | False => end end
+  is_blocked <- exists blocked[addr]; match is_blocked with
+  | False => | True => err = CodeIsBlocked; ThrowError err end end
 
 procedure IsNotNull( addr: ByStr20 )
-  is_null = builtin eq null_address addr;
-  match is_null with
-  | True => err = CodeIsNull; ThrowError err
-  | False => end end
+  is_null = builtin eq null_address addr; match is_null with
+  | False => | True => err = CodeIsNull; ThrowError err end end
 
 procedure IsMainMinter()
   current_main_minter <- main_minter;
-  is_main_minter = builtin eq current_main_minter _origin;
-  match is_main_minter with
-  | True  =>
-  | False => err = CodeNotMainMinter; ThrowError err end end
+  is_main_minter = builtin eq current_main_minter _origin; match is_main_minter with
+  | True  => | False => err = CodeNotMainMinter; ThrowError err end end
 
 procedure IsMinter()
-  is_minter <- minter_allowances[_origin];
-  match is_minter with
+  is_minter <- minter_allowances[_origin]; match is_minter with
   | Some( Some allowance )  =>
   | _ => err = CodeNotMinter; ThrowError err end end
 
@@ -195,42 +173,36 @@ procedure ThowIfSameAddr(
   a: ByStr20,
   b: ByStr20
   )
-  is_self = builtin eq a b;
-  match is_self with
-  | True => err = CodeSameAddress; ThrowError err
-  | False => end end
+  is_self = builtin eq a b; match is_self with
+  | False => | True => err = CodeSameAddress; ThrowError err end end
 
 procedure IsSufficientFunds(
   funds: Uint128,
   amount: Uint128
   )
-  sufficient_funds = uint128_ge funds amount;
-  match sufficient_funds with
-  | True =>
-  | False => err = CodeInsufficientFunds; ThrowError err end end
+  sufficient_funds = uint128_ge funds amount; match sufficient_funds with
+  | True => | False => err = CodeInsufficientFunds; ThrowError err end end
 
 procedure IsSufficientAllowance(
   allowance: Uint128,
   amount: Uint128
   )
-  sufficient_allowance = uint128_ge allowance amount;
-  match sufficient_allowance with
-  | True =>
-  | False => err = CodeInsufficientAllowance; ThrowError err end end
+  sufficient_allowance = uint128_ge allowance amount; match sufficient_allowance with
+  | True => | False => err = CodeInsufficientAllowance; ThrowError err end end
 
-transition UpdateAdmin( new: ByStr20 )
-  IsAdmin; IsNotPaused; IsNotNull new;
-  current_admin <- admin;
-  ThowIfSameAddr current_admin new; admin := new;
+transition UpdateAdmin( addr: ByStr20 )
+  IsAdmin; IsNotPaused; IsNotNull addr;
+  current_admin <- admin; ThowIfSameAddr current_admin addr;
+  admin := addr;
   e = { _eventname: "AdminUpdated";
-    admin_updated: new
-  }; event e end
+    new_addr: addr }; event e end
   
-transition UpdateFund( new: ByStr20 )
-  IsAdmin; IsNotPaused; fund := new;
+transition UpdateFund( addr: ByStr20 )
+  IsAdmin; IsNotPaused; IsNotNull addr;
+  current_fund <- fund; ThowIfSameAddr current_fund addr;
+  fund := addr;
   e = { _eventname: "FundAddressUpdated";
-    address_updated: new
-  }; event e end
+    new_addr: addr }; event e end
 
 transition UpdateLockup( new: Uint128 )
   IsAdmin; IsNotPaused; lockup_period := new end
@@ -242,94 +214,81 @@ transition AddAcount(
   )
   IsAdmin; current_fund <- fund; block <- &BLOCKNUMBER;
   IsNotPaused; IsNotBlocked current_fund; IsNotNull investor; IsNotBlocked investor; ThowIfSameAddr current_fund investor;
-  get_fund_bal <-& proxy_addr.balances[current_fund]; fund_bal = option_uint128_value get_fund_bal;
+  get_fund_bal <-& proxy.balances[current_fund]; fund_bal = option_uint128_value get_fund_bal;
   new_fund_bal = builtin sub fund_bal amount;
-  get_investor_bal <-& proxy_addr.balances[investor]; investor_bal = option_uint128_value get_investor_bal;
+  get_investor_bal <-& proxy.balances[investor]; investor_bal = option_uint128_value get_investor_bal;
   new_investor_bal = builtin add investor_bal amount;
   lockup <- lockup_period;
   portion = builtin div amount schedule;
   vest = builtin div lockup schedule; next = builtin badd block vest;
   account = Account next vest amount portion; accounts[investor] := account;
-  msg_to_proxy = { _tag: "TransferCallBack"; _recipient: proxy_addr; _amount: zero;
+  msg = let m = { _tag: "TransferCallBack"; _recipient: proxy; _amount: zero;
     originator: current_fund;
     beneficiary: investor;
     new_originator_bal: new_fund_bal;
-    new_beneficiary_bal: new_investor_bal
-  } end
+    new_beneficiary_bal: new_investor_bal } in one_msg m; send msg end
   
 transition UpdatePauser( new_pauser: ByStr20 )
   IsAdmin; IsNotPaused; IsNotNull new_pauser;
   current_pauser <- pauser;
   ThowIfSameAddr current_pauser new_pauser; pauser := new_pauser;
   e = { _eventname: "PauserUpdated";
-    pauser_updated: new_pauser
-  }; event e end
+    pauser_updated: new_pauser }; event e end
 
 transition Pause()
   ThrowIfNotProxy; IsPauser;
-  IsNotPaused; paused := yes;
+  IsNotPaused; paused := true;
   e = { _eventname: "SmartContractPaused";
-    pauser: _origin
-  }; event e end
+    pauser: _origin }; event e end
 
 transition Unpause()
   ThrowIfNotProxy; IsPauser;
-  IsPaused; paused := no;
+  IsPaused; paused := false;
   e = { _eventname: "SmartContractUnpaused";
-    pauser: _origin
-  }; event e end
+    pauser: _origin }; event e end
 
 transition UpdateLister( new_lister: ByStr20 )
   IsAdmin; IsNotPaused; IsNotNull new_lister;
   current_lister <- lister;
   ThowIfSameAddr current_lister new_lister; lister:= new_lister;
   e = { _eventname: "ListerUpdated";
-    lister_updated: new_lister
-  }; event e end
+    lister_updated: new_lister }; event e end
 
 transition Block( addr: ByStr20 )
   ThrowIfNotProxy; IsLister;
   IsNotPaused; IsNotNull addr; IsNotBlocked addr; blocked[addr] := one;
   e = { _eventname: "AddressBlocked";
     address: addr;
-    lister: _origin
-  }; event e end
+    lister: _origin }; event e end
 
 transition Unblock( addr: ByStr20 )
   ThrowIfNotProxy; IsLister;
   IsNotPaused; IsNotNull addr; IsBlocked addr; delete blocked[addr];
   e = { _eventname: "AddressUnblocked";
     address: addr;
-    lister: _origin
-  }; event e end
+    lister: _origin }; event e end
 
 transition LawEnforcementWipingBurn( addr: ByStr20 )
   ThrowIfNotProxy; IsLister;
   IsNotPaused; IsBlocked addr; IsNotBlocked _origin;
-  get_bal <-& proxy_addr.balances[addr]; bal = option_uint128_value get_bal;
-  current_supply <-& proxy_addr.total_supply;
-  new_supply = builtin sub current_supply bal;
+  get_bal <-& proxy.balances[addr]; bal = option_uint128_value get_bal;
+  current_supply <-& proxy.total_supply; new_supply = builtin sub current_supply bal;
   e = { _eventname: "LawEnforcementWipingBurnt";
     lister: _origin;
     address: addr;
-    amount: bal
-  }; event e;
+    amount: bal }; event e;
   msg_to_proxy = { _tag: "LawEnforcementWipingBurnCallBack"; _recipient: _sender; _amount: zero;
     addr: addr;
-    new_supply : new_supply
-  };
+    new_supply : new_supply };
   msg_to_lister = { _tag: "LawEnforcementWipingBurnSuccessCallBack"; _recipient: _origin; _amount: zero;
     addr: addr;
-    amount: bal
-  }; msgs = two_msgs msg_to_proxy msg_to_lister; send msgs end
+    amount: bal }; msgs = two_msgs msg_to_proxy msg_to_lister; send msgs end
 
 transition UpdateMainMinter( new_main_minter: ByStr20 )
   IsAdmin; IsNotPaused; IsNotNull new_main_minter;
-  current_main_minter <- main_minter;
-  ThowIfSameAddr current_main_minter new_main_minter; main_minter := new_main_minter;
+  current_main_minter <- main_minter; ThowIfSameAddr current_main_minter new_main_minter; main_minter := new_main_minter;
   e = { _eventname: "MainMinterUpdated";
-    main_minter_updated: new_main_minter
-  }; event e end
+    main_minter_updated: new_main_minter }; event e end
 
 transition IncreaseMinterAllowance(
   minter: ByStr20,
@@ -342,8 +301,7 @@ transition IncreaseMinterAllowance(
   e = { _eventname: "MinterAllowanceIncreased";
     minter: minter;
     allowance_updated: new_minter_allowance;
-    main_minter: _origin
-  }; event e end
+    main_minter: _origin }; event e end
 
 transition DecreaseMinterAllowance(
   minter: ByStr20,
@@ -356,8 +314,7 @@ transition DecreaseMinterAllowance(
   e = { _eventname: "MinterAllowanceDecreased";
     minter: minter;
     allowance_updated: new_option_minter_allowance;
-    main_minter: _origin
-  }; event e end
+    main_minter: _origin }; event e end
 
 transition Mint(
   originator: ByStr20,
@@ -367,33 +324,28 @@ transition Mint(
   ThrowIfNotProxy; IsNotPaused; IsMinter;
   IsNotBlocked _origin; IsNotBlocked originator; IsNotBlocked beneficiary; IsNotNull beneficiary;
   get_minter_allowance <- minter_allowances[originator]; minter_allowance = option2_uint128_value get_minter_allowance; IsSufficientAllowance minter_allowance amount;
-  get_bal <-& proxy_addr.balances[beneficiary]; bal = option_uint128_value get_bal;
+  get_bal <-& proxy.balances[beneficiary]; bal = option_uint128_value get_bal;
   new_bal = builtin add bal amount;
   new_minter_allowance = better_subtract minter_allowance amount; new_option_minter_allowance = option_uint128 new_minter_allowance;
   minter_allowances[originator] := new_option_minter_allowance;
-  current_supply <-& proxy_addr.total_supply;
-  new_supply = builtin add current_supply amount;
+  current_supply <-& proxy.total_supply; new_supply = builtin add current_supply amount;
   e = { _eventname: "Minted";
     minter: originator;
     amount: amount;
-    beneficiary: beneficiary
-  }; event e;
+    beneficiary: beneficiary }; event e;
   msg_to_proxy = { _tag: "MintCallBack"; _recipient: _sender; _amount: zero;
     beneficiary: beneficiary;
     new_beneficiary_bal: new_bal;
-    new_supply: new_supply
-  };
+    new_supply: new_supply };
   msg_to_minter = { _tag: "MintSuccessCallBack"; _recipient: _origin; _amount: zero;
     minter: originator;
     beneficiary: beneficiary;
-    amount: amount
-  };
+    amount: amount };
   msg_to_beneficiary = { _tag: "RecipientAcceptMint";
     _recipient: beneficiary;
     _amount: zero;
     minter: originator;
-    amount: amount
-  }; msgs = three_msgs msg_to_proxy msg_to_minter msg_to_beneficiary; send msgs end
+    amount: amount }; msgs = three_msgs msg_to_proxy msg_to_minter msg_to_beneficiary; send msgs end
 
 transition Burn(
   originator: ByStr20,
@@ -401,15 +353,13 @@ transition Burn(
   )
   ThrowIfNotProxy; IsNotPaused; IsMinter;
   IsNotBlocked _origin; IsNotBlocked originator;
-  get_bal <-& proxy_addr.balances[originator]; bal = option_uint128_value get_bal;
+  get_bal <-& proxy.balances[originator]; bal = option_uint128_value get_bal;
   IsSufficientFunds bal amount;
   new_bal = builtin sub bal amount;
-  current_supply <-& proxy_addr.total_supply;
-  new_supply = builtin sub current_supply amount;
+  current_supply <-& proxy.total_supply; new_supply = builtin sub current_supply amount;
   e = { _eventname: "Burnt";
     burner: originator;
-    amount: amount
-  }; event e;
+    amount: amount }; event e;
   msg_to_proxy = { _tag: "BurnCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     new_balance: new_bal;
@@ -427,8 +377,7 @@ procedure IsVested(
   )
   get_account <- accounts[investor];
   match get_account with
-  | None =>
-  | Some account =>
+  | None => | Some account =>
       match account with
       | Account next vest amount portion =>
           new = builtin sub bal transfer;
@@ -452,16 +401,15 @@ transition Transfer(
   )
   ThrowIfNotProxy;
   IsNotPaused; IsNotBlocked originator; IsNotNull beneficiary; IsNotBlocked beneficiary; ThowIfSameAddr originator beneficiary;
-  get_originator_bal <-& proxy_addr.balances[originator]; originator_bal = option_uint128_value get_originator_bal;
+  get_originator_bal <-& proxy.balances[originator]; originator_bal = option_uint128_value get_originator_bal;
   IsSufficientFunds originator_bal amount; IsVested originator originator_bal amount;
   new_originator_bal = builtin sub originator_bal amount;
-  get_beneficiary_bal <-& proxy_addr.balances[beneficiary]; beneficiary_bal = option_uint128_value get_beneficiary_bal;
+  get_beneficiary_bal <-& proxy.balances[beneficiary]; beneficiary_bal = option_uint128_value get_beneficiary_bal;
   new_beneficiary_bal = builtin add beneficiary_bal amount;
   e = { _eventname: "TransferSuccess";
     originator: originator;
     beneficiary: beneficiary;
-    amount: amount
-  }; event e;
+    amount: amount }; event e;
   msg_to_proxy = { _tag: "TransferCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     beneficiary: beneficiary;
@@ -486,13 +434,12 @@ transition IncreaseAllowance(
   )
   ThrowIfNotProxy; IsNotPaused; 
   IsNotBlocked originator; IsNotBlocked spender; ThowIfSameAddr originator spender;
-  get_allowance <-& proxy_addr.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
+  get_allowance <-& proxy.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
   new_allowance = builtin add allowance amount;
   e = { _eventname: "IncreasedAllowance";
     originator: originator;
     spender: spender;
-    new_allowance : new_allowance
-  }; event e;
+    new_allowance : new_allowance }; event e;
   msg = let m = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     spender: spender;
@@ -506,13 +453,12 @@ transition DecreaseAllowance(
   )
   ThrowIfNotProxy; IsNotPaused;
   IsNotBlocked originator; IsNotBlocked spender; ThowIfSameAddr originator spender;
-  get_allowance <-& proxy_addr.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
+  get_allowance <-& proxy.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
   new_allowance = better_subtract allowance amount;
   e = { _eventname: "DecreasedAllowance";
     originator: originator;
     spender: spender;
-    new_allowance: new_allowance
-  }; event e;
+    new_allowance: new_allowance }; event e;
   msg = let m = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     spender: spender;
@@ -527,20 +473,17 @@ transition TransferFrom(
   )
   ThrowIfNotProxy; IsNotPaused;
   IsNotBlocked originator; IsNotBlocked spender; IsNotBlocked beneficiary; IsNotNull beneficiary; ThowIfSameAddr originator beneficiary;
-  get_originator_bal <-& proxy_addr.balances[originator]; originator_bal = option_uint128_value get_originator_bal;
+  get_originator_bal <-& proxy.balances[originator]; originator_bal = option_uint128_value get_originator_bal;
   IsSufficientFunds originator_bal amount; IsVested originator originator_bal amount;
-  get_allowance <-& proxy_addr.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
+  get_allowance <-& proxy.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
   IsSufficientAllowance allowance amount;
-  new_originator_bal = builtin sub originator_bal amount;
-  new_allowance = builtin sub allowance amount;
-  get_beneficiary_bal <-& proxy_addr.balances[beneficiary]; beneficiary_bal = option_uint128_value get_beneficiary_bal;
-  new_beneficiary_bal = builtin add beneficiary_bal amount;
+  get_beneficiary_bal <-& proxy.balances[beneficiary]; beneficiary_bal = option_uint128_value get_beneficiary_bal;
+  new_originator_bal = builtin sub originator_bal amount; new_allowance = builtin sub allowance amount; new_beneficiary_bal = builtin add beneficiary_bal amount;
   e = { _eventname: "TransferFromSuccess";
     originator: originator;
     spender: spender;
     beneficiary: beneficiary;
-    amount: amount
-  }; event e;
+    amount: amount }; event e;
   msg_to_proxy_balances = { _tag: "TransferFromCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     beneficiary: beneficiary;

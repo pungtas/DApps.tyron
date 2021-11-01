@@ -75,23 +75,25 @@ library WPSTi
   let none_uint128 = None{ Uint128 }
   let null_address = 0x0000000000000000000000000000000000000000
 
-  let option_value = tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) =>
-    match opt_val with
+  let option_value =
+    tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) => match opt_val with
     | Some v => v
     | None => default end
     
-  let option_account = let f = @option_value Account in let noAccount = Account zero zero no in f noAccount
+  let option_account =
+    let f = @option_value Account in let noAccount = Account zero zero no in f noAccount
 
-  let account_balance = fun( getAccount: Option Account ) =>
-    let account = option_account getAccount in
-    match account with
+  let account_balance =
+    fun( getAccount: Option Account ) =>
+    let account = option_account getAccount in match account with
     | Account balance share vote => balance end
     
-  let option_uint128_value = let f = @option_value Uint128 in f zero
+  let option_uint128_value =
+    let f = @option_value Uint128 in f zero
 
-  let better_subtract = fun( a: Uint128 ) => fun( b: Uint128 ) =>
-    let a_ge_b = uint128_ge a b in
-    match a_ge_b with
+  let better_subtract =
+    fun( a: Uint128 ) => fun( b: Uint128 ) =>
+    let a_ge_b = uint128_ge a b in match a_ge_b with
     | True => builtin sub a b
     | False => zero end
 
