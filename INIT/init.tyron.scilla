@@ -1,4 +1,4 @@
-(* v2.2.0
+(* v2.3.0
 init.tyron: SSI initialization & DNS <> Proxy smart contract
 Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -17,79 +17,92 @@ GNU General Public License for more details.*)
 scilla_version 0
 
 library Init
-  let one_msg = fun( msg: Message ) =>
+  let one_msg =
+    fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
-
+    
   type Error =
     | CodeWrongCaller
     | CodeWrongStatus
- 
+    | CodeNotValid
+
   let make_error = fun( error: Error ) =>
     let result = match error with
     | CodeWrongCaller            => Int32 -1
     | CodeWrongStatus            => Int32 -2
+    | CodeNotValid               => Int32 -3
     end in { _exception: "Error"; code: result }
+  
+  type Caller =
+    | Controller
+    | Implementation
+  
+  let controller_ = Controller
+  let implementation_ = Implementation
+  let init = "init"
 
 contract Init( init_controller: ByStr20 with contract 
   field controller: ByStr20,
   field services: Map String ByStr20,
   field paused: Bool,
-  field utility: Map String Map String Uint128 end
+  field utility: Map String Uint128 end
   )
   field implementation: ByStr20 with contract
     field controller: ByStr20,
     field services: Map String ByStr20,
     field paused: Bool,
-    field utility: Map String Map String Uint128 end = init_controller
+    field utility: Map String Uint128 end = init_controller
 
   (* DNS records @key: NFT username @value: address *)
-  field dns: Map String ByStr20 = Emp String ByStr20
+  field dns: Map String ByStr20 = let emp = Emp String ByStr20 in builtin put emp init init_controller
   field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end = Emp String ByStr20 with contract field verification_methods: Map String ByStr33 end
 
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
+  
+procedure VerifyCaller( caller: Caller )
+  current_impl <- implementation;
+  is_paused <-& current_impl.paused; match is_paused with
+  | False => | True => err = CodeWrongStatus; ThrowError err end;
+  match caller with
+  | Controller =>
+      controller <-& current_impl.controller;
+      verified = builtin eq _origin controller; match verified with
+      | True => | False => err = CodeWrongCaller; ThrowError err end
+  | Implementation =>
+      verified = builtin eq _sender current_impl; match verified with
+      | True => | False => err = CodeWrongCaller; ThrowError err end end end
 
-procedure VerifyController()
-  current_implementation <- implementation;
-  controller <-& current_implementation.controller; is_paused <-& current_implementation.paused;
-  verified = builtin eq _sender controller; match verified with
-  | True => | False => err = CodeWrongCaller; ThrowError err end;
-  match is_paused with
-  | False => | True => err = CodeWrongStatus; ThrowError err end end
-
-transition UpdateImplementation( addr: ByStr20 with contract field controller: ByStr20, field services: Map String ByStr20, field paused: Bool, field utility: Map String Map String Uint128 end )
-  VerifyController; implementation := addr; init_ = "init"; dns[init_] := addr;
+transition UpdateImplementation( addr: ByStr20 with contract field controller: ByStr20, field services: Map String ByStr20, field paused: Bool, field utility: Map String Uint128 end )
+  VerifyCaller controller_;
+  current_impl <- implementation;
+  is_same = builtin eq current_impl addr; match is_same with
+  | False => | True => err = CodeNotValid; ThrowError err end;
+  implementation := addr; dns[init] := addr;
   e = { _eventname: "ImplementationUpdated";
     new_implementation: addr }; event e end
-
-procedure VerifyImplementation()
-  current_impl <- implementation;
-  verified = builtin eq _sender current_impl; match verified with
-  | True => | False => err = CodeWrongCaller; ThrowError err end end
 
 transition NFTUsernameCallBack(
   username: String,
   addr: ByStr20
   )
-  VerifyImplementation; dns[username] := addr end
+  VerifyCaller implementation_; dns[username] := addr end
 
 transition BuyNFTUsername(
   username: String,
-  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
-  id: String
+  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end
   )
   current_impl <- implementation;
   accept; msg = let m = { _tag: "BuyNFTUsername"; _recipient: current_impl; _amount: _amount;
     username: username;
     addr: _sender;
-    guardianship: guardianship;
-    id: id } in one_msg m; send msg end
+    guardianship: guardianship } in one_msg m; send msg end
 
 transition NFTGuardianshipCallBack(
   username: String,
   addr: ByStr20 with contract field verification_methods: Map String ByStr33 end
   )
-  VerifyImplementation; guardians[username] := addr end
+  VerifyCaller implementation_; guardians[username] := addr end
   
 transition UpdateGuardianship(
   username: String,
@@ -102,18 +115,16 @@ transition UpdateGuardianship(
     guardian: addr } in one_msg m; send msg end
 
 transition RemoveGuardianshipCallBack( username: String )
-  VerifyImplementation; delete guardians[username] end
+  VerifyCaller implementation_; delete guardians[username] end
 
 transition TransferNFTUsername(
   username: String,
   newAddr: ByStr20,
-  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
-  id: String
+  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end
   )
   current_impl <- implementation;
   accept; msg = let m = { _tag: "TransferNFTUsername"; _recipient: current_impl; _amount: _amount;
     username: username;
     addr: _sender;
     newAddr: newAddr;
-    guardianship: guardianship;
-    id: id } in one_msg m; send msg end
+    guardianship: guardianship } in one_msg m; send msg end

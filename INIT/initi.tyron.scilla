@@ -114,8 +114,6 @@ library DID
   let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
   let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
 
-  (* xWallet library *)
-  let zil = "zil"
   let empty_guardians = Emp ByStr32 Bool
   let zero_ = Uint32 0
   let one = Uint32 1
@@ -128,6 +126,7 @@ library DID
     
   let true = True
   let false = False
+  let tyron = "tyron"
 
 contract InitI(
   init_controller: ByStr20,
@@ -137,6 +136,7 @@ contract InitI(
   )
   field did: String = ""    (* the W3C decentralized identifier *)
   field controller: ByStr20 = init_controller
+  field pending_controller: ByStr20 = zeroByStr20
   field did_status: DIDStatus = Deployed
   
   (* Verification methods @key: key purpose @value: public DID key *)
@@ -166,9 +166,7 @@ contract InitI(
   
   field paused: Bool = False
 
-  field utility: Map String Map String Uint128 = let emp = Emp String Map String Uint128 in let emp_ = Emp String Uint128 in let did = "did" in
-    let fee = let fee_ = Uint128 100000000000000 in builtin put emp_ zil fee_ in
-    builtin put emp did emp_
+  field utility: Map String Uint128 = let emp = Emp String Uint128 in let did = "did" in let fee = Uint128 10000000000000 in builtin put emp did fee
 
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
@@ -193,8 +191,16 @@ transition UpdateController(
   addr: ByStr20,
   tyron: Option Uint128
   )
-  IsOperational; VerifyController;
-  controller := addr; Timestamp end
+  IsOperational; VerifyController; current_controller <- controller;
+  is_same = builtin eq current_controller addr; match is_same with
+  | False => | True => err = CodeNotValid; ThrowError err end;
+  pending_controller := addr; Timestamp end
+  
+transition AcceptPendingController()
+  pending <- pending_controller;
+  verified = builtin eq _origin pending; match verified with
+  | True => | False => err = CodeWrongCaller; ThrowError err end;
+  controller := _origin end
 
 (* Verify Schnorr signature - signed data must correspond with a DID key *)
 procedure VerifySignature(
@@ -597,20 +603,13 @@ transition Unpause()
 
 transition AddUtility(
   id: String,
-  id_: String,
   fee: Uint128
   )
   IsOperational; VerifyController; IsNotPaused;
-  utility[id][id_] := fee end
+  utility[id] := fee end
   
-transition RemoveUtility(
-  id: String,
-  id_: Option String
-  )
-  IsOperational; VerifyController; IsNotPaused;
-  match id_ with
-  | None => delete utility[id]
-  | Some name => delete utility[id][name] end end
+transition RemoveUtility( id: String )
+  IsOperational; VerifyController; IsNotPaused; delete utility[id] end
 
 procedure NFTUsernameCallBack(
   username: String,
@@ -651,32 +650,20 @@ procedure NFTGuardianshipCallBack(
 transition BuyNFTUsername(
   username: String,
   addr: ByStr20,
-  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
-  id: String
+  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end
   )
   IsOperational; ThrowIfNotProxy; IsNotPaused; IsNotNull addr;
   get_addr <-& init.dns[username]; match get_addr with
   | Some addr_ => err = CodeNFTUsernameTaken; ThrowError err
   | None =>
-      get_fee <- utility[did][id]; match get_fee with
+      get_fee <- utility[did]; match get_fee with
       | None => err = CodeNotValid; ThrowError err
-      | Some fee_ =>
-          is_zil = builtin eq id zil; match is_zil with
-          | True =>
-            is_enough = uint128_ge _amount fee_;
-            match is_enough with
-            | True => accept;
-                refund = builtin sub _amount fee_;
-                is_zero_refund = builtin eq refund zero;
-                match is_zero_refund with
-                | True => | False => msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: refund } in one_msg m; send msg end
-            | False => err = CodeInsufficientFunds; ThrowError err end
-          | False =>
-              token_addr <- services[id]; token = option_bystr20_value token_addr;
-              msg = let m = { _tag: "TransferFrom"; _recipient: token; _amount: zero;
-                from: addr;
-                to: _this_address;
-                amount: fee_ } in one_msg m; send msg end end end;
+      | Some fee =>
+          tyron_addr <- services[tyron]; tyron_ = option_bystr20_value tyron_addr;
+          msg = let m = { _tag: "TransferFrom"; _recipient: tyron_; _amount: zero;
+            from: addr;
+            to: _this_address;
+            amount: fee } in one_msg m; send msg end end;
   NFTUsernameCallBack username addr;
   match guardianship with
   | None => | Some guardian => NFTGuardianshipCallBack username guardian end end
@@ -708,25 +695,14 @@ transition TransferNFTUsername(
   match is_owner with
   | False => err = CodeWrongCaller; ThrowError err
   | True =>
-      get_fee <- utility[did][id]; match get_fee with
+      get_fee <- utility[did]; match get_fee with
       | None => err = CodeNotValid; ThrowError err
-      | Some fee_ =>
-          is_zil = builtin eq id zil; match is_zil with
-          | True => 
-            is_enough = uint128_ge _amount fee_;
-            match is_enough with
-            | True => accept;
-                refund = builtin sub _amount fee_;
-                is_zero_refund = builtin eq refund zero;
-                match is_zero_refund with
-                | True => | False => msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: refund } in one_msg m; send msg end
-            | False => err = CodeInsufficientFunds; ThrowError err end
-          | False =>
-              token_addr <- services[id]; token = option_bystr20_value token_addr;
-              msg = let m = { _tag: "TransferFrom"; _recipient: token; _amount: zero;
-                from: addr;
-                to: _this_address;
-                amount: fee_ } in one_msg m; send msg end end end;
+      | Some fee =>
+          tyron_addr <- services[tyron]; tyron_ = option_bystr20_value tyron_addr;
+          msg = let m = { _tag: "TransferFrom"; _recipient: tyron_; _amount: zero;
+            from: addr;
+            to: _this_address;
+            amount: fee } in one_msg m; send msg end end;
   NFTUsernameCallBack username newAddr;
   match guardianship with
   | Some guardian => NFTGuardianshipCallBack username guardian
