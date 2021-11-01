@@ -1,4 +1,4 @@
-(* v2.0.0
+(* v2.1.0
 token.tyron: fungible token <> Proxy smart contract
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -48,11 +48,11 @@ contract FungibleToken(
   init_controller: ByStr20 with contract 
     field controller: ByStr20,
     field paused: Bool end,
+  fund: ByStr20,
   name: String,
   symbol: String,
   decimals: Uint32,
-  init_supply: Uint128,
-  init_balances: Map ByStr20 Uint128
+  total_supply: Uint128
   )
   with
     let string_is_not_empty = fun( s : String ) =>
@@ -62,7 +62,7 @@ contract FungibleToken(
       negb s_empty in
     let name_ok = string_is_not_empty name in
     let symbol_ok = string_is_not_empty symbol in
-    let name_symbol_ok = andb name_ok symbol_ok in
+      let name_symbol_ok = andb name_ok symbol_ok in
     let decimals_ok =
       let six = Uint32 6 in
       let eighteen = Uint32 18 in
@@ -74,8 +74,7 @@ contract FungibleToken(
   field implementation: ByStr20 with contract
     field controller: ByStr20,
     field paused: Bool end = init_controller
-  field total_supply: Uint128 = init_supply
-  field balances: Map ByStr20 Uint128 = init_balances
+  field balances: Map ByStr20 Uint128 = let emp = Emp ByStr20 Uint128 in builtin put emp fund total_supply
   field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
   
 procedure ThrowError( err: Error )
@@ -88,7 +87,7 @@ procedure VerifyCaller( caller: Caller )
   match caller with
   | Controller =>
       controller <-& current_impl.controller;
-      verified = builtin eq _sender controller; match verified with
+      verified = builtin eq _origin controller; match verified with
       | True => | False => err = CodeWrongCaller; ThrowError err end
   | Implementation =>
       verified = builtin eq _sender current_impl; match verified with
