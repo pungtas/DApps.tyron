@@ -1,4 +1,4 @@
-(* v0.3.1
+(* v0.5.0
 dex.tyron: DID Dex xWallet domain <> NFT Username DNS
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -17,7 +17,8 @@ GNU General Public License for more details.*)
 scilla_version 0
 
 library Dex
-  let one_msg = fun( msg: Message ) =>
+  let one_msg =
+    fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
   type Error =
@@ -53,8 +54,7 @@ library Dex
   type Beneficiary =
     | NFTUsername of String
     | Recipient of ByStr20
-    
-  (* NFT Username DNS library *)
+  
   type Order =
     | Transfer of (Option ByStr64) String Beneficiary Uint128 (Option Uint128)
     | Dex of (Option ByStr64) String String Uint128 Uint128 Uint128 (Option Uint128)
@@ -66,20 +66,18 @@ library Dex
 contract DIDDex(
   init_controller: ByStr20 with contract
     field controller: ByStr20,
-    field paused: Bool,
     field verification_methods: Map String ByStr33,
     field deadline: Uint128,
-    field init: ByStr20 with contract
+    field xinit: ByStr20 with contract
       field implementation: ByStr20 with contract
         field services: Map String ByStr20 end,
       field dns: Map String ByStr20 end end
   )
   field didxwallet: ByStr20 with contract
     field controller: ByStr20,
-    field paused: Bool,
     field verification_methods: Map String ByStr33,
     field deadline: Uint128,
-    field init: ByStr20 with contract
+    field xinit: ByStr20 with contract
       field implementation: ByStr20 with contract
         field services: Map String ByStr20 end,
       field dns: Map String ByStr20 end end
@@ -94,7 +92,7 @@ contract DIDDex(
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
   | None => | Some donation =>
-      xwallet <- didxwallet; init <-& xwallet.init;
+      xwallet <- didxwallet; init <-& xwallet.xinit;
       init_ = "init"; get_addr <-& init.dns[init_]; addr = option_bystr20_value get_addr;
       accept; msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: donation } in one_msg m; send msg end end
   
@@ -158,19 +156,16 @@ procedure IsPaused()
   | True => | False => err = CodeWrongStatus; ThrowError err end end
   
 procedure VerifyController()
-  xwallet <- didxwallet; controller <-& xwallet.controller; is_paused <-& xwallet.paused;
+  xwallet <- didxwallet; controller <-& xwallet.controller;
   verified = builtin eq _sender controller; match verified with
-  | True => | False => err = CodeWrongCaller; ThrowError err end;
-  match is_paused with
-  | False => | True => err = CodeWrongStatus; ThrowError err end end
+  | True => | False => err = CodeWrongCaller; ThrowError err end end
 
 transition UpdateController(
   addr: ByStr20 with contract
     field controller: ByStr20,
-    field paused: Bool,
     field verification_methods: Map String ByStr33,
     field deadline: Uint128,
-    field init: ByStr20 with contract
+    field xinit: ByStr20 with contract
       field implementation: ByStr20 with contract
         field services: Map String ByStr20 end,
       field dns: Map String ByStr20 end end
@@ -205,14 +200,14 @@ transition SendFunds(
   order = Transfer signature tag beneficiary _amount tyron; VerifyDelegation order;
   match beneficiary with
   | NFTUsername username =>
-      xwallet <- didxwallet; init <-& xwallet.init;
+      xwallet <- didxwallet; init <-& xwallet.xinit;
       get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr;
       accept; msg = let m = { _tag: tag; _recipient: addr; _amount: _amount } in one_msg m; send msg
   | Recipient addr =>
       accept; msg = let m = { _tag: tag; _recipient: addr; _amount: _amount } in one_msg m; send msg end; Timestamp end
 
 procedure FetchServiceAddr( id: String )
-  xwallet <- didxwallet; init <-& xwallet.init; init_did <-& init.implementation;
+  xwallet <- didxwallet; init <-& xwallet.xinit; init_did <-& init.implementation;
   get_service <-& init_did.services[id]; addr = option_bystr20_value get_service; services[id] := addr end
   
 transition Transfer(
@@ -227,7 +222,7 @@ transition Transfer(
   FetchServiceAddr addrID; get_token_addr <- services[addrID]; token_addr = option_bystr20_value get_token_addr;
   match beneficiary with
   | NFTUsername username =>
-      xwallet <- didxwallet; init <-& xwallet.init;
+      xwallet <- didxwallet; init <-& xwallet.xinit;
       get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr;
       accept; msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
         to: addr;

@@ -1,4 +1,4 @@
-(* v3.5.0
+(* v3.6.0
 xwallet.tyron: decentralized identifier smart contract wallet (DIDxWallet)
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -59,7 +59,8 @@ library DID
   let empty_services = Emp String ByStr20
   let empty_services_ = Emp String Endpoint
   
-  let one_msg = fun( msg: Message ) =>
+  let one_msg =
+    fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
   type Error =
@@ -88,7 +89,7 @@ library DID
   let zeroByStr20 = 0x0000000000000000000000000000000000000000
   let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
   let zeroByStr64 = 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-  let zero_bystr = builtin to_bystr zeroByStr20
+  let zeroByStr = builtin to_bystr zeroByStr20
 
   let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
     match input with
@@ -102,7 +103,9 @@ library DID
   (* xWallet library *)
   let domain = "did"
   let transfer = "transfer"
+  let tyron_ = "tyron"
   let zil = "zil"
+  let zilswap = "zilswap"
   let empty_guardians = Emp ByStr32 Bool
   let zero_ = Uint32 0
   let one = Uint32 1
@@ -113,17 +116,21 @@ library DID
     | NFTUsername of String
     | Recipient of ByStr20
 
+  type Pool =
+    | Pool of Uint128 Uint128   (* x, y = zil reserve, token reserve in ZilSwap *)
+
 contract DIDxWallet(
   init_controller: ByStr20,
   init: ByStr20 with contract
     field implementation: ByStr20 with contract
       field services: Map String ByStr20,
-      field utility: Map String Map String Uint128 end,
+      field utility: Map String Uint128 end,
     field dns: Map String ByStr20,
     field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end
   )
   field did: String = ""    (* the W3C decentralized identifier *)
   field controller: ByStr20 = init_controller
+  field pending_controller: ByStr20 = zeroByStr20
   field did_status: DIDStatus = Deployed
   
   (* Verification methods @key: key purpose @value: public DID key *)
@@ -134,7 +141,7 @@ contract DIDxWallet(
   field services: Map String ByStr20 = empty_services
   field services_: Map String Endpoint = empty_services_
   
-  field document_hash: ByStr = zero_bystr
+  field document_hash: ByStr = zeroByStr
   
   (* The block number when the DID Create operation occurred *)
   field did_created: BNum = BNum 0
@@ -147,8 +154,15 @@ contract DIDxWallet(
   
   field social_guardians: Map ByStr32 Bool = empty_guardians
   field counter: Uint32 = zero_
-  field signed_addr: ByStr = zero_bystr
+  field signed_addr: ByStr = zeroByStr
   
+  field deadline: Uint128 = Uint128 10
+  field xinit: ByStr20 with contract
+    field implementation: ByStr20 with contract
+      field services: Map String ByStr20,
+      field utility: Map String Uint128 end,
+    field dns: Map String ByStr20,
+    field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end = init
   field dns: Map String ByStr20 = Emp String ByStr20
 
 procedure SupportTyron( tyron: Option Uint128 )
@@ -183,8 +197,16 @@ transition UpdateController(
   addr: ByStr20,
   tyron: Option Uint128
   )
-  IsOperational; VerifyController tyron;
-  controller := addr; Timestamp end
+  IsOperational; VerifyController tyron; current_controller <- controller;
+  is_same = builtin eq current_controller addr; match is_same with
+  | False => | True => err = CodeNotValid; ThrowError err end;
+  pending_controller := addr; Timestamp end
+  
+transition AcceptPendingController()
+  pending <- pending_controller;
+  verified = builtin eq _origin pending; match verified with
+  | True => | False => err = CodeWrongCaller; ThrowError err end;
+  controller := _origin end
 
 (* Verify Schnorr signature - signed data must correspond with a DID key *)
 procedure VerifySignature(
@@ -363,7 +385,7 @@ procedure VerifyDocument(
   document: List Document,
   signature: Option ByStr64
   )
-  document_hash := zero_bystr;
+  document_hash := zeroByStr;
   forall document HashDocument;
   doc_hash <- document_hash;
   sig = option_bystr64_value signature;
@@ -505,6 +527,12 @@ transition SocialRecovery(
           new_status = Recovered; did_status := new_status end end;
   Timestamp end
 
+transition UpdateDeadline(
+  new: Uint128,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyController tyron; deadline := new end
+
 procedure FetchServiceAddr( id: String )
   init_did <-& init.implementation;
   get_service <-& init_did.services[id]; addr = option_bystr20_value get_service; services[id] := addr end
@@ -519,6 +547,16 @@ procedure IncreaseAllowance(
     spender: init_did;
     amount: amount } in one_msg m ; send msg end
 
+procedure ZilToTyron( fee: Uint128 )
+  FetchServiceAddr zilswap; get_zilswap <- services[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
+  FetchServiceAddr tyron_; get_addr <- services[tyron_]; tyron_addr = option_bystr20_value get_addr;
+  current_block <- &BLOCKNUMBER; current_deadline <- deadline; this_deadline = builtin badd current_block current_deadline;
+  accept; msg = let m = { _tag: "SwapZILForExactTokens"; _recipient: zilswap_addr; _amount: _amount;
+    token_address: tyron_addr;
+    token_amount: fee;
+    deadline_block: this_deadline;
+    recipient_address: _this_address } in one_msg m; send msg end
+
 transition BuyNFTUsername(
   username: String,
   guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
@@ -526,19 +564,16 @@ transition BuyNFTUsername(
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron; init_did <-& init.implementation;
-  get_fee <-& init_did.utility[domain][id]; fee = option_uint128_value get_fee;
-  is_zil = builtin eq id zil; match is_zil with
-  | True => 
-      accept; msg = let m = { _tag: "BuyNFTUsername"; _recipient: init; _amount: fee;
-        username: username;
-        guardianship: guardianship;
-        id: id } in one_msg m; send msg
-  | False =>
-      IncreaseAllowance id fee;
-      msg = let m = { _tag: "BuyNFTUsername"; _recipient: init; _amount: zero;
-        username: username;
-        guardianship: guardianship;
-        id: id } in one_msg m; send msg end; Timestamp end
+  get_fee <-& init_did.utility[domain]; fee = option_uint128_value get_fee;
+  is_tyron = builtin eq id tyron_; match is_tyron with
+  | True => | False =>
+    is_zil = builtin eq id zil; match is_zil with
+    | True => ZilToTyron fee
+    | False => err = CodeNotValid; ThrowError err end end;
+  IncreaseAllowance tyron_ fee;
+  msg = let m = { _tag: "BuyNFTUsername"; _recipient: init; _amount: zero;
+    username: username;
+    guardianship: guardianship } in one_msg m; send msg; Timestamp end
 
 transition TransferNFTUsername(
   username: String,
@@ -548,21 +583,17 @@ transition TransferNFTUsername(
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron; init_did <-& init.implementation;
-  get_fee <-& init_did.utility[domain][id]; fee = option_uint128_value get_fee;
-  is_zil = builtin eq id zil; match is_zil with
-  | True => 
-      accept; msg = let m = { _tag: "TransferNFTUsername"; _recipient: init; _amount: fee;
-        username: username;
-        newAddr: newAddr;
-        guardianship: guardianship;
-        id: id } in one_msg m; send msg
-  | False =>
-      IncreaseAllowance id fee;
-      msg = let m = { _tag: "TransferNFTUsername"; _recipient: init; _amount: zero;
-        username: username;
-        newAddr: newAddr;
-        guardianship: guardianship;
-        id: id } in one_msg m; send msg end; Timestamp end
+  get_fee <-& init_did.utility[transfer]; fee = option_uint128_value get_fee;
+  is_tyron = builtin eq id tyron_; match is_tyron with
+  | True => | False =>
+    is_zil = builtin eq id zil; match is_zil with
+    | True => ZilToTyron fee
+    | False => err = CodeNotValid; ThrowError err end end;
+  IncreaseAllowance tyron_ fee;
+  msg = let m = { _tag: "TransferNFTUsername"; _recipient: init; _amount: zero;
+    username: username;
+    newAddr: newAddr;
+    guardianship: guardianship } in one_msg m; send msg; Timestamp end
 
 transition UpdateGuardianship(
   username: String,

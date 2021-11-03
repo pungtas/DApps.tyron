@@ -99,7 +99,6 @@ library TokenI
 contract TokenI(
   init_controller: ByStr20,
   proxy: ByStr20 with contract 
-    field total_supply: Uint128,
     field balances: Map ByStr20 Uint128,
     field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) end
   )

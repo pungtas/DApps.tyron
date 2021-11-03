@@ -1,4 +1,4 @@
-(* v1.1.0
+(* v1.2.0
 initi.tyron: SSI initialization & DNS <> Implementation smart contract
 Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -80,6 +80,7 @@ library DID
     | CodeIsNull
     | CodeNFTUsernameTaken
     | CodeInsufficientFunds
+    | CodeNotEnoughChar
     
   let make_error = fun( error: Error ) =>
     let result = match error with
@@ -91,12 +92,13 @@ library DID
     | CodeSameId                 => Int32 -6
     | CodeNotValid               => Int32 -7
     | CodeDidLocked              => Int32 -8
-    | CodeNotProxy               => Int32 -10
-    | CodeIsPaused               => Int32 -11
-    | CodeNotPaused              => Int32 -12
-    | CodeIsNull              => Int32 -13
-    | CodeNFTUsernameTaken       => Int32 -14
-    | CodeInsufficientFunds      => Int32 -15
+    | CodeNotProxy               => Int32 -9
+    | CodeIsPaused               => Int32 -10
+    | CodeNotPaused              => Int32 -11
+    | CodeIsNull                 => Int32 -12
+    | CodeNFTUsernameTaken       => Int32 -13
+    | CodeInsufficientFunds      => Int32 -14
+    | CodeNotEnoughChar          => Int32 -15
     end in { _exception: "Error"; code: result }
   
   let zero = Uint128 0
@@ -167,6 +169,8 @@ contract InitI(
   field paused: Bool = False
 
   field utility: Map String Uint128 = let emp = Emp String Uint128 in let did = "did" in let fee = Uint128 10000000000000 in builtin put emp did fee
+  
+  field minchar: Uint32 = Uint32 7
 
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
@@ -647,12 +651,23 @@ procedure NFTGuardianshipCallBack(
     username: username;
     addr: addr } in one_msg m; send msg end
 
+transition UpdateMinChar(
+  new: Uint32
+  )
+  IsOperational;  IsNotPaused; VerifyController;
+  minchar := new end
+
+procedure VerifyMinChar( username: String )
+  length = builtin strlen username; current_minchar <- minchar;
+  verified = uint32_ge length current_minchar; match verified with
+  | True => | False => err = CodeNotEnoughChar; ThrowError err end end
+
 transition BuyNFTUsername(
   username: String,
   addr: ByStr20,
   guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end
   )
-  IsOperational; ThrowIfNotProxy; IsNotPaused; IsNotNull addr;
+  IsOperational; ThrowIfNotProxy; IsNotPaused; IsNotNull addr; VerifyMinChar username;
   get_addr <-& init.dns[username]; match get_addr with
   | Some addr_ => err = CodeNFTUsernameTaken; ThrowError err
   | None =>
@@ -686,8 +701,7 @@ transition TransferNFTUsername(
   username: String,
   addr: ByStr20,
   newAddr: ByStr20,
-  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
-  id: String
+  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end
   )
   IsOperational; ThrowIfNotProxy; IsNotPaused; IsNotNull newAddr;
   get_addr_ <-& init.dns[username]; addr_ = option_bystr20_value get_addr_;
