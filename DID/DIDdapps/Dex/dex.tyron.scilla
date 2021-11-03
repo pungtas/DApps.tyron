@@ -1,4 +1,4 @@
-(* v0.5.0
+(* v0.6.0
 dex.tyron: DID Dex xWallet domain <> NFT Username DNS
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -56,8 +56,8 @@ library Dex
     | Recipient of ByStr20
   
   type Order =
-    | Transfer of (Option ByStr64) String Beneficiary Uint128 (Option Uint128)
-    | Dex of (Option ByStr64) String String Uint128 Uint128 Uint128 (Option Uint128)
+    | Transfer of String (Option ByStr64) String Beneficiary Uint128 (Option Uint128)
+    | Dex of String (Option ByStr64) String String Uint128 Uint128 Uint128 (Option Uint128)
   
   let zilswap = "zilswap"
   let true = True
@@ -82,8 +82,7 @@ contract DIDDex(
         field services: Map String ByStr20 end,
       field dns: Map String ByStr20 end end
     = init_controller
-    
-    
+  
   (* A monotonically increasing number representing the amount of transactions that have taken place *)
   field tx_number: Uint128 = zero
   field services: Map String ByStr20 = Emp String ByStr20
@@ -116,31 +115,31 @@ procedure VerifySignature(
 procedure VerifyDelegation( order: Order )
   latest_tx_number <- tx_number;
   match order with
-  | Transfer signature id beneficiary amount tyron =>
+  | Transfer txID signature id beneficiary amount tyron =>
       h3 = match beneficiary with
       | NFTUsername username => builtin sha256hash username
       | Recipient addr => builtin sha256hash addr end;
-      signed_data = let h1 = builtin sha256hash latest_tx_number in
-        let h2 = builtin sha256hash id in
+      signed_data = let h0 = builtin sha256hash txID in
+        let h1 = builtin sha256hash latest_tx_number in let h2 = builtin sha256hash id in
         let h4 = builtin sha256hash amount in
         let donation = option_uint128_value tyron in let h5 = builtin sha256hash donation in
-        let h1_2 = builtin concat h1 h2 in let h1__3 = builtin concat h1_2 h3 in
-        let h1__4 = builtin concat h1__3 h4 in let h1__5 = builtin concat h1__4 h5 in
-        builtin to_bystr h1__5;
+        let h0_1 = builtin concat h0 h1 in let h0_2 = builtin concat h0_1 h2 in
+        let h0__3 = builtin concat h0_2 h3 in let h0__4 = builtin concat h0__3 h4 in
+        let h0__5 = builtin concat h0__4 h5 in
+        builtin to_bystr h0__5;
         VerifySignature domain signed_data signature tyron
-  | Dex signature addrID toAddrID amount minAmount1 minAmount2 tyron =>
-      signed_data = let h1 = builtin sha256hash latest_tx_number in
-        let h2 = builtin sha256hash addrID in
-        let h3 = builtin sha256hash toAddrID in
-        let h4 = builtin sha256hash amount in
-        let h5 = builtin sha256hash amount in
-        let h6 = builtin sha256hash minAmount1 in
+  | Dex txID signature addrID toAddrID amount minAmount1 minAmount2 tyron =>
+      signed_data = let h0 = builtin sha256hash txID in
+        let h1 = builtin sha256hash latest_tx_number in let h2 = builtin sha256hash addrID in
+        let h3 = builtin sha256hash toAddrID in let h4 = builtin sha256hash amount in
+        let h5 = builtin sha256hash amount in let h6 = builtin sha256hash minAmount1 in
         let h7 = builtin sha256hash minAmount2 in
         let donation = option_uint128_value tyron in let h8 = builtin sha256hash donation in
-        let h1_2 = builtin concat h1 h2 in let h1__3 = builtin concat h1_2 h3 in
-        let h1__4 = builtin concat h1__3 h4 in let h1__5 = builtin concat h1__4 h5 in
-        let h1__6 = builtin concat h1__5 h6 in let h1__7 = builtin concat h1__6 h7 in
-        let h1__8 = builtin concat h1__7 h8 in builtin to_bystr h1__8;
+        let h0_1 = builtin concat h0 h1 in let h0_2 = builtin concat h0_1 h2 in
+        let h0__3 = builtin concat h0_2 h3 in let h0__4 = builtin concat h0__3 h4 in
+        let h0__5 = builtin concat h0__4 h5 in let h0__6 = builtin concat h0__5 h6 in
+        let h0__7 = builtin concat h0__6 h7 in let h0__8 = builtin concat h0__7 h8 in
+        builtin to_bystr h0__8;
         VerifySignature domain signed_data signature tyron end end
 
 procedure Timestamp()
@@ -196,8 +195,8 @@ transition SendFunds(
   beneficiary: Beneficiary,
   tyron: Option Uint128
   )
-  IsNotPaused; 
-  order = Transfer signature tag beneficiary _amount tyron; VerifyDelegation order;
+  IsNotPaused; txID = "SendFunds";
+  order = Transfer txID signature tag beneficiary _amount tyron; VerifyDelegation order;
   match beneficiary with
   | NFTUsername username =>
       xwallet <- didxwallet; init <-& xwallet.xinit;
@@ -217,8 +216,8 @@ transition Transfer(
   amount: Uint128,
   tyron: Option Uint128
   ) 
-  IsNotPaused;
-  order = Transfer signature addrID beneficiary amount tyron; VerifyDelegation order;
+  IsNotPaused; txID = "Transfer";
+  order = Transfer txID signature addrID beneficiary amount tyron; VerifyDelegation order;
   FetchServiceAddr addrID; get_token_addr <- services[addrID]; token_addr = option_bystr20_value get_token_addr;
   match beneficiary with
   | NFTUsername username =>
@@ -256,8 +255,8 @@ transition AddLiquidity(
   amount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused;
-  order = Dex signature addrID addrID amount amount amount tyron; VerifyDelegation order;
+  IsNotPaused; txID = "AddLiquidity";
+  order = Dex txID signature addrID addrID amount amount amount tyron; VerifyDelegation order;
   IncreaseAllowance addrID amount;
   get_zilswap <- services[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
   get_addr <- services[addrID]; addr = option_bystr20_value get_addr;
@@ -277,8 +276,8 @@ transition RemoveLiquidity(
   minTokenAmount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused;
-  order = Dex signature addrID addrID amount minZilAmount minTokenAmount tyron; VerifyDelegation order; 
+  IsNotPaused; txID = "RemoveLiquidity";
+  order = Dex txID signature addrID addrID amount minZilAmount minTokenAmount tyron; VerifyDelegation order; 
   xwallet <- didxwallet; current_block <- &BLOCKNUMBER;
   FetchServiceAddr zilswap; get_zilswap <- services[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
   FetchServiceAddr addrID; get_addr <- services[addrID]; addr = option_bystr20_value get_addr;
@@ -297,8 +296,8 @@ transition SwapExactZILForTokens(
   minTokenAmount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused;
-  order = Dex signature addrID addrID amount minTokenAmount minTokenAmount tyron; VerifyDelegation order;
+  IsNotPaused; txID = "SwapExactZILForTokens";
+  order = Dex txID signature addrID addrID amount minTokenAmount minTokenAmount tyron; VerifyDelegation order;
   FetchServiceAddr zilswap; get_zilswap <- services[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
   FetchServiceAddr addrID; get_addr <- services[addrID]; addr = option_bystr20_value get_addr;
   xwallet <- didxwallet; current_block <- &BLOCKNUMBER;
@@ -316,8 +315,8 @@ transition SwapExactTokensForZIL(
   minZilAmount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused;
-  order = Dex signature addrID addrID amount minZilAmount minZilAmount tyron; VerifyDelegation order;
+  IsNotPaused; txID = "SwapExactTokensForZIL";
+  order = Dex txID signature addrID addrID amount minZilAmount minZilAmount tyron; VerifyDelegation order;
   IncreaseAllowance addrID amount;
   get_zilswap <- services[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
   get_addr <- services[addrID]; addr = option_bystr20_value get_addr;
@@ -338,8 +337,8 @@ transition SwapExactTokensForTokens(
   minTokenAmount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused;
-  order = Dex signature addrID toAddrID amount minTokenAmount minTokenAmount tyron; VerifyDelegation order;
+  IsNotPaused; txID = "SwapExactTokensForTokens";
+  order = Dex txID signature addrID toAddrID amount minTokenAmount minTokenAmount tyron; VerifyDelegation order;
   IncreaseAllowance addrID amount;
   get_zilswap <- services[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
   get_addr <- services[addrID]; addr = option_bystr20_value get_addr;
