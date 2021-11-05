@@ -1,4 +1,4 @@
-(* v0.6.0
+(* v0.6.1
 dex.tyron: DID Dex xWallet domain <> NFT Username DNS
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -132,14 +132,13 @@ procedure VerifyDelegation( order: Order )
       signed_data = let h0 = builtin sha256hash txID in
         let h1 = builtin sha256hash latest_tx_number in let h2 = builtin sha256hash addrID in
         let h3 = builtin sha256hash toAddrID in let h4 = builtin sha256hash amount in
-        let h5 = builtin sha256hash amount in let h6 = builtin sha256hash minAmount1 in
-        let h7 = builtin sha256hash minAmount2 in
-        let donation = option_uint128_value tyron in let h8 = builtin sha256hash donation in
+        let h5 = builtin sha256hash minAmount1 in let h6 = builtin sha256hash minAmount2 in
+        let donation = option_uint128_value tyron in let h7 = builtin sha256hash donation in
         let h0_1 = builtin concat h0 h1 in let h0_2 = builtin concat h0_1 h2 in
         let h0__3 = builtin concat h0_2 h3 in let h0__4 = builtin concat h0__3 h4 in
         let h0__5 = builtin concat h0__4 h5 in let h0__6 = builtin concat h0__5 h6 in
-        let h0__7 = builtin concat h0__6 h7 in let h0__8 = builtin concat h0__7 h8 in
-        builtin to_bystr h0__8;
+        let h0__7 = builtin concat h0__6 h7 in
+        builtin to_bystr h0__7;
         VerifySignature domain signed_data signature tyron end end
 
 procedure Timestamp()
