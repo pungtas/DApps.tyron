@@ -1,4 +1,4 @@
-(* v3.6.0
+(* v3.6.1
 xwallet.tyron: decentralized identifier smart contract wallet (DIDxWallet)
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -115,9 +115,6 @@ library DID
   type Beneficiary =
     | NFTUsername of String
     | Recipient of ByStr20
-
-  type Pool =
-    | Pool of Uint128 Uint128   (* x, y = zil reserve, token reserve in ZilSwap *)
 
 contract DIDxWallet(
   init_controller: ByStr20,
