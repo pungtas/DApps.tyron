@@ -1,4 +1,4 @@
-(* v2.1.0
+(* v2.2.0
 token.tyron: fungible token <> Proxy smart contract
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -117,7 +117,7 @@ transition TransferCallBack(
   new_originator_bal: Uint128,
   new_beneficiary_bal: Uint128
   )
-  current_impl <- implementation; VerifyCaller implementation_;
+  VerifyCaller implementation_;
   balances[originator] := new_originator_bal;
   balances[beneficiary] := new_beneficiary_bal end
 
@@ -147,7 +147,7 @@ transition AllowanceCallBack(
   spender: ByStr20,
   new_allowance: Uint128
   )
-  current_impl <- implementation; VerifyCaller implementation_;
+  VerifyCaller implementation_;
   allowances[originator][spender] := new_allowance end
 
 transition TransferFrom(
@@ -161,13 +161,3 @@ transition TransferFrom(
     spender: _sender;
     beneficiary: to;
     amount: amount } in one_msg m; send msg end
-
-transition TransferFromCallBack(
-  originator: ByStr20,
-  beneficiary: ByStr20,
-  new_originator_bal: Uint128,
-  new_beneficiary_bal: Uint128
-  )
-  current_impl <- implementation; VerifyCaller implementation_;
-  balances[originator] := new_originator_bal;
-  balances[beneficiary] := new_beneficiary_bal end
