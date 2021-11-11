@@ -12,7 +12,7 @@ Welcome to the open-source ```.tyron``` smart contracts, which are the core of t
 
         - [.stake](./DID/DIDdapps/Stake/stake.tyron.scilla): DID staking programs
             
-        - [.coop](./DID/DIDdapps/COOP/coop.tyron.scilla): DID NFT cooperative project
+        - [.coop](./DID/DIDdapps/Coop/coop.tyron.scilla): DID NFT cooperative project
 
 - [permawallet.tyron](./PERMAWALLET/permawallet.tyron.js): permaweb wallet smart contract
 

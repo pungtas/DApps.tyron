@@ -1,4 +1,4 @@
-(* v1.2.0
+(* v1.4.1
 initi.tyron: SSI initialization & DNS <> Implementation smart contract
 Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -129,6 +129,8 @@ library DID
   let true = True
   let false = False
   let tyron = "tyron"
+  
+  let compare_member = fun( addr: ByStr20 ) => fun( member: ByStr20 ) => builtin eq addr member
 
 contract InitI(
   init_controller: ByStr20,
@@ -171,6 +173,8 @@ contract InitI(
   field utility: Map String Uint128 = let emp = Emp String Uint128 in let did = "did" in let fee = Uint128 10000000000000 in builtin put emp did fee
   
   field minchar: Uint32 = Uint32 7
+
+  field free_list: List ByStr20 = let nil = Nil{ ByStr20 } in Cons{ ByStr20 } init_controller nil
 
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
@@ -279,7 +283,7 @@ transition DidCreate(
   match current_status with
   | Deployed =>
       VerifyController;
-      new_did = let did_prefix = "did:tyron:zil:test:" in let did_suffix = builtin to_string _this_address in
+      new_did = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address in
         builtin concat did_prefix did_suffix; did := new_did;
       forall document SaveDocument;
       get_recovery_key <- verification_methods[recovery]; ThrowIfNoKey get_recovery_key; did_recovery = option_bystr33_value get_recovery_key;
@@ -637,7 +641,7 @@ transition TransferPremiumNFTUsername(
   newAddr: ByStr20,
   guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end
   )
-  IsOperational; VerifyController; IsNotPaused;
+  IsOperational; IsNotPaused; VerifyController;
   accept; msg = let m = { _tag: "NFTUsernameCallBack"; _recipient: init; _amount: _amount;
     username: username;
     newAddr: newAddr;
@@ -654,14 +658,23 @@ procedure NFTGuardianshipCallBack(
 transition UpdateMinChar(
   new: Uint32
   )
-  IsOperational;  IsNotPaused; VerifyController;
+  IsOperational; IsNotPaused; VerifyController;
   minchar := new end
 
 procedure VerifyMinChar( username: String )
   length = builtin strlen username; current_minchar <- minchar;
   verified = uint32_ge length current_minchar; match verified with
   | True => | False => err = CodeNotEnoughChar; ThrowError err end end
+  
+procedure UpdateFreeList_( addr: ByStr20 )
+  list <- free_list;
+  list_updated = Cons{ ByStr20 } addr list;
+  free_list := list_updated end
 
+transition UpdateFreeList( new: List ByStr20 )
+  IsOperational; IsNotPaused; VerifyController;
+  forall new UpdateFreeList_ end
+  
 transition BuyNFTUsername(
   username: String,
   addr: ByStr20,
@@ -674,11 +687,20 @@ transition BuyNFTUsername(
       get_fee <- utility[did]; match get_fee with
       | None => err = CodeNotValid; ThrowError err
       | Some fee =>
-          tyron_addr <- services[tyron]; tyron_ = option_bystr20_value tyron_addr;
-          msg = let m = { _tag: "TransferFrom"; _recipient: tyron_; _amount: zero;
-            from: addr;
-            to: _this_address;
-            amount: fee } in one_msg m; send msg end end;
+          list_mem = @list_mem ByStr20;
+          list <- free_list;
+          is_member = list_mem compare_member _origin list;
+          match is_member with
+          | True =>
+              list_filter = @list_filter ByStr20; remove_member = fun( member: ByStr20 ) => let is_addr = builtin eq _origin member in negb is_addr;
+              list_updated = list_filter remove_member list;
+              free_list := list_updated
+          | False => 
+              tyron_addr <- services[tyron]; tyron_ = option_bystr20_value tyron_addr;
+              msg = let m = { _tag: "TransferFrom"; _recipient: tyron_; _amount: zero;
+                from: addr;
+                to: _this_address;
+                amount: fee } in one_msg m; send msg end end end;
   NFTUsernameCallBack username addr;
   match guardianship with
   | None => | Some guardian => NFTGuardianshipCallBack username guardian end end

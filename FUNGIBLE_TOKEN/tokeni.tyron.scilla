@@ -1,4 +1,4 @@
-(* v2.0.0
+(* v2.1.0
 tokeni.tyron: fungible token <> Implementation smart contract
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -359,7 +359,7 @@ transition TransferFrom(
     spender: spender;
     beneficiary: beneficiary;
     amount: amount }; event e;
-  msg_to_proxy_balances = { _tag: "TransferFromCallBack"; _recipient: _sender; _amount: zero;
+  msg_to_proxy_balances = { _tag: "TransferCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     beneficiary: beneficiary;
     new_originator_bal: new_originator_bal;

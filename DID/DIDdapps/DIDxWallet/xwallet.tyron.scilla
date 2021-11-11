@@ -1,4 +1,4 @@
-(* v3.6.1
+(* v3.7.0
 xwallet.tyron: decentralized identifier smart contract wallet (DIDxWallet)
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -269,6 +269,10 @@ procedure SaveDocument( document: Document )
               | Uri eType protocol uri => services_[id] := endpoint end end
       | Remove => err = CodeNotValid; ThrowError err end end end
 
+procedure CreateDid()
+  new_did = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address in
+  builtin concat did_prefix did_suffix; did := new_did end
+      
 transition DidCreate(
   document: List Document,
   signature: Option ByStr64,
@@ -278,8 +282,7 @@ transition DidCreate(
   match current_status with
   | Deployed =>
       VerifyController tyron;
-      new_did = let did_prefix = "did:tyron:zil:test:" in let did_suffix = builtin to_string _this_address in
-        builtin concat did_prefix did_suffix; did := new_did;
+      CreateDid;
       forall document SaveDocument;
       get_recovery_key <- verification_methods[recovery]; ThrowIfNoKey get_recovery_key; did_recovery = option_bystr33_value get_recovery_key;
       get_update_key <- verification_methods[update]; ThrowIfNoKey get_update_key; did_update = option_bystr33_value get_update_key;
@@ -562,12 +565,14 @@ transition BuyNFTUsername(
   )
   IsOperational; VerifyController tyron; init_did <-& init.implementation;
   get_fee <-& init_did.utility[domain]; fee = option_uint128_value get_fee;
-  is_tyron = builtin eq id tyron_; match is_tyron with
+  is_free = let free = "free" in builtin eq id free; match is_free with
   | True => | False =>
-    is_zil = builtin eq id zil; match is_zil with
-    | True => ZilToTyron fee
-    | False => err = CodeNotValid; ThrowError err end end;
-  IncreaseAllowance tyron_ fee;
+    is_tyron = builtin eq id tyron_; match is_tyron with
+    | True => | False =>
+      is_zil = builtin eq id zil; match is_zil with
+      | True => ZilToTyron fee
+      | False => err = CodeNotValid; ThrowError err end end;
+    IncreaseAllowance tyron_ fee end;
   msg = let m = { _tag: "BuyNFTUsername"; _recipient: init; _amount: zero;
     username: username;
     guardianship: guardianship } in one_msg m; send msg; Timestamp end
@@ -655,5 +660,13 @@ transition Dns(
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron;
+  current_status <- did_status;
+  match current_status with
+  | Deployed =>
+      CreateDid;
+      new_status = Created; did_status := new_status;
+      current_block <- &BLOCKNUMBER; did_created := current_block
+  | _ =>
+      new_status = Updated; did_status := new_status end;
   verification_methods[domain] := didKey; dkms[domain] := encrypted;
   dns[domain] := addr; Timestamp end
