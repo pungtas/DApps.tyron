@@ -1,4 +1,4 @@
-(* v1.4.1
+(* v2.2.1
 initi.tyron: SSI initialization & DNS <> Implementation smart contract
 Self-Sovereign Identity Protocol.
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -81,6 +81,7 @@ library DID
     | CodeNFTUsernameTaken
     | CodeInsufficientFunds
     | CodeNotEnoughChar
+    | CodeIsInsufficient
     
   let make_error = fun( error: Error ) =>
     let result = match error with
@@ -99,6 +100,7 @@ library DID
     | CodeNFTUsernameTaken       => Int32 -13
     | CodeInsufficientFunds      => Int32 -14
     | CodeNotEnoughChar          => Int32 -15
+    | CodeIsInsufficient         => Int32 -16
     end in { _exception: "Error"; code: result }
   
   let zero = Uint128 0
@@ -129,15 +131,17 @@ library DID
   let true = True
   let false = False
   let tyron = "tyron"
+  let tyron_ = 0xfd86b2e2f20d396c1cc1d41a16c72753d5b41279
   
   let compare_member = fun( addr: ByStr20 ) => fun( member: ByStr20 ) => builtin eq addr member
-
+  
 contract InitI(
   init_controller: ByStr20,
   init: ByStr20 with contract
     field dns: Map String ByStr20,
     field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end
   )
+  field version: String = "initi-2.2.1"
   field did: String = ""    (* the W3C decentralized identifier *)
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
@@ -148,7 +152,7 @@ contract InitI(
   field dkms: Map String String = empty_dkms
   
   (* Services @key: ID @value: endpoint *)
-  field services: Map String ByStr20 = empty_services
+  field services: Map String ByStr20 = let emp = Emp String ByStr20 in builtin put emp tyron tyron_
   field services_: Map String Endpoint = empty_services_
   
   field document_hash: ByStr = zero_bystr
@@ -170,11 +174,14 @@ contract InitI(
   
   field paused: Bool = False
 
-  field utility: Map String Uint128 = let emp = Emp String Uint128 in let did = "did" in let fee = Uint128 10000000000000 in builtin put emp did fee
+  field utility: Map String Uint128 = let emp = Emp String Uint128 in let fee = Uint128 10000000000000
+    in let m = builtin put emp did fee in builtin put m transfer fee
   
   field minchar: Uint32 = Uint32 7
 
   field free_list: List ByStr20 = let nil = Nil{ ByStr20 } in Cons{ ByStr20 } init_controller nil
+  
+  field xpoints: Map ByStr20 Uint128 = Emp ByStr20 Uint128
 
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
@@ -525,21 +532,25 @@ transition SocialRecovery(
 
 (* Receive $ZIL native funds *)
 transition AddFunds()
-  IsOperational; accept; Timestamp end
+  IsOperational; accept;
+  get_xpoints <- xpoints[_sender]; x_points = option_uint128_value get_xpoints;
+  new_bal = builtin add x_points _amount; xpoints[_sender] := new_bal;
+  Timestamp end
 
 (* Send $ZIL to any recipient that implements the tag, e.g. "AddFunds", "", etc. *)
 transition SendFunds(
   tag: String,
   beneficiary: Beneficiary,
+  amount: Uint128,
   tyron: Option Uint128
   )
   IsOperational; VerifyController;
   match beneficiary with
   | NFTUsername username =>
       get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr;
-      accept; msg = let m = { _tag: tag; _recipient: addr; _amount: _amount } in one_msg m; send msg
+      msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
   | Recipient addr =>
-      accept; msg = let m = { _tag: tag; _recipient: addr; _amount: _amount } in one_msg m; send msg end; Timestamp end
+      msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg end; Timestamp end
 
 transition Transfer(
   addrName: String,
@@ -619,33 +630,35 @@ transition AddUtility(
 transition RemoveUtility( id: String )
   IsOperational; VerifyController; IsNotPaused; delete utility[id] end
 
+transition xPoints(
+  addr: ByStr20,
+  amount: Uint128
+  )
+  xpoints_ = "xpoints"; get_addr <-& init.dns[xpoints_]; xAddr = option_bystr20_value get_addr;
+  is_xaddr = builtin eq _sender xAddr; match is_xaddr with
+  | True => | False => err = CodeWrongCaller; ThrowError err end;
+  get_xpoints <- xpoints[addr]; x_points = option_uint128_value get_xpoints;
+  is_sufficient = uint128_ge x_points amount; match is_sufficient with
+  | True => | False => err = CodeIsInsufficient; ThrowError err end;
+  new_bal = builtin sub x_points amount; xpoints[addr] := new_bal end
+  
 procedure NFTUsernameCallBack(
   username: String,
   addr: ByStr20
   )
-  msg = let m = { _tag: "NFTUsernameCallBack"; _recipient: _sender; _amount: zero;
+  msg = let m = { _tag: "NFTUsernameCallBack"; _recipient: init; _amount: zero;
     username: username;
     addr: addr } in one_msg m; send msg end
   
 procedure PremiumNFTUsername_( premium: String )
+  current_controller <- controller;
   get_addr <-& init.dns[premium]; match get_addr with
   | Some addr => err = CodeNFTUsernameTaken; ThrowError err
-  | None => NFTUsernameCallBack premium _this_address end end
+  | None => NFTUsernameCallBack premium current_controller end end
 
 transition PremiumNFTUsername( premium: List String )
   IsOperational; VerifyController; IsNotPaused;
   forall premium PremiumNFTUsername_ end
-
-transition TransferPremiumNFTUsername(
-  username: String,
-  newAddr: ByStr20,
-  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end
-  )
-  IsOperational; IsNotPaused; VerifyController;
-  accept; msg = let m = { _tag: "NFTUsernameCallBack"; _recipient: init; _amount: _amount;
-    username: username;
-    newAddr: newAddr;
-    guardianship: guardianship } in one_msg m; send msg end
 
 procedure NFTGuardianshipCallBack(
   username: String,
@@ -731,7 +744,7 @@ transition TransferNFTUsername(
   match is_owner with
   | False => err = CodeWrongCaller; ThrowError err
   | True =>
-      get_fee <- utility[did]; match get_fee with
+      get_fee <- utility[transfer]; match get_fee with
       | None => err = CodeNotValid; ThrowError err
       | Some fee =>
           tyron_addr <- services[tyron]; tyron_ = option_bystr20_value tyron_addr;

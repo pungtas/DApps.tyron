@@ -1,4 +1,4 @@
-(* v3.7.0
+(* v4.0.0
 xwallet.tyron: decentralized identifier smart contract wallet (DIDxWallet)
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -72,6 +72,7 @@ library DID
     | CodeSameId
     | CodeNotValid
     | CodeDidLocked
+    | CodeSameAddress
  
   let make_error = fun( error: Error ) =>
     let result = match error with
@@ -83,6 +84,7 @@ library DID
     | CodeSameId                 => Int32 -6
     | CodeNotValid               => Int32 -7
     | CodeDidLocked              => Int32 -8
+    | CodeSameAddress            => Int32 -9
     end in { _exception: "Error"; code: result }
   
   let zero = Uint128 0
@@ -125,6 +127,7 @@ contract DIDxWallet(
     field dns: Map String ByStr20,
     field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end
   )
+  field version: String = "xwallet-4.0.0"
   field did: String = ""    (* the W3C decentralized identifier *)
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
@@ -165,7 +168,7 @@ contract DIDxWallet(
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
   | None => | Some donation =>
-      init_ = "init"; get_addr <-& init.dns[init_]; addr = option_bystr20_value get_addr;
+      donate = "donate"; get_addr <-& init.dns[donate]; addr = option_bystr20_value get_addr;
       accept; msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: donation } in one_msg m; send msg end end
   
 procedure ThrowError( err: Error )
@@ -272,7 +275,7 @@ procedure SaveDocument( document: Document )
 procedure CreateDid()
   new_did = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address in
   builtin concat did_prefix did_suffix; did := new_did end
-      
+
 transition DidCreate(
   document: List Document,
   signature: Option ByStr64,
@@ -311,12 +314,9 @@ procedure UpdateDocument( document: Document )
       service_exists = orb is_service is_service_;
       match action with
       | Add =>
-          match service_exists with
-          | True => err = CodeSameId; ThrowError err
-          | False => 
-              match endpoint with
-              | Address addr => services[id] := addr
-              | Uri eType protocol uri => services_[id] := endpoint end end
+          match endpoint with
+          | Address addr => services[id] := addr
+          | Uri eType protocol uri => services_[id] := endpoint end
       | Remove =>
           match service_exists with
           | True => delete services[id]; delete services_[id]
@@ -502,6 +502,13 @@ procedure VerifySocialRecovery( proof: Pair String ByStr64 )
               counter_ <- counter;
               add_ = builtin add counter_ one; counter := add_ end end end end
 
+procedure ThrowIfSameAddr(
+  a: ByStr20,
+  b: ByStr20
+  )
+  is_self = builtin eq a b; match is_self with
+  | False => | True => err = CodeSameAddress; ThrowError err end end
+
 transition SocialRecovery( 
   addr: ByStr20,
   signatures: List( Pair String ByStr64 ),
@@ -511,6 +518,7 @@ transition SocialRecovery(
   match current_status with
   | Deactivated => err = CodeWrongStatus; ThrowError err
   | _ => end;
+  current_controller <- controller; ThrowIfSameAddr current_controller addr;
   signed_data = builtin to_bystr addr; signed_addr := signed_data;
   sig = let list_length = @list_length( Pair String ByStr64 ) in list_length signatures;
   min <- counter; is_ok = uint32_ge sig min;
@@ -547,11 +555,14 @@ procedure IncreaseAllowance(
     spender: init_did;
     amount: amount } in one_msg m ; send msg end
 
-procedure ZilToTyron( fee: Uint128 )
+procedure ZilToTyron(
+  amount: Uint128,
+  fee: Uint128
+  )
   FetchServiceAddr zilswap; get_zilswap <- services[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
   FetchServiceAddr tyron_; get_addr <- services[tyron_]; tyron_addr = option_bystr20_value get_addr;
   current_block <- &BLOCKNUMBER; current_deadline <- deadline; this_deadline = builtin badd current_block current_deadline;
-  accept; msg = let m = { _tag: "SwapZILForExactTokens"; _recipient: zilswap_addr; _amount: _amount;
+  accept; msg = let m = { _tag: "SwapZILForExactTokens"; _recipient: zilswap_addr; _amount: amount;
     token_address: tyron_addr;
     token_amount: fee;
     deadline_block: this_deadline;
@@ -561,6 +572,7 @@ transition BuyNFTUsername(
   username: String,
   guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
   id: String,
+  amount: Uint128,
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron; init_did <-& init.implementation;
@@ -570,7 +582,7 @@ transition BuyNFTUsername(
     is_tyron = builtin eq id tyron_; match is_tyron with
     | True => | False =>
       is_zil = builtin eq id zil; match is_zil with
-      | True => ZilToTyron fee
+      | True => ZilToTyron fee amount
       | False => err = CodeNotValid; ThrowError err end end;
     IncreaseAllowance tyron_ fee end;
   msg = let m = { _tag: "BuyNFTUsername"; _recipient: init; _amount: zero;
@@ -582,14 +594,16 @@ transition TransferNFTUsername(
   newAddr: ByStr20,
   guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
   id: String,
+  amount: Uint128,
   tyron: Option Uint128
   )
-  IsOperational; VerifyController tyron; init_did <-& init.implementation;
+  IsOperational; VerifyController tyron; ThrowIfSameAddr _this_address newAddr;
+  init_did <-& init.implementation;
   get_fee <-& init_did.utility[transfer]; fee = option_uint128_value get_fee;
   is_tyron = builtin eq id tyron_; match is_tyron with
   | True => | False =>
     is_zil = builtin eq id zil; match is_zil with
-    | True => ZilToTyron fee
+    | True => ZilToTyron fee amount
     | False => err = CodeNotValid; ThrowError err end end;
   IncreaseAllowance tyron_ fee;
   msg = let m = { _tag: "TransferNFTUsername"; _recipient: init; _amount: zero;
@@ -615,15 +629,17 @@ transition AddFunds()
 transition SendFunds(
   tag: String,
   beneficiary: Beneficiary,
+  amount: Uint128,
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron;
   match beneficiary with
   | NFTUsername username =>
-      get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr;
-      accept; msg = let m = { _tag: tag; _recipient: addr; _amount: _amount } in one_msg m; send msg
+      get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
+      msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
   | Recipient addr =>
-      accept; msg = let m = { _tag: tag; _recipient: addr; _amount: _amount } in one_msg m; send msg end; Timestamp end
+      ThrowIfSameAddr _this_address addr;
+      msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg end; Timestamp end
 
 transition Transfer(
   addrName: String,
@@ -635,11 +651,12 @@ transition Transfer(
   FetchServiceAddr addrName; get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
   match beneficiary with
   | NFTUsername username =>
-      get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr;
+      get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
       accept; msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
         to: addr;
         amount: amount } in one_msg m ; send msg
   | Recipient addr =>
+      ThrowIfSameAddr _this_address addr;
       accept; msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
         to: addr;
         amount: amount } in one_msg m ; send msg end; Timestamp end
@@ -659,7 +676,7 @@ transition Dns(
   encrypted: String,
   tyron: Option Uint128
   )
-  IsOperational; VerifyController tyron;
+  IsOperational; VerifyController tyron; ThrowIfSameAddr _this_address addr;
   current_status <- did_status;
   match current_status with
   | Deployed =>
@@ -670,3 +687,59 @@ transition Dns(
       new_status = Updated; did_status := new_status end;
   verification_methods[domain] := didKey; dkms[domain] := encrypted;
   dns[domain] := addr; Timestamp end
+  
+transition xPoints(
+  id: ByStr32,
+  motion: Option String,
+  action: String,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyController tyron;
+  xpoints_ = "xpoints"; get_addr <-& init.dns[xpoints_]; xAddr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "RaiseYourVoice"; _recipient: xAddr; _amount: zero;
+    id: id;
+    motion: motion;
+    action: action;
+    amount: amount } in one_msg m ; send msg;
+    Timestamp end
+
+procedure TransferTokens( input: Pair String Uint128 )
+  addr_name = let fst_element = @fst String Uint128 in fst_element input;
+  amount = let snd_element = @snd String Uint128 in snd_element input;
+  FetchServiceAddr addr_name; get_token_addr <- services[addr_name]; token_addr = option_bystr20_value get_token_addr;
+  recipient <- controller;
+  msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+    to: recipient;
+    amount: amount } in one_msg m ; send msg end
+
+transition Upgrade(
+  username: Option String,
+  recipient: ByStr20,
+  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
+  id: String,
+  amount: Uint128,
+  tokens: List( Pair String Uint128 ),
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyController tyron;
+  ThrowIfSameAddr _this_address recipient;
+  match username with
+  | None => | Some name => 
+      init_did <-& init.implementation;
+      get_fee <-& init_did.utility[transfer]; fee = option_uint128_value get_fee;
+      is_tyron = builtin eq id tyron_; match is_tyron with
+      | True => | False =>
+        is_zil = builtin eq id zil; match is_zil with
+        | True => ZilToTyron fee amount
+        | False => err = CodeNotValid; ThrowError err end end;
+      IncreaseAllowance tyron_ fee;
+      msg = let m = { _tag: "TransferNFTUsername"; _recipient: init; _amount: zero;
+        username: name;
+        newAddr: recipient;
+        guardianship: guardianship } in one_msg m; send msg end;
+  current_controller <- controller; controller := recipient;
+  forall tokens TransferTokens; controller := current_controller;
+  current_balance <- _balance;
+  msg = let m = { _tag: "AddFunds"; _recipient: recipient; _amount: current_balance } in one_msg m ; send msg;
+  Timestamp end
