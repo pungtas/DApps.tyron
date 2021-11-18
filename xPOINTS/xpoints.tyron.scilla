@@ -1,0 +1,172 @@
+(* v1.2.0
+xpoints.tyron: raise your voice
+Tyron Self-Sovereign Identity Protocol
+Copyright (C) Tyron Pungtas and its affiliates.
+www.ssiprotocol.com
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.*)
+
+scilla_version 0
+
+import BoolUtils IntUtils
+
+library XPoints
+  let one_msg =
+    fun( msg: Message ) =>
+    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+
+  type Error =
+    | CodeNotValid
+    | CodeWrongCaller
+    | CodeSameAddress
+
+  let make_error = fun( error: Error ) =>
+    let result = match error with
+    | CodeNotValid               => Int32 -1
+    | CodeWrongCaller            => Int32 -2
+    | CodeSameAddress            => Int32 -3
+    end in { _exception: "Error"; code: result }
+  
+  let zero = Uint128 0
+  let zeroByStr20 = 0x0000000000000000000000000000000000000000
+  let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
+    match input with
+    | Some v => v
+    | None => default end
+  let option_uint128_value = let f = @option_value Uint128 in f zero
+  let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
+  
+  let tyron_ = "tyron"
+  type Beneficiary =
+    | NFTUsername of String
+    | Recipient of ByStr20
+
+contract XPoints(
+  init: ByStr20 with contract
+    field implementation: ByStr20 with contract
+      field controller: ByStr20,
+      field services: Map String ByStr20,
+      field utility: Map String Uint128 end,
+    field dns: Map String ByStr20 end
+  )
+  field version: String = "xpoints-1.2.0"
+  field ranking: Map ByStr32 Uint128 = Emp ByStr32 Uint128
+  field motions: Map ByStr32 String = Emp ByStr32 String
+  field nonce: Uint128 = zero
+  field services: Map String ByStr20 = Emp String ByStr20
+  
+procedure ThrowError( err: Error )
+  e = make_error err; throw e end
+  
+transition RaiseYourVoice(
+  action: String,
+  id: Option ByStr32,
+  motion: Option String,
+  amount: Uint128
+  )
+  donate = "donate"; get_addr <-& init.dns[donate]; addr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "XPoints"; _recipient: addr; _amount: zero;
+    addr: _sender;
+    amount: amount } in one_msg m ; send msg;
+  is_new = let new = "new" in builtin eq action new; match is_new with
+  | True =>
+      match motion with
+      | None => err = CodeNotValid; ThrowError err
+      | Some motion_ =>
+          current_nonce <- nonce;
+          new_nonce = let incrementor = Uint128 1 in builtin add current_nonce incrementor; nonce := new_nonce;
+          to_hash = let nonce_str = builtin to_string new_nonce in builtin concat nonce_str motion_; 
+          hash = builtin sha256hash to_hash;
+          motions[hash] := motion_;
+          ranking[hash] := amount end
+  | False =>
+    is_add = let add = "add" in builtin eq action add; match is_add with
+    | True =>
+        match id with
+        | None => err = CodeNotValid; ThrowError err
+        | Some id_ =>
+            get_points <- ranking[id_]; points = option_uint128_value get_points;
+            new = builtin add points amount; ranking[id_] := new end
+    | False => err = CodeNotValid; ThrowError err end end end
+
+procedure VerifyController()
+  init_did <-& init.implementation;
+  current_controller <-& init_did.controller;
+  verified = builtin eq _sender current_controller; match verified with
+  | True => | False => err = CodeWrongCaller; ThrowError err end end
+
+procedure ThrowIfSameAddr(
+  a: ByStr20,
+  b: ByStr20
+  )
+  is_self = builtin eq a b; match is_self with
+  | False => | True => err = CodeSameAddress; ThrowError err end end
+
+procedure FetchServiceAddr( id: String )
+  init_did <-& init.implementation;
+  get_service <-& init_did.services[id]; addr = option_bystr20_value get_service; services[id] := addr end
+
+procedure IncreaseAllowance(
+  addrID: String,
+  amount: Uint128
+  )
+  init_did <-& init.implementation;
+  FetchServiceAddr addrID; get_addr <- services[addrID]; addr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
+    spender: init_did;
+    amount: amount } in one_msg m ; send msg end
+    
+transition TransferNFTUsername(
+  username: String,
+  newAddr: ByStr20,
+  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
+  id: String,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  VerifyController; ThrowIfSameAddr _this_address newAddr;
+  init_did <-& init.implementation; transfer = "transfer";
+  get_fee <-& init_did.utility[transfer]; fee = option_uint128_value get_fee;
+  is_tyron = builtin eq id tyron_; match is_tyron with
+  | True => | False => err = CodeNotValid; ThrowError err end;
+  IncreaseAllowance tyron_ fee;
+  msg = let m = { _tag: "TransferNFTUsername"; _recipient: init; _amount: zero;
+    username: username;
+    newAddr: newAddr;
+    guardianship: guardianship } in one_msg m; send msg end
+
+transition Transfer(
+  addrName: String,
+  beneficiary: Beneficiary,
+  amount: Uint128,
+  tyron: Option Uint128
+  ) 
+  VerifyController;
+  FetchServiceAddr addrName; get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
+  match beneficiary with
+  | NFTUsername username =>
+      get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
+      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+        to: addr;
+        amount: amount } in one_msg m ; send msg
+  | Recipient addr =>
+      ThrowIfSameAddr _this_address addr;
+      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+        to: addr;
+        amount: amount } in one_msg m ; send msg end end
+
+transition RecipientAcceptTransfer( sender: ByStr20, recipient: ByStr20, amount: Uint128 ) end
+
+transition RecipientAcceptTransferFrom( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) end
+
+transition TransferSuccessCallBack( sender: ByStr20, recipient: ByStr20, amount : Uint128 ) end
+
+transition TransferFromSuccessCallBack( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) end

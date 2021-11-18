@@ -1,4 +1,4 @@
-(* v2.2.1
+(* v2.3.0
 tokeni.tyron: fungible token <> Implementation smart contract
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -110,7 +110,7 @@ contract TokenI(
   field lister: ByStr20 = init_controller
   field blocked: Map ByStr20 Bool = Emp ByStr20 Bool
   field accounts: Map ByStr20 Account = Emp ByStr20 Account
-  field lockup_period: Uint128 = Uint128 1466791
+  field lockup_period: Uint128 = Uint128 2933582
 
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
@@ -168,11 +168,11 @@ procedure IsSufficient(
   is_sufficient = uint128_ge value amount; match is_sufficient with
   | True => | False => err = CodeIsInsufficient; ThrowError err end end
 
-transition UpdateAdmin( addr: ByStr20 )
+transition UpdateController( addr: ByStr20 )
   IsNotPaused; VerifyController; IsNotNull addr;
   current_controller <- controller; ThrowIfSameAddr current_controller addr;
   controller := addr;
-  e = { _eventname: "AdminUpdated";
+  e = { _eventname: "ControllerUpdated";
     new_addr: addr }; event e end
 
 transition UpdatePauser( new_pauser: ByStr20 )
@@ -235,9 +235,10 @@ transition UpdateLockup( new: Uint128 )
 transition AddAcount(
   investor: ByStr20,
   amount: Uint128,
-  schedule: Uint128
+  schedule: Uint128,
+  init: Uint128
   )
-  IsNotPaused; VerifyController; current_fund <- fund; block <- &BLOCKNUMBER;
+  IsNotPaused; VerifyController; current_fund <- fund;
   IsNotBlocked current_fund; IsNotNull investor; IsNotBlocked investor; ThrowIfSameAddr current_fund investor;
   get_fund_bal <-& proxy.balances[current_fund]; fund_bal = option_uint128_value get_fund_bal;
   new_fund_bal = builtin sub fund_bal amount;
@@ -245,8 +246,12 @@ transition AddAcount(
   new_investor_bal = builtin add investor_bal amount;
   lockup <- lockup_period;
   portion = builtin div amount schedule;
-  vest = builtin div lockup schedule; next = builtin badd block vest;
-  account = Account next vest amount portion; accounts[investor] := account;
+  vest = builtin div lockup schedule;
+  current_block <- &BLOCKNUMBER;
+  is_now = builtin eq init zero; init_block = match is_now with
+  | True => current_block
+  | False => builtin badd current_block init end;
+  account = Account init_block vest amount portion; accounts[investor] := account;
   msg = let m = { _tag: "TransferCallBack"; _recipient: proxy; _amount: zero;
     originator: current_fund;
     beneficiary: investor;
@@ -268,14 +273,14 @@ procedure IsVested(
           match vested with
           | False => IsSufficient new amount
           | True => 
-              new_ = builtin sub amount portion;
-              is_zero = builtin eq zero new_;
+              new_amount = builtin sub amount portion;
+              is_zero = builtin eq zero new_amount;
               match is_zero with
               | True => delete accounts[investor]
               | False =>
-                  IsSufficient new_ amount;
+                  IsSufficient new new_amount;
                   next_ = builtin badd next vest;
-                  account = Account next_ vest new_ portion; accounts[investor] := account end end end end end
+                  account = Account next_ vest new_amount portion; accounts[investor] := account end end end end end
 
 transition Transfer(
   originator: ByStr20,

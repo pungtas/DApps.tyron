@@ -1,4 +1,4 @@
-(* v4.0.0
+(* v4.2.0
 xwallet.tyron: decentralized identifier smart contract wallet (DIDxWallet)
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -127,7 +127,7 @@ contract DIDxWallet(
     field dns: Map String ByStr20,
     field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end
   )
-  field version: String = "xwallet-4.0.0"
+  field version: String = "xwallet-4.2.0"
   field did: String = ""    (* the W3C decentralized identifier *)
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
@@ -688,10 +688,10 @@ transition Dns(
   verification_methods[domain] := didKey; dkms[domain] := encrypted;
   dns[domain] := addr; Timestamp end
   
-transition xPoints(
-  id: ByStr32,
-  motion: Option String,
+transition XPoints(
   action: String,
+  id: Option ByStr32,
+  motion: Option String,
   amount: Uint128,
   tyron: Option Uint128
   )
@@ -699,8 +699,8 @@ transition xPoints(
   xpoints_ = "xpoints"; get_addr <-& init.dns[xpoints_]; xAddr = option_bystr20_value get_addr;
   msg = let m = { _tag: "RaiseYourVoice"; _recipient: xAddr; _amount: zero;
     id: id;
-    motion: motion;
     action: action;
+    motion: motion;
     amount: amount } in one_msg m ; send msg;
     Timestamp end
 
