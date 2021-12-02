@@ -1,0 +1,153 @@
+(* v1.0.0
+vc.tyron: Verifiable Credentials xWallet domain <> NFT Username DNS
+Self-Sovereign Identity Protocol
+Copyright (C) Tyron Pungtas and its affiliates.
+www.ssiprotocol.com
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.*)
+
+scilla_version 0
+
+library VC
+  let one_msg =
+    fun( msg: Message ) =>
+    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+
+  type Error =
+    | CodeWrongStatus
+    | CodeWrongCaller
+    | CodeWrongSignature
+    | CodeNotValid
+ 
+  let make_error = fun( error: Error ) =>
+    let result = match error with
+    | CodeWrongStatus            => Int32 -1
+    | CodeWrongCaller            => Int32 -2
+    | CodeWrongSignature         => Int32 -3
+    | CodeNotValid               => Int32 -4
+    end in { _exception: "Error"; code: result }
+  
+  let zero = Uint128 0
+  let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
+  
+  let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
+    match input with
+    | Some v => v
+    | None => default end
+  let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
+  
+  let domain = "vc"
+  let assertion = "assertion"
+
+  let true = True
+  let false = False
+
+contract VC(
+  init_controller: ByStr20 with contract
+    field controller: ByStr20,
+    field verification_methods: Map String ByStr33,
+    field xinit: ByStr20 with contract
+      field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end end
+  )
+  field didxwallet: ByStr20 with contract
+    field controller: ByStr20,
+    field verification_methods: Map String ByStr33,
+    field xinit: ByStr20 with contract
+      field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end end
+    = init_controller
+  
+  field tx_number: Uint128 = zero
+  field services: Map String ByStr20 = Emp String ByStr20
+  field paused: Bool = false
+  field public_encryption: String = "bYACKEqduFtw5iZQVra42h1UAINo4ujJRYNNGNxVlCL-Fs46bBdo_S4EJRrgMJRhiqeUPKHRuu_daZFRHBWCjILdC5cc5mjSkQVIu30jJiaA_7G9FCYqVQnnKa0ZKn52DsT2f8bYSNHpDLpcmqcKqdW4Z8tgCtd9zhzZ4TchO9_-xPQ7T7v4Y-AIB0-Al8HwU2cvA_N17f7VHps2ZfMG88qVxOUlBJTlb6n60vZX_4laKavvyLz3zvbOUVhnI4L0VURiM_Z_1rF5rna7QNK9wU-40FqK8VMNW3DJFAVCVMvsMCUwqXnVZo35gKcG1LW8A7TBdTPlJ7ICtTRaS45QZ7fIz1pLiEg0R4n0NPP5N12YJQCnrZyLfsRPPjUZXfHdaKSxsYDDsiDOhWxkBCx3ScvIKYJDLK1jh0YhmQiATiCMMrM0mBFZ6cfNifCXDGV97dpKxnFfLNUMlV1sIUiSoryf8cK2DV15fbBWw8UqO254yqO4Eczf1LvDd4sXIUR9x9DhRAi_MYb4owiY8xBdRmggrlHrH2cducqX8znKOfQ_o6u7H3wU_f7qjzVfOFUsKnZC4mPp6dPTKyqK9fCAXGKIgxzL3Cd22v6zxo54-eovWHbESaj9h6PZ64duumrq3HAzHdn20XtynFJxwo9bNxXx0WxgVkrc-Hak64iazWVjQbGK6J-NJ996qpPZt-71YIbFqMI-fgZvt3eZZxfOsvtE7R8sbeThrZmWC42j94pvbmik3jcYsaAoSD_ct2b9qKWzSKqj-o_ZQAPvblpT9YeKY7tgygJgll_p75eQe38A8fpKDAMtTW1rOagzBGA2I1lYe_wu_BB6SuT2Mdq_Hh5_C5zDQRXs6klKxft2NB3siM4C4B6VH0hE2bZXl7KdnNdCAEdyPuRpXP5_XkYmWGBI6ZJvf6iP1wpTjQfpz54dGK-GQGo0FEH0zDtzbUUHs7oq5a7KiUeQEPmrzluphfcUIv7vMROn-UYoMsz38nd3W5VPKVVofe756p_MsjGu"
+  field ivms101: Map String String = Emp String String
+  field vc: Map String ByStr64 = Emp String ByStr64
+
+procedure ThrowError( err: Error )
+  e = make_error err; throw e end
+
+procedure Timestamp()
+  latest_tx_number <- tx_number; new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor;
+  tx_number := new_tx_number end
+
+procedure IsNotPaused()
+  is_paused <- paused; match is_paused with
+  | False => | True => err = CodeWrongStatus; ThrowError err end end
+  
+procedure IsPaused()
+  is_paused <- paused; match is_paused with
+  | True => | False => err = CodeWrongStatus; ThrowError err end end
+  
+procedure VerifyController()
+  xwallet <- didxwallet; controller <-& xwallet.controller;
+  verified = builtin eq _origin controller; match verified with
+  | True => | False => err = CodeWrongCaller; ThrowError err end end
+
+transition UpdateController(
+  addr: ByStr20 with contract
+    field controller: ByStr20,
+    field verification_methods: Map String ByStr33,
+    field xinit: ByStr20 with contract
+      field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end end
+  )
+  IsNotPaused; VerifyController;
+  didxwallet := addr; Timestamp end
+  
+transition Pause()
+  VerifyController;
+  IsNotPaused; paused := true;
+  e = { _eventname: "SmartContractPaused";
+    pauser: _origin }; event e end
+
+transition Unpause()
+  VerifyController;
+  IsPaused; paused := false;
+  e = { _eventname: "SmartContractUnpaused";
+    pauser: _origin }; event e end
+    
+transition UpdatePublicEncryption( new: String )
+  VerifyController;
+  IsNotPaused; public_encryption := new end
+
+transition Ivms101(
+  username: String,
+  message: String,   (* encrypted IVMS101 message *)
+  signature: ByStr64
+  )
+  IsNotPaused; xwallet <- didxwallet; init <-& xwallet.xinit;
+  get_addr <-& init.guardians[username];
+  match get_addr with
+  | None => err = CodeNotValid; ThrowError err
+  | Some addr =>
+      get_didkey <-& addr.verification_methods[assertion]; did_key = option_bystr33_value get_didkey;
+      signed_data = let data = builtin concat username message in let hash = builtin sha256hash data in builtin to_bystr hash;
+      is_right_signature = builtin schnorr_verify did_key signed_data signature; match is_right_signature with
+      | False => err = CodeWrongSignature; ThrowError err
+      | True => 
+          ivms101[username] := message; delete vc[username];
+          e = { _eventname: "NewIvms101";
+          username: username;
+          message: message }; event e end end end
+
+transition Verifiable_Credential(
+  username: String,
+  signature: ByStr64
+  )
+  IsNotPaused; xwallet <- didxwallet;
+  get_didkey <-& xwallet.verification_methods[domain]; did_key = option_bystr33_value get_didkey;
+  get_msg <- ivms101[username];
+  match get_msg with
+  | None => err = CodeNotValid; ThrowError err
+  | Some msg =>
+      signed_data = let data = builtin concat username msg in let hash = builtin sha256hash data in builtin to_bystr hash;
+      is_right_signature = builtin schnorr_verify did_key signed_data signature; match is_right_signature with
+      | False => err = CodeWrongSignature; ThrowError err
+      | True => vc[username] := signature end end end

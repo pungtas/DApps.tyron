@@ -1,4 +1,4 @@
-(* v2.3.0
+(* v2.4.0
 tokeni.tyron: fungible token <> Implementation smart contract
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -111,6 +111,7 @@ contract TokenI(
   field blocked: Map ByStr20 Bool = Emp ByStr20 Bool
   field accounts: Map ByStr20 Account = Emp ByStr20 Account
   field lockup_period: Uint128 = Uint128 2933582
+  field counter: Uint128 = zero
 
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
@@ -231,7 +232,7 @@ transition UpdateInsurance( addr: ByStr20 )
 
 transition UpdateLockup( new: Uint128 )
   IsNotPaused; VerifyController; lockup_period := new end
-  
+
 transition AddAcount(
   investor: ByStr20,
   amount: Uint128,
@@ -397,9 +398,10 @@ transition TransferFrom(
   }; msgs = four_msgs msg_to_proxy_balances msg_to_proxy_allowance msg_to_spender msg_to_beneficiary; send msgs end
 
 procedure TransferNFTUsernameUpgrade_( addr: ByStr20 )
+  current_counter <- counter; one = Uint128 1; new_counter = builtin add current_counter one; counter := new_counter;
   current_insurance <- insurance; IsNotBlocked current_insurance; IsNotNull addr; IsNotBlocked addr; ThrowIfSameAddr current_insurance addr;
   get_insurance_bal <-& proxy.balances[current_insurance]; insurance_bal = option_uint128_value get_insurance_bal;
-  one = Uint128 1; new_insurance_bal = builtin sub insurance_bal one;
+  new_insurance_bal = builtin sub insurance_bal new_counter;
   get_addr_bal <-& proxy.balances[addr]; addr_bal = option_uint128_value get_addr_bal;
   new_addr_bal = builtin add addr_bal one;
   msg = let m = { _tag: "TransferCallBack"; _recipient: proxy; _amount: zero;
@@ -410,4 +412,18 @@ procedure TransferNFTUsernameUpgrade_( addr: ByStr20 )
 
 transition TransferNFTUsernameUpgrade( addr: List ByStr20 )
   IsNotPaused; VerifyController;
+  counter := zero;
   forall addr TransferNFTUsernameUpgrade_ end
+
+transition Recalibrate( amount: Uint128 )
+  IsNotPaused; VerifyController; current_insurance <- insurance;
+  get_insurance_bal <-& proxy.balances[current_insurance]; insurance_bal = option_uint128_value get_insurance_bal;
+  new_insurance_bal = builtin sub insurance_bal amount;
+  msg = let m = { _tag: "TransferCallBack"; _recipient: proxy; _amount: zero;
+    originator: current_insurance;
+    beneficiary: current_insurance;
+    new_originator_bal: new_insurance_bal;
+    new_beneficiary_bal: new_insurance_bal } in one_msg m; send msg;
+  current_block <- &BLOCKNUMBER;
+  e = { _eventname: "Timestamp";
+    block: current_block }; event e end

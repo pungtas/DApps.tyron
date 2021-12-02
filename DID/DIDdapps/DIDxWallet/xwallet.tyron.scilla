@@ -1,4 +1,4 @@
-(* v4.2.0
+(* v4.4.0
 xwallet.tyron: decentralized identifier smart contract wallet (DIDxWallet)
 Tyron Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -23,6 +23,7 @@ library DID
     | Deployed
     | Created
     | Recovered
+    | SociallyRecovered
     | Updated
     | Deactivated
     | Locked
@@ -127,7 +128,7 @@ contract DIDxWallet(
     field dns: Map String ByStr20,
     field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end
   )
-  field version: String = "xwallet-4.2.0"
+  field version: String = "xwallet-4.4.0"
   field did: String = ""    (* the W3C decentralized identifier *)
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
@@ -141,7 +142,7 @@ contract DIDxWallet(
   field services: Map String ByStr20 = empty_services
   field services_: Map String Endpoint = empty_services_
   
-  field document_hash: ByStr = zeroByStr
+  field hash_: ByStr = zeroByStr
   
   (* The block number when the DID Create operation occurred *)
   field did_created: BNum = BNum 0
@@ -193,13 +194,19 @@ procedure Timestamp()
   latest_tx_number <- tx_number;
   new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor; tx_number := new_tx_number end
 
+procedure ThrowIfSameAddr(
+  a: ByStr20,
+  b: ByStr20
+  )
+  is_self = builtin eq a b; match is_self with
+  | False => | True => err = CodeSameAddress; ThrowError err end end
+
 transition UpdateController(
   addr: ByStr20,
   tyron: Option Uint128
   )
-  IsOperational; VerifyController tyron; current_controller <- controller;
-  is_same = builtin eq current_controller addr; match is_same with
-  | False => | True => err = CodeNotValid; ThrowError err end;
+  IsOperational; VerifyController tyron;
+  current_controller <- controller; ThrowIfSameAddr current_controller addr;
   pending_controller := addr; Timestamp end
   
 transition AcceptPendingController()
@@ -216,8 +223,7 @@ procedure VerifySignature(
   )
   get_did_key <- verification_methods[id]; did_key = option_bystr33_value get_did_key;
   is_right_signature = builtin schnorr_verify did_key signedData signature; match is_right_signature with
-  | True =>
-  | False => err = CodeWrongSignature; ThrowError err end end
+  | True => | False => err = CodeWrongSignature; ThrowError err end end
 
 procedure ThrowIfNoKey( optKey: Option ByStr33 )
   match optKey with
@@ -239,12 +245,12 @@ procedure VerifyDIDkeys(
   didUpdate: ByStr33
   )
   get_update_key <- verification_methods[update]; new_update = option_bystr33_value get_update_key;
+  ThrowIfSameKey new_update didUpdate; ThrowIfSameKey new_update didRecovery;
   match operation with
-  | Recovery =>
-      get_recovery_key <- verification_methods[recovery]; new_recovery = option_bystr33_value get_recovery_key;
-      ThrowIfSameKey new_recovery new_update;
-      ThrowIfSameKey new_recovery didRecovery; ThrowIfSameKey new_recovery didUpdate; ThrowIfSameKey new_update didRecovery; ThrowIfSameKey new_update didUpdate
-  | Update => ThrowIfSameKey new_update didUpdate; ThrowIfSameKey new_update didRecovery end end
+  | Update => | Recovery =>
+    get_recovery_key <- verification_methods[recovery]; new_recovery = option_bystr33_value get_recovery_key;
+    ThrowIfSameKey new_recovery new_update;
+    ThrowIfSameKey new_recovery didRecovery; ThrowIfSameKey new_recovery didUpdate end end
 
 procedure SaveDocument( document: Document )
   match document with
@@ -322,18 +328,8 @@ procedure UpdateDocument( document: Document )
           | True => delete services[id]; delete services_[id]
           | False => err = CodeNotValid; ThrowError err end end end end
 
-procedure ValidateDocument(
-  operation: Operation,
-  document: List Document
-  )
-  match operation with
-  | Recovery => 
-      verification_methods := empty_methods; dkms := empty_dkms; services := empty_services; services_ := empty_services_;
-      forall document SaveDocument
-  | Update => forall document UpdateDocument end end
-
 procedure HashDocument( document: Document )
-  doc_hash <- document_hash;
+  doc_hash <- hash_;
   match document with
   | VerificationMethod action purpose key encrypted =>
       match action with
@@ -345,14 +341,14 @@ procedure HashDocument( document: Document )
             let h1_2 = builtin concat h1 h2 in
             let h1_3 = builtin concat h1_2 h3 in
             builtin concat h1_3 h4;
-          doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-          document_hash := doc_hash_
+          doc_hash_ = let h = builtin to_bystr hash in builtin concat doc_hash h;
+          hash_ := doc_hash_
       | Remove =>
           hash = let h1 = builtin sha256hash actionRemove in
             let h2 = builtin sha256hash purpose in
             builtin concat h1 h2;
-          doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-          document_hash := doc_hash_ end
+          doc_hash_ = let h = builtin to_bystr hash in builtin concat doc_hash h;
+          hash_ := doc_hash_ end
   | Service action id endpoint =>
       match action with
       | Add =>
@@ -363,31 +359,41 @@ procedure HashDocument( document: Document )
                 let h3 = builtin sha256hash uri in
                 let h1_2 = builtin concat h1 h2 in
                 builtin concat h1_2 h3;
-              doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-              document_hash := doc_hash_
+              doc_hash_ = let h = builtin to_bystr hash in builtin concat doc_hash h;
+              hash_ := doc_hash_
           | Address addr =>
               hash = let h1 = builtin sha256hash actionAdd in
                 let h2 = builtin sha256hash id in
                 let h3 = builtin sha256hash addr in
                 let h1_2 = builtin concat h1 h2 in
                 builtin concat h1_2 h3;
-              doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-              document_hash := doc_hash_ end
+              doc_hash_ = let h = builtin to_bystr hash in builtin concat doc_hash h;
+              hash_ := doc_hash_ end
       | Remove =>
           hash = let h1 = builtin sha256hash actionRemove in
             let h2 = builtin sha256hash id in
             builtin concat h1 h2;
-          doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-          document_hash := doc_hash_ end end end
+          doc_hash_ = let h = builtin to_bystr hash in builtin concat doc_hash h;
+          hash_ := doc_hash_ end end end
+          
+procedure ValidateDocument(
+  operation: Operation,
+  document: List Document
+  )
+  match operation with
+  | Recovery => 
+      verification_methods := empty_methods; dkms := empty_dkms; services := empty_services; services_ := empty_services_;
+      forall document SaveDocument
+  | Update => forall document UpdateDocument end end
 
 procedure VerifyDocument(
   operation: Operation,
   document: List Document,
   signature: Option ByStr64
   )
-  document_hash := zeroByStr;
+  hash_ := zeroByStr;
   forall document HashDocument;
-  doc_hash <- document_hash;
+  doc_hash <- hash_;
   sig = option_bystr64_value signature;
   id = match operation with
   | Recovery => recovery
@@ -400,15 +406,20 @@ transition DidRecover(
   signature: Option ByStr64,
   tyron: Option Uint128
   )
+  VerifyController tyron;
   current_status <- did_status;
   match current_status with
   | Created => | Recovered => | Updated =>
+      get_recovery_key <- verification_methods[recovery]; did_recovery = option_bystr33_value get_recovery_key;
+      get_update_key <- verification_methods[update]; did_update = option_bystr33_value get_update_key;
+      VerifyDocument didRecovery document signature;
+      VerifyDIDkeys didRecovery did_recovery did_update
+  | SociallyRecovered =>
+      ValidateDocument didRecovery document;
+      get_recovery_key <- verification_methods[recovery]; ThrowIfNoKey get_recovery_key; did_recovery = option_bystr33_value get_recovery_key;
+      get_update_key <- verification_methods[update]; ThrowIfNoKey get_update_key; did_update = option_bystr33_value get_update_key;
+      ThrowIfSameKey did_recovery did_update
   | _ => err = CodeWrongStatus; ThrowError err end;
-  VerifyController tyron;
-  get_recovery_key <- verification_methods[recovery]; did_recovery = option_bystr33_value get_recovery_key;
-  get_update_key <- verification_methods[update]; did_update = option_bystr33_value get_update_key;
-  VerifyDocument didRecovery document signature;
-  VerifyDIDkeys didRecovery did_recovery did_update;
   new_status = Recovered; did_status := new_status; Timestamp end
 
 transition DidUpdate(
@@ -418,7 +429,7 @@ transition DidUpdate(
   )
   current_status <- did_status;
   match current_status with
-  | Created => | Recovered => | Updated =>
+  | Created => | Recovered => | SociallyRecovered => | Updated =>
   | _ => err = CodeWrongStatus; ThrowError err end;
   VerifyController tyron;
   get_recovery_key <- verification_methods[recovery]; did_recovery = option_bystr33_value get_recovery_key;
@@ -432,16 +443,17 @@ transition DidDeactivate(
   signature: Option ByStr64,
   tyron: Option Uint128
   ) 
-  current_status <- did_status;
-  match current_status with
-  | Created => | Recovered => | Updated =>
-  | _ => err = CodeWrongStatus; ThrowError err end;
-  VerifyController tyron;
+  IsOperational; VerifyController tyron;
   VerifyDocument didRecovery document signature;
   verification_methods := empty_methods; services := empty_services; services_ := empty_services_;
   new_status = Deactivated; did_status := new_status; Timestamp end
 
 (* xWallet backbone *)
+
+procedure ConcatGuardians( id: ByStr32 )
+  ghash <- hash_;
+  ghash_ = let h = builtin to_bystr id in builtin concat ghash h;
+  hash_ := ghash_ end
 
 procedure SaveGuardians( id: ByStr32 )
   repeated <- exists social_guardians[id];
@@ -451,13 +463,20 @@ procedure SaveGuardians( id: ByStr32 )
 
 transition ConfigureSocialRecovery(
   guardians: List ByStr32,
+  sig: ByStr64,
   tyron: Option Uint128
   )
-  IsOperational; VerifyController tyron;
+  current_status <- did_status;
+  match current_status with
+  | Created => | Recovered => | SociallyRecovered => | Updated =>
+  | _ => err = CodeWrongStatus; ThrowError err end;
+  VerifyController tyron;
   length = let list_length = @list_length ByStr32 in list_length guardians; is_ok = uint32_ge length three;
   match is_ok with
   | False => err = CodeNotValid; ThrowError err
   | True =>
+      hash_ := zeroByStr; forall guardians ConcatGuardians;
+      ghash <- hash_; VerifySignature update ghash sig;
       social_guardians := empty_guardians; forall guardians SaveGuardians;
       is_three = builtin eq length three;
       min = match is_three with
@@ -475,7 +494,7 @@ transition Lock(
   match is_ok with
   | False => err = CodeNotValid; ThrowError err
   | True =>
-      this_did <- did; hash = let hash_ = builtin sha256hash this_did in builtin to_bystr hash_;
+      this_did <- did; hash = let h = builtin sha256hash this_did in builtin to_bystr h;
       get_didkey <- verification_methods[didsr]; did_key = option_bystr33_value get_didkey;
       is_right_signature = builtin schnorr_verify did_key hash signature;
       match is_right_signature with
@@ -502,13 +521,6 @@ procedure VerifySocialRecovery( proof: Pair String ByStr64 )
               counter_ <- counter;
               add_ = builtin add counter_ one; counter := add_ end end end end
 
-procedure ThrowIfSameAddr(
-  a: ByStr20,
-  b: ByStr20
-  )
-  is_self = builtin eq a b; match is_self with
-  | False => | True => err = CodeSameAddress; ThrowError err end end
-
 transition SocialRecovery( 
   addr: ByStr20,
   signatures: List( Pair String ByStr64 ),
@@ -532,7 +544,7 @@ transition SocialRecovery(
       | False => err = CodeWrongSignature; ThrowError err
       | True =>
           SupportTyron tyron; controller := addr;
-          new_status = Recovered; did_status := new_status end end;
+          new_status = SociallyRecovered; did_status := new_status end end;
   Timestamp end
 
 transition UpdateDeadline(
