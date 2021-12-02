@@ -1,4 +1,4 @@
-(* v0.9.0
+(* v1.0.0
 dao.tyron: DIDxWallet for decentralized governance
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -127,7 +127,7 @@ contract DIDxWallet(
     field dns: Map String ByStr20,
     field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end
   )
-  field version: String = "daoxw---0.9.0"
+  field version: String = "daoxw---1.0.0"
   field did: String = ""    (* the W3C decentralized identifier *)
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
@@ -273,7 +273,7 @@ procedure SaveDocument( document: Document )
       | Remove => err = CodeNotValid; ThrowError err end end end
 
 procedure CreateDid()
-  new_did = let did_prefix = "did:tyron:zil:test:" in let did_suffix = builtin to_string _this_address in
+  new_did = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address in
   builtin concat did_prefix did_suffix; did := new_did end
 
 transition DidCreate(
