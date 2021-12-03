@@ -1,4 +1,4 @@
-(* v1.0.0
+(* v1.1.0
 vc.tyron: Verifiable Credentials xWallet domain <> NFT Username DNS
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -65,7 +65,6 @@ contract VC(
     = init_controller
   
   field tx_number: Uint128 = zero
-  field services: Map String ByStr20 = Emp String ByStr20
   field paused: Bool = false
   field public_encryption: String = "bYACKEqduFtw5iZQVra42h1UAINo4ujJRYNNGNxVlCL-Fs46bBdo_S4EJRrgMJRhiqeUPKHRuu_daZFRHBWCjILdC5cc5mjSkQVIu30jJiaA_7G9FCYqVQnnKa0ZKn52DsT2f8bYSNHpDLpcmqcKqdW4Z8tgCtd9zhzZ4TchO9_-xPQ7T7v4Y-AIB0-Al8HwU2cvA_N17f7VHps2ZfMG88qVxOUlBJTlb6n60vZX_4laKavvyLz3zvbOUVhnI4L0VURiM_Z_1rF5rna7QNK9wU-40FqK8VMNW3DJFAVCVMvsMCUwqXnVZo35gKcG1LW8A7TBdTPlJ7ICtTRaS45QZ7fIz1pLiEg0R4n0NPP5N12YJQCnrZyLfsRPPjUZXfHdaKSxsYDDsiDOhWxkBCx3ScvIKYJDLK1jh0YhmQiATiCMMrM0mBFZ6cfNifCXDGV97dpKxnFfLNUMlV1sIUiSoryf8cK2DV15fbBWw8UqO254yqO4Eczf1LvDd4sXIUR9x9DhRAi_MYb4owiY8xBdRmggrlHrH2cducqX8znKOfQ_o6u7H3wU_f7qjzVfOFUsKnZC4mPp6dPTKyqK9fCAXGKIgxzL3Cd22v6zxo54-eovWHbESaj9h6PZ64duumrq3HAzHdn20XtynFJxwo9bNxXx0WxgVkrc-Hak64iazWVjQbGK6J-NJ996qpPZt-71YIbFqMI-fgZvt3eZZxfOsvtE7R8sbeThrZmWC42j94pvbmik3jcYsaAoSD_ct2b9qKWzSKqj-o_ZQAPvblpT9YeKY7tgygJgll_p75eQe38A8fpKDAMtTW1rOagzBGA2I1lYe_wu_BB6SuT2Mdq_Hh5_C5zDQRXs6klKxft2NB3siM4C4B6VH0hE2bZXl7KdnNdCAEdyPuRpXP5_XkYmWGBI6ZJvf6iP1wpTjQfpz54dGK-GQGo0FEH0zDtzbUUHs7oq5a7KiUeQEPmrzluphfcUIv7vMROn-UYoMsz38nd3W5VPKVVofe756p_MsjGu"
   field ivms101: Map String String = Emp String String
@@ -99,7 +98,7 @@ transition UpdateController(
       field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end end
   )
   IsNotPaused; VerifyController;
-  didxwallet := addr; Timestamp end
+  didxwallet := addr end
   
 transition Pause()
   VerifyController;
@@ -135,7 +134,8 @@ transition Ivms101(
           ivms101[username] := message; delete vc[username];
           e = { _eventname: "NewIvms101";
           username: username;
-          message: message }; event e end end end
+          message: message }; event e end end;
+  Timestamp end
 
 transition Verifiable_Credential(
   username: String,
@@ -150,4 +150,5 @@ transition Verifiable_Credential(
       signed_data = let data = builtin concat username msg in let hash = builtin sha256hash data in builtin to_bystr hash;
       is_right_signature = builtin schnorr_verify did_key signed_data signature; match is_right_signature with
       | False => err = CodeWrongSignature; ThrowError err
-      | True => vc[username] := signature end end end
+      | True => vc[username] := signature end end;
+  Timestamp end

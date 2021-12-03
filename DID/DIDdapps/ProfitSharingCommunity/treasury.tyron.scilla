@@ -1,0 +1,328 @@
+(* v1.2.0
+treasury.tyron: $TYRON treasury xWallet domain <> NFT Username DNS
+Self-Sovereign Identity Protocol
+Copyright (C) Tyron Pungtas and its affiliates.
+www.ssiprotocol.com
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.*)
+
+scilla_version 0
+
+import IntUtils
+
+library Treasury
+  let one_msg =
+    fun( msg: Message ) =>
+    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+  
+  let two_msgs =
+    fun( msg1: Message ) => fun( msg2: Message ) =>
+    let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
+
+  type Error =
+    | CodeWrongStatus
+    | CodeWrongCaller
+    | CodeWrongSignature
+    | CodeNotValid
+    | CodeIsInsufficient
+ 
+  let make_error = fun( error: Error ) =>
+    let result = match error with
+    | CodeWrongStatus            => Int32 -1
+    | CodeWrongCaller            => Int32 -2
+    | CodeWrongSignature         => Int32 -3
+    | CodeNotValid               => Int32 -4
+    | CodeIsInsufficient         => Int32 -5
+    end in { _exception: "Error"; code: result }
+  
+  let zero = Uint128 0
+  let zeroByStr20 = 0x0000000000000000000000000000000000000000
+  let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
+  
+  let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
+    match input with
+    | Some v => v
+    | None => default end
+  let option_uint128_value = let f = @option_value Uint128 in f zero
+  let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
+  let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
+  
+  let true = True
+  let false = False
+
+  let tyron = "tyron"
+  let treasury = "treasury"
+  let authentication = "authentication"
+  let psc = "psc"
+  
+  let one = Uint128 1
+  
+  let grow : Uint128 -> Uint256 =
+  fun (var : Uint128) =>
+    let maybe_big = builtin to_uint256 var in
+    match maybe_big with
+    | Some big => big
+    | None => Uint256 0 (* should never happen *)
+    end
+  
+  let tAmountFor: Uint128 -> Uint128 -> Uint128 -> Uint128  =
+  fun (z: Uint128) =>
+  fun (p: Uint128) =>
+  fun (m: Uint128) =>
+    let big_z = grow z in
+    let big_p = grow p in
+    let big_m = grow m in
+    let a = builtin div big_z big_p in
+    let b = builtin mul a big_m in
+    let maybe = builtin to_uint128 b in match maybe with
+    | None => builtin sub zero one (* throw on overflow by computing -1 in uint *)
+    | Some r => r
+    end
+    
+  let zAmountFor: Uint128 -> Uint128 -> Uint128 -> Uint128  =
+  fun (t: Uint128) =>
+  fun (p: Uint128) =>
+  fun (m: Uint128) =>
+    let big_t = grow t in
+    let big_p = grow p in
+    let big_m = grow m in
+    let a = builtin mul big_t big_p in
+    let b = builtin div a big_m in
+    let maybe = builtin to_uint128 b in match maybe with
+    | None => builtin sub zero one (* throw on overflow by computing -1 in uint *)
+    | Some r => r
+    end
+  
+  let zAmountFor: Uint128 -> Uint128 -> Uint128 -> Uint128  =
+  fun (z: Uint128) =>
+  fun (p: Uint128) =>
+  fun (m: Uint128) =>
+    let big_z = grow z in
+    let big_p = grow p in
+    let big_m = grow m in
+    let a = builtin div big_z big_p in
+    let b = builtin mul a big_m in
+    let maybe = builtin to_uint128 b in match maybe with
+    | None => builtin sub zero one (* throw on overflow by computing -1 in uint *)
+    | Some r => r
+    end
+  
+contract Treasury(
+  init_controller: ByStr20 with contract
+    field controller: ByStr20,
+    field dns: Map String ByStr20,
+    field xinit: ByStr20 with contract
+      field implementation: ByStr20 with contract
+        field services: Map String ByStr20 end,
+      field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end,
+      field dns: Map String ByStr20 end end,
+  init_vc: ByStr20 with contract
+    field vc: Map String ByStr64 end
+  )
+  field didxwallet: ByStr20 with contract
+    field controller: ByStr20,
+    field dns: Map String ByStr20,
+    field xinit: ByStr20 with contract
+      field implementation: ByStr20 with contract
+        field services: Map String ByStr20 end,
+      field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end,
+      field dns: Map String ByStr20 end end
+    = init_controller
+  
+  field services: Map String ByStr20 = Emp String ByStr20
+  
+  field treasury: ByStr20 = init_controller
+  
+  field tx_number: Uint128 = zero
+  field paused: Bool = false
+  
+  field balances: Map String Uint128 = let emp = Emp String Uint128 in
+    let t_bal = Uint128 15415000000000000 in let map1 = builtin put emp tyron t_bal in
+    let c = "chikanakan" in let c_bal = Uint128 100000000000000 in let map2 = builtin put map1 c c_bal in
+    let x = "xyz_ams" in let x_bal = Uint128 100000000000000 in let map3 = builtin put map2 x x_bal in
+    let s = "saberistic" in let s_bal = Uint128 10000000000000 in builtin put map3 s s_bal 
+
+  field multiplier: Uint128 = Uint128 1
+  field price: Uint128 = Uint128 14
+  
+  field vc: ByStr20 with contract
+    field vc: Map String ByStr64 end
+    = init_vc
+
+procedure ThrowError( err: Error )
+  e = make_error err; throw e end
+
+procedure Timestamp()
+  latest_tx_number <- tx_number; new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor;
+  tx_number := new_tx_number end
+
+procedure IsNotPaused()
+  is_paused <- paused; match is_paused with
+  | False => | True => err = CodeWrongStatus; ThrowError err end end
+  
+procedure IsPaused()
+  is_paused <- paused; match is_paused with
+  | True => | False => err = CodeWrongStatus; ThrowError err end end
+  
+procedure VerifyController()
+  xwallet <- didxwallet; controller <-& xwallet.controller;
+  verified = builtin eq _origin controller; match verified with
+  | True => | False => err = CodeWrongCaller; ThrowError err end end
+
+transition UpdateController(
+  addr: ByStr20 with contract
+    field controller: ByStr20,
+    field dns: Map String ByStr20,
+    field xinit: ByStr20 with contract
+      field implementation: ByStr20 with contract
+        field services: Map String ByStr20 end,
+      field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end,
+      field dns: Map String ByStr20 end end
+  )
+  IsNotPaused; VerifyController;
+  didxwallet := addr end
+
+transition Pause()
+  VerifyController;
+  IsNotPaused; paused := true;
+  e = { _eventname: "SmartContractPaused";
+    pauser: _origin }; event e end
+
+transition Unpause()
+  VerifyController;
+  IsPaused; paused := false;
+  e = { _eventname: "SmartContractUnpaused";
+    pauser: _origin }; event e end
+
+transition UpdateVC(
+  addr: ByStr20 with contract
+    field vc: Map String ByStr64 end
+  )
+  IsNotPaused; VerifyController;
+  vc := addr end
+
+transition UpdatePrice( amount: Uint128 )
+  VerifyController; price := amount end
+  
+transition UpdateMultiplier( amount: Uint128 )
+  VerifyController; multiplier := amount end
+
+transition RecipientAcceptTransfer(
+  sender: ByStr20,
+  recipient: ByStr20,
+  amount: Uint128
+  )
+  IsNotPaused; xwallet <- didxwallet; init <-& xwallet.xinit;
+  get_addr <-& init.dns[tyron]; addr = option_bystr20_value get_addr;
+  is_tyron = builtin eq sender addr; match is_tyron with
+  | True => | False => err = CodeNotValid; ThrowError err end;
+  get_bal <- balances[tyron]; bal = option_uint128_value get_bal;
+  new_bal = builtin add bal amount; balances[tyron] := new_bal end
+  
+procedure Authenticate(
+  username: String,
+  signature: ByStr64,
+  amount_: Uint128
+  )
+  xwallet <- didxwallet; init <-& xwallet.xinit;
+  get_addr <-& init.guardians[username]; match get_addr with
+  | None => err = CodeWrongCaller; ThrowError err
+  | Some addr =>
+      get_didkey <-& addr.verification_methods[authentication]; did_key = option_bystr33_value get_didkey;
+      amount = builtin to_string amount_;
+      signed_data = let data = builtin concat username amount in let hash = builtin sha256hash data in builtin to_bystr hash;
+      is_right_signature = builtin schnorr_verify did_key signed_data signature; match is_right_signature with
+      | False => err = CodeWrongSignature; ThrowError err
+      | True => end end end
+
+procedure IsSufficient(
+  value: Uint128,
+  amount: Uint128
+  )
+  is_sufficient = uint128_ge value amount; match is_sufficient with
+  | True => | False => err = CodeIsInsufficient; ThrowError err end end
+
+transition Buy_Tyron(
+  username: String,
+  signature: ByStr64
+  )
+  IsNotPaused; xwallet <- didxwallet;
+  Authenticate username signature _amount; accept;
+  current_vc <- vc; get_vc <-& current_vc.vc[username]; match get_vc with
+  | Some some_vc => | None => err = CodeWrongStatus; ThrowError err end;  
+  current_price <- price; IsSufficient _amount current_price;
+  current_multiplier <- multiplier;
+  t_amount = tAmountFor _amount current_price current_multiplier;
+  get_bal <- balances[tyron]; bal = option_uint128_value get_bal;
+  get_bal_user <- balances[username]; bal_user = option_uint128_value get_bal_user;
+  is_enough = uint128_ge bal t_amount; match is_enough with
+  | True =>
+      new_bal = builtin sub bal t_amount; new_bal_user = builtin add bal_user t_amount; 
+      balances[tyron] := new_bal; balances[username] := new_bal_user;
+      msg = let m = { _tag: "AddFunds"; _recipient: xwallet; _amount: _amount } in one_msg m; send msg
+  | False =>
+      new_bal_user = builtin add bal_user bal; 
+      balances[tyron] := zero; balances[username] := new_bal_user;
+      z_amount = zAmountFor bal current_price current_multiplier;
+      refund = builtin sub _amount z_amount;
+      msg_tyron = { _tag: "AddFunds"; _recipient: xwallet; _amount: z_amount };
+      init <-& xwallet.xinit;
+      get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr;
+      msg_user = { _tag: "AddFunds"; _recipient: addr; _amount: refund };
+      msgs = two_msgs msg_tyron msg_user; send msgs end;
+  Timestamp end
+
+procedure FetchServiceAddr( id: String )
+  xwallet <- didxwallet; init <-& xwallet.xinit; init_did <-& init.implementation;
+  get_service <-& init_did.services[id]; addr = option_bystr20_value get_service; services[id] := addr end
+
+procedure IncreaseAllowance(
+  spender: ByStr20,
+  amount: Uint128
+  )
+  FetchServiceAddr tyron; get_addr <- services[tyron]; addr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
+    spender: spender;
+    amount: amount } in one_msg m ; send msg end
+
+transition Join_PSC(
+  username: String,
+  signature: ByStr64,
+  amount: Uint128
+  )
+  IsNotPaused; xwallet <- didxwallet;
+  Authenticate username signature amount;
+  get_bal <- balances[username]; bal = option_uint128_value get_bal; IsSufficient bal amount;
+  new_bal = builtin sub bal amount; balances[username] := new_bal;
+  get_psc <-& xwallet.dns[psc]; psc = option_bystr20_value get_psc;
+  IncreaseAllowance psc amount;
+  accept; msg = let m = { _tag: "AddTyron"; _recipient: psc; _amount: _amount;
+    username: username;
+    amount: amount } in one_msg m ; send msg;
+  Timestamp end
+  
+transition ZilToTyron( amount: Uint128 )
+  IsNotPaused; xwallet <- didxwallet;
+  current_price <- price; cost = builtin mul amount current_price; IsSufficient _amount cost;
+  get_bal <- balances[tyron]; bal = option_uint128_value get_bal; IsSufficient bal amount;
+  new_bal = builtin sub bal amount; balances[tyron] := new_bal;
+  FetchServiceAddr tyron; get_addr <- services[tyron]; addr = option_bystr20_value get_addr;
+  transfer = { _tag: "Transfer"; _recipient: addr; _amount: zero;
+    to: _sender;
+    amount: amount };
+  accept; msg = { _tag: "AddFunds"; _recipient: xwallet; _amount: cost };
+  msgs = two_msgs transfer msg; send msgs;
+  refund = builtin sub _amount cost; is_zero = builtin eq refund zero; match is_zero with
+  | True => | False =>
+    r_msg = let m = { _tag: "AddFunds"; _recipient: _sender; _amount: refund } in one_msg m ; send r_msg end;
+  Timestamp end
+
+transition TransferSuccessCallBack( sender: ByStr20, recipient: ByStr20, amount : Uint128 ) end

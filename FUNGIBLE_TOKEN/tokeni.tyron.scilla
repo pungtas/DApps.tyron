@@ -1,6 +1,6 @@
-(* v2.4.0
+(* v2.5.0
 tokeni.tyron: fungible token <> Implementation smart contract
-Tyron Self-Sovereign Identity Protocol
+Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
 
@@ -423,7 +423,18 @@ transition Recalibrate( amount: Uint128 )
     originator: current_insurance;
     beneficiary: current_insurance;
     new_originator_bal: new_insurance_bal;
-    new_beneficiary_bal: new_insurance_bal } in one_msg m; send msg;
-  current_block <- &BLOCKNUMBER;
-  e = { _eventname: "Timestamp";
-    block: current_block }; event e end
+    new_beneficiary_bal: new_insurance_bal } in one_msg m; send msg end
+
+transition UpdateTreasury(
+  old: ByStr20,
+  new: ByStr20
+  )
+  IsNotPaused; VerifyController;
+  get_old_bal <-& proxy.balances[old]; old_bal = option_uint128_value get_old_bal;
+  get_new_bal <-& proxy.balances[new]; new_bal = option_uint128_value get_new_bal;
+  new_bal = builtin add old_bal new_bal;
+  msg = let m = { _tag: "TransferCallBack"; _recipient: proxy; _amount: zero;
+    originator: old;
+    beneficiary: new;
+    new_originator_bal: zero;
+    new_beneficiary_bal: new_bal } in one_msg m; send msg end

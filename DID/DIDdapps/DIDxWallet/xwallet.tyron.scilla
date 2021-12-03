@@ -1,6 +1,6 @@
-(* v4.4.0
-xwallet.tyron: decentralized identifier smart contract wallet (DIDxWallet)
-Tyron Self-Sovereign Identity Protocol
+(* v4.6.0
+xwallet.tyron: W3C Decentralized Identifier smart contract wallet (DIDxWallet)
+Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
 
@@ -108,7 +108,7 @@ library DID
   let transfer = "transfer"
   let tyron_ = "tyron"
   let zil = "zil"
-  let zilswap = "zilswap"
+  let treasury = "treasury"
   let empty_guardians = Emp ByStr32 Bool
   let zero_ = Uint32 0
   let one = Uint32 1
@@ -128,7 +128,7 @@ contract DIDxWallet(
     field dns: Map String ByStr20,
     field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end
   )
-  field version: String = "xwallet-4.4.0"
+  field version: String = "xwallet-4.6.0"
   field did: String = ""    (* the W3C decentralized identifier *)
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
@@ -571,14 +571,9 @@ procedure ZilToTyron(
   amount: Uint128,
   fee: Uint128
   )
-  FetchServiceAddr zilswap; get_zilswap <- services[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
-  FetchServiceAddr tyron_; get_addr <- services[tyron_]; tyron_addr = option_bystr20_value get_addr;
-  current_block <- &BLOCKNUMBER; current_deadline <- deadline; this_deadline = builtin badd current_block current_deadline;
-  accept; msg = let m = { _tag: "SwapZILForExactTokens"; _recipient: zilswap_addr; _amount: amount;
-    token_address: tyron_addr;
-    token_amount: fee;
-    deadline_block: this_deadline;
-    recipient_address: _this_address } in one_msg m; send msg end
+  FetchServiceAddr treasury; get_treasury <- services[treasury]; treasury_addr = option_bystr20_value get_treasury;
+  accept; msg = let m = { _tag: "ZilToTyron"; _recipient: treasury_addr; _amount: amount;
+    amount: fee } in one_msg m; send msg end
 
 transition BuyNFTUsername(
   username: String,
@@ -593,9 +588,9 @@ transition BuyNFTUsername(
   | True => | False =>
     is_tyron = builtin eq id tyron_; match is_tyron with
     | True => | False =>
-      is_zil = builtin eq id zil; match is_zil with
-      | True => ZilToTyron fee amount
-      | False => err = CodeNotValid; ThrowError err end end;
+        is_zil = builtin eq id zil; match is_zil with
+        | True => ZilToTyron amount fee
+        | False => err = CodeNotValid; ThrowError err end end;
     IncreaseAllowance tyron_ fee end;
   msg = let m = { _tag: "BuyNFTUsername"; _recipient: init; _amount: zero;
     username: username;
