@@ -1,6 +1,6 @@
-(* v2.2.0
+(* v2.3.0
 token.tyron: fungible token <> Proxy smart contract
-Tyron Self-Sovereign Identity Protocol
+Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
 
@@ -48,11 +48,11 @@ contract FungibleToken(
   init_controller: ByStr20 with contract 
     field controller: ByStr20,
     field paused: Bool end,
-  fund: ByStr20,
   name: String,
   symbol: String,
   decimals: Uint32,
-  total_supply: Uint128
+  init_balances: Map ByStr20 Uint128,
+  init_supply: Uint128
   )
   with
     let string_is_not_empty = fun( s : String ) =>
@@ -74,7 +74,8 @@ contract FungibleToken(
   field implementation: ByStr20 with contract
     field controller: ByStr20,
     field paused: Bool end = init_controller
-  field balances: Map ByStr20 Uint128 = let emp = Emp ByStr20 Uint128 in builtin put emp fund total_supply
+  field balances: Map ByStr20 Uint128 = init_balances
+  field total_supply: Uint128 = init_supply
   field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
   
 procedure ThrowError( err: Error )
@@ -101,6 +102,38 @@ transition UpdateImplementation( addr: ByStr20 with contract field controller: B
   e = { _eventname: "ImplementationUpdated";
     new_implementation: addr }; event e end
 
+transition Mint(
+  beneficiary: ByStr20,
+  amount: Uint128
+  )
+  current_impl <- implementation;
+  msg = let m = { _tag: "Mint"; _recipient: current_impl; _amount: zero;
+    originator: _sender;
+    beneficiary: beneficiary;
+    amount: amount
+  } in one_msg m; send msg end
+
+transition Burn(
+  beneficiary: Uint128, 
+  amount: Uint128
+  )
+  current_impl <- implementation;
+  msg = let m = {
+    _tag: "Burn"; _recipient: current_impl; _amount: zero;
+    originator: _sender;
+    beneficiary: beneficiary;
+    amount: amount
+  } in one_msg m; send msg end
+
+transition TransmuteCallBack(
+  beneficiary: ByStr20,
+  new_balance: Uint128,
+  new_supply: Uint128
+  )
+  VerifyCaller implementation_;
+  balances[beneficiary] := new_balance;
+  total_supply := new_supply end
+  
 transition Transfer(
   to: ByStr20,
   amount: Uint128

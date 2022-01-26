@@ -203,8 +203,7 @@ procedure IsOperational()
 
 procedure VerifyController( tyron: Option Uint128 )
   current_controller <- controller;
-  verified = builtin eq _sender current_controller;
-  match verified with
+  verified = builtin eq _sender current_controller; match verified with
   | True => SupportTyron tyron
   | False => err = CodeWrongCaller; ThrowError err end end
 
