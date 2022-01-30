@@ -1,7 +1,7 @@
 (* v0.9.0
 $si.tyron: fungible algorithmic stablecoin <> Implementation smart contract
 Self-Sovereign Identity Protocol
-Copyright (C) Tyron Pungtas and its affiliates.
+Copyright (C) TYRON Pungtas and its affiliates.
 www.ssiprotocol.com
 
 This program is free software: you can redistribute it and/or modify
@@ -88,15 +88,22 @@ library SSI
     | True => builtin sub a b
     | False => zero end
   
-  let grow : Uint128 -> Uint256 =
+  let grow: Uint128 -> Uint256 =
     fun( var : Uint128 ) =>
     let maybe_big = builtin to_uint256 var in match maybe_big with
     | Some big => big
     | None => Uint256 0 (* should never happen *)
     end
+    
+  type Direction =
+    | TokenToSsi
+    | SsiToToken
   
-  let transmute: Uint128 -> Uint128 -> Uint128 -> Option Uint128 =
-    fun( t: Uint128 ) => fun( r: Uint128 ) => fun( f: Uint128) =>
+  let tokenToSsi = TokenToSsi
+  let ssiToToken = SsiToToken
+  
+  let transmute: Direction -> Uint128 -> Uint128 -> Uint128 -> Option Uint128 = (* to_do match d *)
+    fun( d: Direction ) => fun( t: Uint128 ) => fun( r: Uint128 ) => fun( f: Uint128) =>
     let big_t = grow t in let big_r = grow r in let big_f = grow f in
     let t_times_r = builtin mul big_t big_r in
     let t_times_r_over_f = builtin div t_times_r big_f in
@@ -115,7 +122,6 @@ contract SSI(
   )
   field controller: ByStr20 = init_controller
   field paused: Bool = False
-  field fund: ByStr20 = init_controller
   field insurance: ByStr20 = init_controller
   field pauser: ByStr20 = init_controller
   field lister: ByStr20 = init_controller
@@ -226,12 +232,6 @@ transition Unblock( addr: ByStr20 )
   e = { _eventname: "AddressUnblocked";
     address: addr;
     lister: _origin }; event e end
-
-transition UpdateFund( addr: ByStr20 )
-  IsNotPaused; VerifyController; IsNotNull addr;
-  current_fund <- fund; ThrowIfSameAddr current_fund addr; fund := addr;
-  e = { _eventname: "FundAddressUpdated";
-    new_addr: addr }; event e end
     
 transition UpdateInsurance( addr: ByStr20 )
   IsNotPaused; VerifyController; IsNotNull addr;
@@ -261,7 +261,7 @@ transition Mint(
   amount: Uint128
   )
   IsNotPaused; ThrowIfNotProxy;
-  IsNotBlocked originator; IsNotBlocked beneficiary;
+  IsNotBlocked originator;
   current_token <- token;
   msg = let m = { _tag: "Burn"; _recipient: current_token; _amount: zero;
     beneficiary: originator;
@@ -269,7 +269,7 @@ transition Mint(
   } in one_msg m; send msg;
   msg_to_minter = let m = { _tag: "MintSuccessCallBack"; _recipient: originator; _amount: zero;
     minter: originator;
-    beneficiary: beneficiary;
+    beneficiary: originator;
     amount: amount
   } in one_msg m; send msg_to_minter end
   
@@ -280,7 +280,7 @@ transition BurnSuccessCallBack(
   )
   IsValidToSelf minter;
   current_psc <- psc; current_rate <-& current_psc.rate; current_factor <-& current_psc.factor;
-  get_dollars = transmute amount current_rate current_factor; ssi_dollars = option_uint128_value get_dollars;
+  get_dollars = transmute tokenToSsi amount current_rate current_factor; ssi_dollars = option_uint128_value get_dollars;
   current_supply <-& proxy.total_supply; new_supply = builtin add current_supply ssi_dollars;
   get_bal <-& proxy.balances[beneficiary]; bal = option_uint128_value get_bal; new_bal = builtin add bal ssi_dollars;
   e = { _eventname: "Minted";
@@ -370,42 +370,51 @@ transition DecreaseAllowance(
 
 transition Burn(
   originator: ByStr20,
-  beneficiary: ByStr20,
+  (*beneficiary: ByStr20,*)
   amount: Uint128
   )
-  IsNotPaused; ThrowIfNotProxy;
-  IsNotBlocked originator; IsNotBlocked beneficiary;
+  IsNotPaused; ThrowIfNotProxy; VerifyController; (* Only the Controller can burn $SI and mint TYRON. *)
+  IsNotBlocked originator;
+  get_bal <-& proxy.balances[originator]; bal = option_uint128_value get_bal; IsSufficient bal amount;
+  current_token <- token;
+  current_psc <- psc; current_rate <-& current_psc.rate; current_factor <-& current_psc.factor;
+  get_tokens = transmute ssiToToken amount current_rate current_factor; token_amount = option_uint128_value get_tokens;
+  
+  
+  msg = let m = { _tag: "Mint"; _recipient: current_token; _amount: zero;
+    beneficiary: originator;
+    amount: token_amount
+  } in one_msg m; send msg;
   current_supply <-& proxy.total_supply; new_supply = builtin sub current_supply amount;
-  get_bal <-& proxy.balances[beneficiary]; bal = option_uint128_value get_bal;
-  IsSufficient bal amount;
-  get_allowance <-& proxy.allowances[beneficiary][originator]; allowance = option_uint128_value get_allowance;
-  IsSufficient allowance amount;
-  new_bal = builtin sub bal amount; new_allowance = builtin sub allowance amount;
-  e = { _eventname: "Burnt";
-    minter: originator;
-    beneficiary: beneficiary;
-    amount: amount
-  }; event e;
-  msg_to_proxy = { _tag: "TransmuteCallBack"; _recipient: _sender; _amount: zero;
-    beneficiary: beneficiary;
+  new_bal = builtin sub bal amount;
+  msg_to_proxy = { _tag: "TransmuteCallBack"; _recipient: proxy; _amount: zero;
+    beneficiary: originator;
     new_balance: new_bal;
     new_supply: new_supply
   };
-  msg_to_proxy_allowance = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
-    originator: beneficiary;
-    spender: originator;
-    new_allowance: new_allowance
-  };
   msg_to_minter = { _tag: "BurnSuccessCallBack"; _recipient: originator; _amount: zero;
     minter: originator;
-    beneficiary: beneficiary;
+    beneficiary: originator;
     amount: amount
   };
-  msg_to_beneficiary = { _tag: "RecipientAcceptBurn"; _recipient: beneficiary; _amount: zero;
+  msg_to_beneficiary = { _tag: "RecipientAcceptBurn"; _recipient: originator; _amount: zero;
     minter: originator;
-    beneficiary: beneficiary;
+    beneficiary: originator;
     amount: amount
-  }; msgs = four_msgs msg_to_proxy msg_to_proxy_allowance msg_to_minter msg_to_beneficiary; send msgs end
+  }; 
+  msgs = three_msgs msg_to_proxy msg_to_minter msg_to_beneficiary; send msgs;
+  e = { _eventname: "Burnt";
+    minter: originator;
+    beneficiary: originator;
+    amount: amount
+  }; event e end
+
+transition MintSuccessCallBack(
+  minter: ByStr20,
+  beneficiary: ByStr20,
+  amount: Uint128
+  )
+  IsValidToSelf minter end
 
 transition TransferFrom(
   originator: ByStr20,

@@ -1,4 +1,4 @@
-(* v2.6.0
+(* v2.7.0
 tokeni.tyron: fungible token <> Implementation smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -136,7 +136,7 @@ procedure IsNotPaused()
   | False => | True => err = CodeIsPaused; ThrowError err end end
 
 procedure IsMinter( addr: ByStr20 )
-  current_minter <- minter;
+  current_minter <- minter; IsNotBlocked current_minter;
   verified = builtin eq addr current_minter; match verified with
   | True  => | False => err = CodeWrongCaller; ThrowError err end end
   
@@ -297,7 +297,7 @@ transition Mint(
   amount: Uint128
   )
   IsNotPaused; ThrowIfNotProxy;
-  IsMinter originator; IsNotBlocked originator; IsNotBlocked beneficiary;
+  IsMinter originator; IsNotBlocked beneficiary;
   current_supply <-& proxy.total_supply; new_supply = builtin add current_supply amount;
   get_bal <-& proxy.balances[beneficiary]; bal = option_uint128_value get_bal; new_bal = builtin add bal amount;
   e = { _eventname: "Minted";
@@ -398,13 +398,13 @@ transition Burn(
   amount: Uint128
   )
   IsNotPaused; ThrowIfNotProxy;
-  IsMinter originator; IsNotBlocked originator; IsNotBlocked beneficiary;
-  current_supply <-& proxy.total_supply; new_supply = builtin sub current_supply amount;
+  IsMinter originator; IsNotBlocked beneficiary;
   get_bal <-& proxy.balances[beneficiary]; bal = option_uint128_value get_bal;
   IsSufficient bal amount; IsVested beneficiary bal amount;
   get_allowance <-& proxy.allowances[beneficiary][originator]; allowance = option_uint128_value get_allowance;
   IsSufficient allowance amount;
   new_bal = builtin sub bal amount; new_allowance = builtin sub allowance amount;
+  current_supply <-& proxy.total_supply; new_supply = builtin sub current_supply amount;
   e = { _eventname: "Burnt";
     minter: originator;
     beneficiary: beneficiary;
