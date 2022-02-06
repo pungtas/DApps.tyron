@@ -1,5 +1,5 @@
-(* v0.9.0
-$si.tyron: fungible algorithmic stablecoin <> Implementation smart contract
+(* v0.1.0
+community.tyron: Governing & Profit-Sharing Community dApp
 Self-Sovereign Identity Protocol
 Copyright (C) TYRON Pungtas and its affiliates.
 www.ssiprotocol.com
@@ -18,7 +18,7 @@ scilla_version 0
 
 import IntUtils
 
-library SSI
+library Community
   let one_msg =
     fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
@@ -92,43 +92,18 @@ library SSI
     fun( var : Uint128 ) =>
     let maybe_big = builtin to_uint256 var in match maybe_big with
     | Some big => big
-    | None => Uint256 0 (* should never happen *)
-    end
-    
-  type Direction =
-    | TokenToSsi
-    | SsiToToken
-  
-  let tokenToSsi = TokenToSsi
-  let ssiToToken = SsiToToken
-  
-  let transmute: Direction -> Uint128 -> Uint128 -> Uint128 -> Option Uint128 = (* to_do match d *)
-    fun( d: Direction ) => fun( t: Uint128 ) => fun( r: Uint128 ) => fun( f: Uint128) =>
-    let big_t = grow t in let big_r = grow r in let big_f = grow f in
-    let t_times_r = builtin mul big_t big_r in
-    let t_times_r_over_f = builtin div t_times_r big_f in
-    builtin to_uint128 t_times_r_over_f
+    | None => Uint256 0 (* should never happen *) end
 
-contract SSI(
+contract Community(
   init_controller: ByStr20,
-  proxy: ByStr20 with contract 
-    field balances: Map ByStr20 Uint128,
-    field total_supply: Uint128,
-    field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) end,
-  init_token: ByStr20,
-  init_psc: ByStr20 with contract
-    field rate: Uint128,
-    field factor: Uint128 end
+  init_rate: Uint128,
+  init_factor: Uint128
   )
   field controller: ByStr20 = init_controller
   field paused: Bool = False
-  field insurance: ByStr20 = init_controller
   field pauser: ByStr20 = init_controller
-  field lister: ByStr20 = init_controller
-  field blocked: Map ByStr20 Bool = Emp ByStr20 Bool
-  field counter: Uint128 = zero
-  field token: ByStr20 = init_token
-  field psc: ByStr20 with contract field rate: Uint128, field factor: Uint128 end = init_psc
+  field rate: Uint128 = init_rate
+  field factor: Uint128 = init_factor
 
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
@@ -154,29 +129,16 @@ procedure IsPaused()
 procedure IsNotPaused()
   is_paused <- paused; match is_paused with
   | False => | True => err = CodeIsPaused; ThrowError err end end
-  
-procedure IsLister()
-  current_lister <- lister;
-  verified = builtin eq current_lister _origin; match verified with
-  | True  => | False => err = CodeWrongCaller; ThrowError err end end
-
-procedure IsBlocked( addr: ByStr20 )
-  is_blocked <- exists blocked[addr]; match is_blocked with
-  | True => | False => err = CodeNotBlocked; ThrowError err end end
 
 procedure IsNotNull( addr: ByStr20 )
   is_null = builtin eq zeroByStr20 addr; match is_null with
   | False => | True => err = CodeIsNull; ThrowError err end end
 
-procedure IsNotBlocked( addr: ByStr20 )
-  IsNotNull addr;
-  is_blocked <- exists blocked[addr]; match is_blocked with
-  | False => | True => err = CodeIsBlocked; ThrowError err end end
-
 procedure ThrowIfSameAddr(
   a: ByStr20,
   b: ByStr20
   )
+  IsNotNull a; IsNotNull b;
   is_self = builtin eq a b; match is_self with
   | False => | True => err = CodeSameAddress; ThrowError err end end
 
@@ -213,43 +175,17 @@ transition Unpause()
   e = { _eventname: "SmartContractUnpaused";
     pauser: _origin }; event e end
 
-transition UpdateLister( new_addr: ByStr20 )
-  IsNotPaused; VerifyController; IsNotNull new_addr;
-  current_lister <- lister; ThrowIfSameAddr current_lister new_addr; lister:= new_addr;
-  e = { _eventname: "ListerUpdated";
-    newAddr: new_addr }; event e end
-
-transition Block( addr: ByStr20 )
-  IsNotPaused; IsLister;
-  IsNotBlocked addr; blocked[addr] := true;
-  e = { _eventname: "AddressBlocked";
-    address: addr;
-    lister: _origin }; event e end
-
-transition Unblock( addr: ByStr20 )
-  IsNotPaused; IsLister;
-  IsBlocked addr; delete blocked[addr];
-  e = { _eventname: "AddressUnblocked";
-    address: addr;
-    lister: _origin }; event e end
-    
 transition UpdateInsurance( addr: ByStr20 )
   IsNotPaused; VerifyController; IsNotNull addr;
   current_insurance <- insurance; ThrowIfSameAddr current_insurance addr; insurance := addr;
   e = { _eventname: "InsuranceAddressUpdated";
     new_addr: addr }; event e end
 
-transition UpdateToken( addr: ByStr20 )
-  IsNotPaused; VerifyController; IsNotNull addr;
-  current_addr <- token; ThrowIfSameAddr current_addr addr; token := addr;
-  e = { _eventname: "TokenAddressUpdated";
-    new_addr: addr }; event e end
-
-transition UpdateCommunity( addr: ByStr20 with contract field rate: Uint128, field factor: Uint128 end )
-  IsNotPaused; VerifyController; IsNotNull addr;
-  current_addr <- psc; ThrowIfSameAddr current_addr addr; psc := addr;
-  e = { _eventname: "CommunityAddressUpdated";
-    new_addr: addr }; event e end
+transition UpdateFactor( value: Uint128 )
+  IsNotPaused; VerifyController; IsNotZero value;
+  current <- factor; ThrowIfSameFactor current value; fator := value;
+  e = { _eventname: "FactorUpdated";
+    new_value: value }; event e end
     
 procedure IsValidToSelf( addr: ByStr20 )
   is_valid = builtin eq addr _this_address; match is_valid with
@@ -279,7 +215,7 @@ transition BurnSuccessCallBack(
   amount: Uint128
   )
   IsValidToSelf minter;
-  current_psc <- psc; current_rate <-& current_psc.rate; current_factor <-& current_psc.factor;
+  current_community <- community; current_rate <-& current_community.rate; current_factor <-& current_community.factor;
   get_dollars = transmute tokenToSsi amount current_rate current_factor; ssi_dollars = option_uint128_value get_dollars;
   current_supply <-& proxy.total_supply; new_supply = builtin add current_supply ssi_dollars;
   get_bal <-& proxy.balances[beneficiary]; bal = option_uint128_value get_bal; new_bal = builtin add bal ssi_dollars;
@@ -377,10 +313,8 @@ transition Burn(
   IsNotBlocked originator;
   get_bal <-& proxy.balances[originator]; bal = option_uint128_value get_bal; IsSufficient bal amount;
   current_token <- token;
-  current_psc <- psc; current_rate <-& current_psc.rate; current_factor <-& current_psc.factor;
+  current_community <- community; current_rate <-& current_community.rate; current_factor <-& current_community.factor;
   get_tokens = transmute ssiToToken amount current_rate current_factor; token_amount = option_uint128_value get_tokens;
-  
-  
   msg = let m = { _tag: "Mint"; _recipient: current_token; _amount: zero;
     beneficiary: originator;
     amount: token_amount
@@ -458,45 +392,3 @@ transition TransferFrom(
     recipient: beneficiary;
     amount: amount
   }; msgs = four_msgs msg_to_proxy_balances msg_to_proxy_allowance msg_to_spender msg_to_beneficiary; send msgs end
-
-procedure TransferNFTUsernameUpgrade_( addr: ByStr20 )
-  current_counter <- counter; one = Uint128 1; new_counter = builtin add current_counter one; counter := new_counter;
-  current_insurance <- insurance; IsNotBlocked current_insurance; IsNotNull addr; IsNotBlocked addr; ThrowIfSameAddr current_insurance addr;
-  get_insurance_bal <-& proxy.balances[current_insurance]; insurance_bal = option_uint128_value get_insurance_bal;
-  new_insurance_bal = builtin sub insurance_bal new_counter;
-  get_addr_bal <-& proxy.balances[addr]; addr_bal = option_uint128_value get_addr_bal;
-  new_addr_bal = builtin add addr_bal one;
-  msg = let m = { _tag: "TransferCallBack"; _recipient: proxy; _amount: zero;
-    originator: current_insurance;
-    beneficiary: addr;
-    new_originator_bal: new_insurance_bal;
-    new_beneficiary_bal: new_addr_bal } in one_msg m; send msg end
-
-transition TransferNFTUsernameUpgrade( addr: List ByStr20 )
-  IsNotPaused; VerifyController;
-  counter := zero;
-  forall addr TransferNFTUsernameUpgrade_ end
-
-transition Recalibrate( amount: Uint128 )
-  IsNotPaused; VerifyController; current_insurance <- insurance;
-  get_insurance_bal <-& proxy.balances[current_insurance]; insurance_bal = option_uint128_value get_insurance_bal;
-  new_insurance_bal = builtin sub insurance_bal amount;
-  msg = let m = { _tag: "TransferCallBack"; _recipient: proxy; _amount: zero;
-    originator: current_insurance;
-    beneficiary: current_insurance;
-    new_originator_bal: new_insurance_bal;
-    new_beneficiary_bal: new_insurance_bal } in one_msg m; send msg end
-
-transition UpdateTreasury(
-  old: ByStr20,
-  new: ByStr20
-  )
-  IsNotPaused; VerifyController;
-  get_old_bal <-& proxy.balances[old]; old_bal = option_uint128_value get_old_bal;
-  get_new_bal <-& proxy.balances[new]; new_bal = option_uint128_value get_new_bal;
-  new_bal = builtin add old_bal new_bal;
-  msg = let m = { _tag: "TransferCallBack"; _recipient: proxy; _amount: zero;
-    originator: old;
-    beneficiary: new;
-    new_originator_bal: zero;
-    new_beneficiary_bal: new_bal } in one_msg m; send msg end

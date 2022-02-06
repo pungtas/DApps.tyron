@@ -1,0 +1,505 @@
+(* v0.9.0
+$si.tyron: Self-Sovereign Identity Dollar - Fungible algorithmic stablecoin <> Implementation smart contract
+Self-Sovereign Identity Protocol
+Copyright (C) TYRON Pungtas and its affiliates.
+www.ssiprotocol.com
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.*)
+
+scilla_version 0
+
+import IntUtils
+
+library SSI_Dollar
+  let one_msg =
+    fun( msg: Message ) =>
+    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+
+  let two_msgs =
+    fun( msg1: Message ) => fun( msg2: Message ) =>
+    let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
+
+  let three_msgs =
+    fun( msg1: Message ) => fun( msg2: Message ) => fun( msg3: Message ) =>
+    let msgs_tmp = two_msgs msg2 msg3 in Cons{ Message } msg1 msgs_tmp
+
+  let four_msgs =
+    fun( msg1: Message ) => fun( msg2: Message ) => fun( msg3: Message ) => fun( msg4: Message ) =>
+    let msgs_tmp = three_msgs msg2 msg3 msg4 in Cons{ Message } msg1 msgs_tmp
+
+  type Error =
+    | CodeNotProxy
+    | CodeWrongCaller
+    | CodeIsPaused
+    | CodeNotPaused
+    | CodeIsBlocked
+    | CodeNotBlocked
+    | CodeSameAddress
+    | CodeIsNull
+    | CodeIsInsufficient
+
+  let make_error = fun( error: Error ) =>
+    let result = match error with
+    | CodeNotProxy               => Int32 -1
+    | CodeWrongCaller            => Int32 -2
+    | CodeIsPaused               => Int32 -3
+    | CodeNotPaused              => Int32 -4
+    | CodeIsBlocked              => Int32 -5
+    | CodeNotBlocked             => Int32 -6
+    | CodeSameAddress            => Int32 -7
+    | CodeIsNull                 => Int32 -8
+    | CodeIsInsufficient         => Int32 -9
+    end in { _exception: "Error"; code: result }
+
+  let zero = Uint128 0
+  let true = True
+  let false = False
+  let zeroByStr20 = 0x0000000000000000000000000000000000000000
+
+  let option_value =
+    tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) => match opt_val with
+    | Some v => v
+    | None => default end
+
+  let option_uint128_value = let f = @option_value Uint128 in f zero
+  
+  let option2_uint128_value =
+    fun( input: Option( Option Uint128 )) => match input with
+    | Some (Some a) => a
+    | _ => zero end
+
+  let option_uint128 =
+    fun( input: Uint128 ) =>
+    let is_zero = builtin eq input zero in match is_zero with
+    | True => None{ Uint128 }
+    | False => Some{ Uint128 } input end
+
+  let better_subtract =
+    fun( a: Uint128 ) => fun( b: Uint128 ) =>
+    let a_ge_b = uint128_ge a b in match a_ge_b with
+    | True => builtin sub a b
+    | False => zero end
+  
+  let grow: Uint128 -> Uint256 =
+    fun( var : Uint128 ) =>
+    let maybe_big = builtin to_uint256 var in match maybe_big with
+    | Some big => big
+    | None => Uint256 0 (* should never happen *)
+    end
+    
+  type Direction =
+    | TokenToSsi
+    | SsiToToken
+  
+  let tokenToSsi = TokenToSsi
+  let ssiToToken = SsiToToken
+  
+  let transmute: Direction -> Uint128 -> Uint128 -> Uint128 -> Option Uint128 =
+    fun( d: Direction ) => fun( a: Uint128 ) => fun( r: Uint128 ) => fun( f: Uint128) =>
+    let big_a = grow a in let big_r = grow r in let big_f = grow f in
+    let result = match d with
+    | TokenToSsi =>
+        let a_times_r = builtin mul big_a big_r in
+        builtin div a_times_r big_f
+    | SsiToToken =>
+        let a_div_r = builtin div big_a big_r in
+        builtin mul a_div_r big_f end in
+    builtin to_uint128 result
+
+contract SSI_Dollar(
+  init_controller: ByStr20,
+  proxy: ByStr20 with contract 
+    field balances: Map ByStr20 Uint128,
+    field total_supply: Uint128,
+    field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) end,
+  init_token: ByStr20,
+  init_community: ByStr20 with contract
+    field rate: Uint128,
+    field factor: Uint128 end
+  )
+  field controller: ByStr20 = init_controller
+  field paused: Bool = False
+  field insurance: ByStr20 = init_controller
+  field pauser: ByStr20 = init_controller
+  field lister: ByStr20 = init_controller
+  field blocked: Map ByStr20 Bool = Emp ByStr20 Bool
+  field counter: Uint128 = zero
+  field token: ByStr20 = init_token
+  field community: ByStr20 with contract field rate: Uint128, field factor: Uint128 end = init_community
+
+procedure ThrowError( err: Error )
+  e = make_error err; throw e end
+
+procedure ThrowIfNotProxy()
+  verified = builtin eq proxy _sender; match verified with
+  | True => | False => err= CodeNotProxy; ThrowError err end end
+
+procedure VerifyController()
+  current_controller <- controller;
+  verified = builtin eq _origin current_controller; match verified with
+  | True => | False => err = CodeWrongCaller; ThrowError err end end
+
+procedure IsPauser()
+  current_pauser <- pauser;
+  verified = builtin eq _origin current_pauser; match verified with
+  | True  => | False => err = CodeWrongCaller; ThrowError err end end
+
+procedure IsPaused()
+  is_paused <- paused; match is_paused with
+  | True => | False => err = CodeNotPaused; ThrowError err end end
+
+procedure IsNotPaused()
+  is_paused <- paused; match is_paused with
+  | False => | True => err = CodeIsPaused; ThrowError err end end
+  
+procedure IsLister()
+  current_lister <- lister;
+  verified = builtin eq current_lister _origin; match verified with
+  | True  => | False => err = CodeWrongCaller; ThrowError err end end
+
+procedure IsBlocked( addr: ByStr20 )
+  is_blocked <- exists blocked[addr]; match is_blocked with
+  | True => | False => err = CodeNotBlocked; ThrowError err end end
+
+procedure IsNotNull( addr: ByStr20 )
+  is_null = builtin eq zeroByStr20 addr; match is_null with
+  | False => | True => err = CodeIsNull; ThrowError err end end
+
+procedure IsNotBlocked( addr: ByStr20 )
+  IsNotNull addr;
+  is_blocked <- exists blocked[addr]; match is_blocked with
+  | False => | True => err = CodeIsBlocked; ThrowError err end end
+
+procedure ThrowIfSameAddr(
+  a: ByStr20,
+  b: ByStr20
+  )
+  is_self = builtin eq a b; match is_self with
+  | False => | True => err = CodeSameAddress; ThrowError err end end
+
+procedure IsSufficient(
+  value: Uint128,
+  amount: Uint128
+  )
+  is_sufficient = uint128_ge value amount; match is_sufficient with
+  | True => | False => err = CodeIsInsufficient; ThrowError err end end
+
+transition UpdateController( addr: ByStr20 )
+  IsNotPaused; VerifyController; IsNotNull addr;
+  current_controller <- controller; ThrowIfSameAddr current_controller addr;
+  controller := addr;
+  e = { _eventname: "ControllerUpdated";
+    new_addr: addr }; event e end
+
+transition UpdatePauser( new_pauser: ByStr20 )
+  IsNotPaused; VerifyController; IsNotNull new_pauser;
+  current_pauser <- pauser;
+  ThrowIfSameAddr current_pauser new_pauser; pauser := new_pauser;
+  e = { _eventname: "PauserUpdated";
+    pauser_updated: new_pauser }; event e end
+
+transition Pause()
+  ThrowIfNotProxy; IsPauser;
+  IsNotPaused; paused := true;
+  e = { _eventname: "SmartContractPaused";
+    pauser: _origin }; event e end
+
+transition Unpause()
+  ThrowIfNotProxy; IsPauser;
+  IsPaused; paused := false;
+  e = { _eventname: "SmartContractUnpaused";
+    pauser: _origin }; event e end
+
+transition UpdateLister( new_addr: ByStr20 )
+  IsNotPaused; VerifyController; IsNotNull new_addr;
+  current_lister <- lister; ThrowIfSameAddr current_lister new_addr; lister:= new_addr;
+  e = { _eventname: "ListerUpdated";
+    newAddr: new_addr }; event e end
+
+transition Block( addr: ByStr20 )
+  IsNotPaused; IsLister;
+  IsNotBlocked addr; blocked[addr] := true;
+  e = { _eventname: "AddressBlocked";
+    address: addr;
+    lister: _origin }; event e end
+
+transition Unblock( addr: ByStr20 )
+  IsNotPaused; IsLister;
+  IsBlocked addr; delete blocked[addr];
+  e = { _eventname: "AddressUnblocked";
+    address: addr;
+    lister: _origin }; event e end
+    
+transition UpdateInsurance( addr: ByStr20 )
+  IsNotPaused; VerifyController; IsNotNull addr;
+  current_insurance <- insurance; ThrowIfSameAddr current_insurance addr; insurance := addr;
+  e = { _eventname: "InsuranceAddressUpdated";
+    new_addr: addr }; event e end
+
+transition UpdateToken( addr: ByStr20 )
+  IsNotPaused; VerifyController; IsNotNull addr;
+  current_addr <- token; ThrowIfSameAddr current_addr addr; token := addr;
+  e = { _eventname: "TokenAddressUpdated";
+    new_addr: addr }; event e end
+
+transition UpdateCommunity( addr: ByStr20 with contract field rate: Uint128, field factor: Uint128 end )
+  IsNotPaused; VerifyController; IsNotNull addr;
+  current_addr <- community; ThrowIfSameAddr current_addr addr; community := addr;
+  e = { _eventname: "CommunityAddressUpdated";
+    new_addr: addr }; event e end
+    
+procedure IsValidToSelf( addr: ByStr20 )
+  is_valid = builtin eq addr _this_address; match is_valid with
+  | True => | False => err = CodeWrongCaller; ThrowError err end end
+
+transition Mint(
+  originator: ByStr20,
+  beneficiary: ByStr20,
+  amount: Uint128
+  )
+  IsNotPaused; ThrowIfNotProxy;
+  IsNotBlocked originator;
+  current_token <- token;
+  msg = let m = { _tag: "Burn"; _recipient: current_token; _amount: zero;
+    beneficiary: originator;
+    amount: amount
+  } in one_msg m; send msg;
+  msg_to_minter = let m = { _tag: "MintSuccessCallBack"; _recipient: originator; _amount: zero;
+    minter: originator;
+    beneficiary: originator;
+    amount: amount
+  } in one_msg m; send msg_to_minter end
+  
+transition BurnSuccessCallBack(
+  minter: ByStr20,
+  beneficiary: ByStr20,
+  amount: Uint128
+  )
+  IsValidToSelf minter;
+  current_community <- community; current_rate <-& current_community.rate; current_factor <-& current_community.factor;
+  get_dollars = transmute tokenToSsi amount current_rate current_factor; ssi_dollars = option_uint128_value get_dollars;
+  current_supply <-& proxy.total_supply; new_supply = builtin add current_supply ssi_dollars;
+  get_bal <-& proxy.balances[beneficiary]; bal = option_uint128_value get_bal; new_bal = builtin add bal ssi_dollars;
+  e = { _eventname: "Minted";
+    beneficiary: beneficiary;
+    amount: ssi_dollars
+  }; event e;
+  msg_to_proxy = { _tag: "TransmuteCallBack"; _recipient: proxy; _amount: zero;
+    beneficiary: beneficiary;
+    new_balance: new_bal;
+    new_supply: new_supply
+  };
+  msg_to_beneficiary = { _tag: "RecipientAcceptMint"; _recipient: beneficiary; _amount: zero;
+    minter: beneficiary;
+    beneficiary: beneficiary;
+    amount: ssi_dollars
+  }; msgs = two_msgs msg_to_proxy msg_to_beneficiary; send msgs end
+  
+transition Transfer(
+  originator: ByStr20,
+  beneficiary: ByStr20,
+  amount: Uint128
+  )
+  IsNotPaused; ThrowIfNotProxy;
+  IsNotBlocked originator; IsNotNull beneficiary; IsNotBlocked beneficiary; ThrowIfSameAddr originator beneficiary;
+  get_originator_bal <-& proxy.balances[originator]; originator_bal = option_uint128_value get_originator_bal;
+  IsSufficient originator_bal amount; new_originator_bal = builtin sub originator_bal amount;
+  get_beneficiary_bal <-& proxy.balances[beneficiary]; beneficiary_bal = option_uint128_value get_beneficiary_bal;
+  new_beneficiary_bal = builtin add beneficiary_bal amount;
+  e = { _eventname: "TransferSuccess";
+    originator: originator;
+    beneficiary: beneficiary;
+    amount: amount }; event e;
+  msg_to_proxy = { _tag: "TransferCallBack"; _recipient: _sender; _amount: zero;
+    originator: originator;
+    beneficiary: beneficiary;
+    new_originator_bal: new_originator_bal;
+    new_beneficiary_bal: new_beneficiary_bal
+  };
+  msg_to_originator = { _tag: "TransferSuccessCallBack"; _recipient: originator; _amount: zero;
+    sender: originator;
+    recipient: beneficiary;
+    amount: amount
+  };
+  msg_to_beneficiary = { _tag: "RecipientAcceptTransfer"; _recipient: beneficiary; _amount: zero;
+    sender: originator;
+    recipient: beneficiary;
+    amount: amount
+  }; msgs = three_msgs msg_to_proxy msg_to_originator msg_to_beneficiary; send msgs end
+
+transition IncreaseAllowance(
+  originator: ByStr20,
+  spender: ByStr20,
+  amount: Uint128
+  )
+  IsNotPaused; ThrowIfNotProxy;
+  IsNotBlocked originator; IsNotBlocked spender; ThrowIfSameAddr originator spender;
+  get_allowance <-& proxy.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
+  new_allowance = builtin add allowance amount;
+  e = { _eventname: "IncreasedAllowance";
+    originator: originator;
+    spender: spender;
+    new_allowance : new_allowance }; event e;
+  msg = let m = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
+    originator: originator;
+    spender: spender;
+    new_allowance: new_allowance
+  } in one_msg m; send msg end
+
+transition DecreaseAllowance(
+  originator: ByStr20,
+  spender: ByStr20,
+  amount: Uint128
+  )
+  IsNotPaused; ThrowIfNotProxy;
+  IsNotBlocked originator; IsNotBlocked spender; ThrowIfSameAddr originator spender;
+  get_allowance <-& proxy.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
+  new_allowance = better_subtract allowance amount;
+  e = { _eventname: "DecreasedAllowance";
+    originator: originator;
+    spender: spender;
+    new_allowance: new_allowance }; event e;
+  msg = let m = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
+    originator: originator;
+    spender: spender;
+    new_allowance: new_allowance
+  } in one_msg m; send msg end
+
+transition Burn(
+  originator: ByStr20,
+  beneficiary: ByStr20,
+  amount: Uint128
+  )
+  IsNotPaused; ThrowIfNotProxy; VerifyController; (* Only the Controller can burn $SI and mint TYRON. *)
+  IsNotBlocked originator;
+  get_bal <-& proxy.balances[originator]; bal = option_uint128_value get_bal; IsSufficient bal amount;
+  current_token <- token;
+  current_community <- community; current_rate <-& current_community.rate; current_factor <-& current_community.factor;
+  get_tokens = transmute ssiToToken amount current_rate current_factor; token_amount = option_uint128_value get_tokens;
+  msg = let m = { _tag: "Mint"; _recipient: current_token; _amount: zero;
+    beneficiary: originator;
+    amount: token_amount
+  } in one_msg m; send msg;
+  current_supply <-& proxy.total_supply; new_supply = builtin sub current_supply amount;
+  new_bal = builtin sub bal amount;
+  msg_to_proxy = { _tag: "TransmuteCallBack"; _recipient: proxy; _amount: zero;
+    beneficiary: originator;
+    new_balance: new_bal;
+    new_supply: new_supply
+  };
+  msg_to_minter = { _tag: "BurnSuccessCallBack"; _recipient: originator; _amount: zero;
+    minter: originator;
+    beneficiary: originator;
+    amount: amount
+  };
+  msg_to_beneficiary = { _tag: "RecipientAcceptBurn"; _recipient: originator; _amount: zero;
+    minter: originator;
+    beneficiary: originator;
+    amount: amount
+  }; 
+  msgs = three_msgs msg_to_proxy msg_to_minter msg_to_beneficiary; send msgs;
+  e = { _eventname: "Burnt";
+    minter: originator;
+    beneficiary: originator;
+    amount: amount
+  }; event e end
+
+transition MintSuccessCallBack(
+  minter: ByStr20,
+  beneficiary: ByStr20,
+  amount: Uint128
+  )
+  IsValidToSelf minter end
+
+transition TransferFrom(
+  originator: ByStr20,
+  spender: ByStr20,
+  beneficiary: ByStr20, 
+  amount: Uint128
+  )
+  IsNotPaused; ThrowIfNotProxy;
+  IsNotBlocked originator; IsNotBlocked spender; IsNotBlocked beneficiary; ThrowIfSameAddr originator beneficiary;
+  get_originator_bal <-& proxy.balances[originator]; originator_bal = option_uint128_value get_originator_bal;
+  IsSufficient originator_bal amount;
+  get_allowance <-& proxy.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
+  IsSufficient allowance amount;
+  get_beneficiary_bal <-& proxy.balances[beneficiary]; beneficiary_bal = option_uint128_value get_beneficiary_bal;
+  new_originator_bal = builtin sub originator_bal amount; new_allowance = builtin sub allowance amount; new_beneficiary_bal = builtin add beneficiary_bal amount;
+  e = { _eventname: "TransferFromSuccess";
+    originator: originator;
+    spender: spender;
+    beneficiary: beneficiary;
+    amount: amount }; event e;
+  msg_to_proxy_balances = { _tag: "TransferCallBack"; _recipient: _sender; _amount: zero;
+    originator: originator;
+    beneficiary: beneficiary;
+    new_originator_bal: new_originator_bal;
+    new_beneficiary_bal: new_beneficiary_bal
+  };
+  msg_to_proxy_allowance = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
+    originator: originator;
+    spender: spender;
+    new_allowance: new_allowance
+  };
+  msg_to_spender = { _tag: "TransferFromSuccessCallBack"; _recipient: spender; _amount: zero;
+    initiator: spender;
+    sender: originator;
+    recipient: beneficiary;
+    amount: amount
+  };
+  msg_to_beneficiary = { _tag: "RecipientAcceptTransferFrom"; _recipient: beneficiary; _amount: zero;
+    initiator: spender;
+    sender: originator;
+    recipient: beneficiary;
+    amount: amount
+  }; msgs = four_msgs msg_to_proxy_balances msg_to_proxy_allowance msg_to_spender msg_to_beneficiary; send msgs end
+
+procedure TransferNFTUsernameUpgrade_( addr: ByStr20 )
+  current_counter <- counter; one = Uint128 1; new_counter = builtin add current_counter one; counter := new_counter;
+  current_insurance <- insurance; IsNotBlocked current_insurance; IsNotNull addr; IsNotBlocked addr; ThrowIfSameAddr current_insurance addr;
+  get_insurance_bal <-& proxy.balances[current_insurance]; insurance_bal = option_uint128_value get_insurance_bal;
+  new_insurance_bal = builtin sub insurance_bal new_counter;
+  get_addr_bal <-& proxy.balances[addr]; addr_bal = option_uint128_value get_addr_bal;
+  new_addr_bal = builtin add addr_bal one;
+  msg = let m = { _tag: "TransferCallBack"; _recipient: proxy; _amount: zero;
+    originator: current_insurance;
+    beneficiary: addr;
+    new_originator_bal: new_insurance_bal;
+    new_beneficiary_bal: new_addr_bal } in one_msg m; send msg end
+
+transition TransferNFTUsernameUpgrade( addr: List ByStr20 )
+  IsNotPaused; VerifyController;
+  counter := zero;
+  forall addr TransferNFTUsernameUpgrade_ end
+
+transition Recalibrate( amount: Uint128 )
+  IsNotPaused; VerifyController; current_insurance <- insurance;
+  get_insurance_bal <-& proxy.balances[current_insurance]; insurance_bal = option_uint128_value get_insurance_bal;
+  new_insurance_bal = builtin sub insurance_bal amount;
+  msg = let m = { _tag: "TransferCallBack"; _recipient: proxy; _amount: zero;
+    originator: current_insurance;
+    beneficiary: current_insurance;
+    new_originator_bal: new_insurance_bal;
+    new_beneficiary_bal: new_insurance_bal } in one_msg m; send msg end
+
+transition UpdateTreasury(
+  old: ByStr20,
+  new: ByStr20
+  )
+  IsNotPaused; VerifyController;
+  get_old_bal <-& proxy.balances[old]; old_bal = option_uint128_value get_old_bal;
+  get_new_bal <-& proxy.balances[new]; new_bal = option_uint128_value get_new_bal;
+  new_bal = builtin add old_bal new_bal;
+  msg = let m = { _tag: "TransferCallBack"; _recipient: proxy; _amount: zero;
+    originator: old;
+    beneficiary: new;
+    new_originator_bal: zero;
+    new_beneficiary_bal: new_bal } in one_msg m; send msg end

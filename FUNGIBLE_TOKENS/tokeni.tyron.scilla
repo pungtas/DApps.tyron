@@ -1,7 +1,7 @@
 (* v2.7.0
-tokeni.tyron: fungible token <> Implementation smart contract
+tokeni.tyron: Fungible token <> Implementation smart contract
 Self-Sovereign Identity Protocol
-Copyright (C) Tyron Pungtas and its affiliates.
+Copyright (C) TYRON Pungtas and its affiliates.
 www.ssiprotocol.com
 
 This program is free software: you can redistribute it and/or modify
@@ -18,7 +18,7 @@ scilla_version 0
 
 import IntUtils
 
-library TokenI
+library FungibleTokenI
   let one_msg =
     fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
@@ -91,7 +91,7 @@ library TokenI
   type Account =
     | Account of BNum Uint128 Uint128 Uint128
 
-contract TokenI(
+contract FungibleTokenI(
   init_controller: ByStr20,
   proxy: ByStr20 with contract 
     field balances: Map ByStr20 Uint128,
@@ -135,11 +135,6 @@ procedure IsNotPaused()
   is_paused <- paused; match is_paused with
   | False => | True => err = CodeIsPaused; ThrowError err end end
 
-procedure IsMinter( addr: ByStr20 )
-  current_minter <- minter; IsNotBlocked current_minter;
-  verified = builtin eq addr current_minter; match verified with
-  | True  => | False => err = CodeWrongCaller; ThrowError err end end
-  
 procedure IsLister()
   current_lister <- lister;
   verified = builtin eq current_lister _origin; match verified with
@@ -157,6 +152,11 @@ procedure IsNotBlocked( addr: ByStr20 )
   IsNotNull addr;
   is_blocked <- exists blocked[addr]; match is_blocked with
   | False => | True => err = CodeIsBlocked; ThrowError err end end
+  
+procedure IsMinter( addr: ByStr20 )
+  current_minter <- minter; IsNotBlocked current_minter;
+  verified = builtin eq addr current_minter; match verified with
+  | True  => | False => err = CodeWrongCaller; ThrowError err end end
 
 procedure ThrowIfSameAddr(
   a: ByStr20,

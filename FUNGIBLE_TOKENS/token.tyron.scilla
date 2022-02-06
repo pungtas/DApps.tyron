@@ -1,5 +1,5 @@
 (* v2.3.0
-token.tyron: fungible token <> Proxy smart contract
+token.tyron: Fungible token <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) TYRON Pungtas and its affiliates.
 www.ssiprotocol.com
@@ -51,8 +51,8 @@ contract FungibleToken(
   name: String,
   symbol: String,
   decimals: Uint32,
-  init_balances: Map ByStr20 Uint128,
-  init_supply: Uint128
+  init_supply: Uint128,
+  init_balances: Map ByStr20 Uint128
   )
   with
     let string_is_not_empty = fun( s : String ) =>
