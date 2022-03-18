@@ -1,5 +1,5 @@
-(* v2.5.1
-initi.tyron: SSI initialization & DNS <> Implementation smart contract
+(* v2.6.0
+initi.tyron: SSI Initialization & DNS <> Implementation smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
@@ -124,6 +124,7 @@ library DID
   let one = Uint32 1
   let two = Uint32 2
   let three = Uint32 3
+  let six = Uint32 6
   
   type Beneficiary =
     | NFTUsername of String
@@ -136,7 +137,7 @@ library DID
   let treasury = "treasury"
   let treasury_ = 0xc85f935a41d3cc46212f5f758ba74ac72e4c26fc
   
-  let compare_member = fun( addr: ByStr20 ) => fun( member: ByStr20 ) => builtin eq addr member
+  let compare_participant = fun( addr: ByStr20 ) => fun( participant: ByStr20 ) => builtin eq addr participant
   
 contract InitI(
   init_controller: ByStr20,
@@ -596,12 +597,12 @@ transition Transfer(
   match beneficiary with
   | NFTUsername username =>
       get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
-      accept; msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
         to: addr;
         amount: amount } in one_msg m ; send msg
   | Recipient addr =>
       ThrowIfSameAddr _this_address addr;
-      accept; msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
         to: addr;
         amount: amount } in one_msg m ; send msg end; Timestamp end
 
@@ -733,26 +734,28 @@ transition BuyNFTUsername(
   get_addr <-& init.dns[username]; match get_addr with
   | Some addr_ => err = CodeNFTUsernameTaken; ThrowError err
   | None =>
-      get_fee <- utility[did]; match get_fee with
-      | None => err = CodeNotValid; ThrowError err
-      | Some fee =>
-          list_mem = @list_mem ByStr20;
-          list <- free_list;
-          is_member = list_mem compare_member _origin list;
-          match is_member with
-          | True =>
-              list_filter = @list_filter ByStr20; remove_member = fun( member: ByStr20 ) => let is_addr = builtin eq _origin member in negb is_addr;
-              list_updated = list_filter remove_member list;
-              free_list := list_updated
-          | False => 
-              tyron_addr <- services[tyron]; tyron_ = option_bystr20_value tyron_addr;
-              msg = let m = { _tag: "TransferFrom"; _recipient: tyron_; _amount: zero;
+      list_part = @list_mem ByStr20; list <- free_list;
+      is_participant = list_part compare_participant _origin list;
+      match is_participant with
+      | True =>
+          list_filter = @list_filter ByStr20; remove_participant = fun( participant: ByStr20 ) => let is_addr = builtin eq _origin participant in negb is_addr;
+          list_updated = list_filter remove_participant list;
+          free_list := list_updated
+      | False =>
+          id = builtin substr username zero_ six;
+          get_fee <- utility[did]; match get_fee with
+          | None => err = CodeNotValid; ThrowError err
+          | Some fee =>
+              get_addrName <- services[id]; addrName = option_bystr20_value get_addr;
+              msg = let m = { _tag: "TransferFrom"; _recipient: addrName; _amount: zero;
                 from: addr;
                 to: _this_address;
                 amount: fee } in one_msg m; send msg end end end;
-  NFTUsernameCallBack username addr;
+  username_ = let total_len = builtin strlen username in let len = builtin sub total_len six in
+    builtin substr username six len;
+  NFTUsernameCallBack username_ addr;
   match guardianship with
-  | None => | Some guardian => NFTGuardianshipCallBack username guardian end end
+  | None => | Some guardian => NFTGuardianshipCallBack username_ guardian end end
 
 transition UpdateGuardianship(
   username: String,
@@ -780,17 +783,29 @@ transition TransferNFTUsername(
   match is_owner with
   | False => err = CodeWrongCaller; ThrowError err
   | True =>
-      get_fee <- utility[transfer]; match get_fee with
-      | None => err = CodeNotValid; ThrowError err
-      | Some fee =>
-          tyron_addr <- services[tyron]; tyron_ = option_bystr20_value tyron_addr;
-          msg = let m = { _tag: "TransferFrom"; _recipient: tyron_; _amount: zero;
-            from: addr;
-            to: _this_address;
-            amount: fee } in one_msg m; send msg end end;
-  NFTUsernameCallBack username newAddr;
+      list_part = @list_mem ByStr20; list <- free_list;
+      is_participant = list_part compare_participant _origin list;
+      match is_participant with
+      | True =>
+          list_filter = @list_filter ByStr20;
+          remove_participant = fun( participant: ByStr20 ) => let is_addr = builtin eq _origin participant in negb is_addr;
+          list_updated = list_filter remove_participant list;
+          free_list := list_updated
+      | False =>
+          id = builtin substr username zero_ six;
+          get_fee <- utility[did]; match get_fee with
+          | None => err = CodeNotValid; ThrowError err
+          | Some fee =>
+              get_addrName <- services[id]; addrName = option_bystr20_value get_addr_;
+              msg = let m = { _tag: "TransferFrom"; _recipient: addrName; _amount: zero;
+                from: addr;
+                to: _this_address;
+                amount: fee } in one_msg m; send msg end end end;
+  username_ = let total_len = builtin strlen username in let len = builtin sub total_len six in
+    builtin substr username six len;
+  NFTUsernameCallBack username_ newAddr;
   match guardianship with
-  | Some guardian => NFTGuardianshipCallBack username guardian
+  | Some guardian => NFTGuardianshipCallBack username_ guardian
   | None =>
       msg = let m = { _tag: "RemoveGuardianshipCallBack"; _recipient: _sender; _amount: zero;
-        username: username } in one_msg m; send msg end end
+        username: username_ } in one_msg m; send msg end end

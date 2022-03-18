@@ -1,4 +1,4 @@
-(* v4.6.0
+(* v4.7.0
 xwallet.tyron: W3C Decentralized Identifier smart contract wallet (DIDxWallet)
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -104,16 +104,13 @@ library DID
   let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
 
   (* xWallet library *)
-  let domain = "did"
-  let transfer = "transfer"
   let tyron_ = "tyron"
-  let zil = "zil"
-  let treasury = "treasury"
   let empty_guardians = Emp ByStr32 Bool
   let zero_ = Uint32 0
   let one = Uint32 1
   let two = Uint32 2
   let three = Uint32 3
+  let six = Uint32 6
   
   type Beneficiary =
     | NFTUsername of String
@@ -278,10 +275,6 @@ procedure SaveDocument( document: Document )
               | Uri eType protocol uri => services_[id] := endpoint end end
       | Remove => err = CodeNotValid; ThrowError err end end end
 
-procedure CreateDid()
-  new_did = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address in
-  builtin concat did_prefix did_suffix; did := new_did end
-
 transition DidCreate(
   document: List Document,
   signature: Option ByStr64,
@@ -291,7 +284,8 @@ transition DidCreate(
   match current_status with
   | Deployed =>
       VerifyController tyron;
-      CreateDid;
+      new_did = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address in
+      builtin concat did_prefix did_suffix; did := new_did;
       forall document SaveDocument;
       get_recovery_key <- verification_methods[recovery]; ThrowIfNoKey get_recovery_key; did_recovery = option_bystr33_value get_recovery_key;
       get_update_key <- verification_methods[update]; ThrowIfNoKey get_update_key; did_update = option_bystr33_value get_update_key;
@@ -567,31 +561,17 @@ procedure IncreaseAllowance(
     spender: init_did;
     amount: amount } in one_msg m ; send msg end
 
-procedure ZilToTyron(
-  amount: Uint128,
-  fee: Uint128
-  )
-  FetchServiceAddr treasury; get_treasury <- services[treasury]; treasury_addr = option_bystr20_value get_treasury;
-  accept; msg = let m = { _tag: "ZilToTyron"; _recipient: treasury_addr; _amount: amount;
-    amount: fee } in one_msg m; send msg end
-
 transition BuyNFTUsername(
   username: String,
   guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
-  id: String,
-  amount: Uint128,
   tyron: Option Uint128
   )
-  IsOperational; VerifyController tyron; init_did <-& init.implementation;
-  get_fee <-& init_did.utility[domain]; fee = option_uint128_value get_fee;
-  is_free = let free = "free" in builtin eq id free; match is_free with
+  IsOperational; VerifyController tyron;
+  id = builtin substr username zero_ six;
+  is_free = let free = "free00" in builtin eq id free; match is_free with
   | True => | False =>
-    is_tyron = builtin eq id tyron_; match is_tyron with
-    | True => | False =>
-        is_zil = builtin eq id zil; match is_zil with
-        | True => ZilToTyron amount fee
-        | False => err = CodeNotValid; ThrowError err end end;
-    IncreaseAllowance tyron_ fee end;
+    init_did <-& init.implementation; get_fee <-& init_did.utility[id]; fee = option_uint128_value get_fee;
+    IncreaseAllowance id fee end;
   msg = let m = { _tag: "BuyNFTUsername"; _recipient: init; _amount: zero;
     username: username;
     guardianship: guardianship } in one_msg m; send msg; Timestamp end
@@ -600,19 +580,14 @@ transition TransferNFTUsername(
   username: String,
   newAddr: ByStr20,
   guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
-  id: String,
-  amount: Uint128,
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron; ThrowIfSameAddr _this_address newAddr;
-  init_did <-& init.implementation;
-  get_fee <-& init_did.utility[transfer]; fee = option_uint128_value get_fee;
-  is_tyron = builtin eq id tyron_; match is_tyron with
-  | True => | False =>
-    is_zil = builtin eq id zil; match is_zil with
-    | True => ZilToTyron fee amount
-    | False => err = CodeNotValid; ThrowError err end end;
-  IncreaseAllowance tyron_ fee;
+  id = builtin substr username zero_ six;
+  is_free = let free = "free00" in builtin eq id free; match is_free with
+  | True => | False => 
+    init_did <-& init.implementation; get_fee <-& init_did.utility[id]; fee = option_uint128_value get_fee;
+    IncreaseAllowance id fee end;
   msg = let m = { _tag: "TransferNFTUsername"; _recipient: init; _amount: zero;
     username: username;
     newAddr: newAddr;
@@ -624,9 +599,9 @@ transition UpdateGuardianship(
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron; 
-  accept; msg = let m = { _tag: "TransferNFTUsername"; _recipient: init; _amount: zero;
+  msg = let m = { _tag: "UpdateGuardianship"; _recipient: init; _amount: zero;
     username: username;
-    guardian: guardian } in one_msg m; send msg; Timestamp end
+    addr: guardian } in one_msg m; send msg; Timestamp end
 
 (* Receive $ZIL native funds *)
 transition AddFunds()
@@ -659,12 +634,12 @@ transition Transfer(
   match beneficiary with
   | NFTUsername username =>
       get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
-      accept; msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
         to: addr;
         amount: amount } in one_msg m ; send msg
   | Recipient addr =>
       ThrowIfSameAddr _this_address addr;
-      accept; msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
         to: addr;
         amount: amount } in one_msg m ; send msg end; Timestamp end
 
@@ -684,14 +659,6 @@ transition Dns(
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron; ThrowIfSameAddr _this_address addr;
-  current_status <- did_status;
-  match current_status with
-  | Deployed =>
-      CreateDid;
-      new_status = Created; did_status := new_status;
-      current_block <- &BLOCKNUMBER; did_created := current_block
-  | _ =>
-      new_status = Updated; did_status := new_status end;
   verification_methods[domain] := didKey; dkms[domain] := encrypted;
   dns[domain] := addr; Timestamp end
   
@@ -714,9 +681,9 @@ transition XPoints(
 procedure TransferTokens( input: Pair String Uint128 )
   addr_name = let fst_element = @fst String Uint128 in fst_element input;
   amount = let snd_element = @snd String Uint128 in snd_element input;
-  FetchServiceAddr addr_name; get_token_addr <- services[addr_name]; token_addr = option_bystr20_value get_token_addr;
+  FetchServiceAddr addr_name; get_addr <- services[addr_name]; addr = option_bystr20_value get_addr;
   recipient <- controller;
-  msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+  msg = let m = { _tag: "Transfer"; _recipient: addr; _amount: zero;
     to: recipient;
     amount: amount } in one_msg m ; send msg end
 
@@ -724,23 +691,18 @@ transition Upgrade(
   username: Option String,
   recipient: ByStr20,
   guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
-  id: String,
-  amount: Uint128,
   tokens: List( Pair String Uint128 ),
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron;
   ThrowIfSameAddr _this_address recipient;
   match username with
-  | None => | Some name => 
-      init_did <-& init.implementation;
-      get_fee <-& init_did.utility[transfer]; fee = option_uint128_value get_fee;
-      is_tyron = builtin eq id tyron_; match is_tyron with
+  | None => | Some name =>
+      id = builtin substr name zero_ six;
+      is_free = let free = "free00" in builtin eq id free; match is_free with
       | True => | False =>
-        is_zil = builtin eq id zil; match is_zil with
-        | True => ZilToTyron fee amount
-        | False => err = CodeNotValid; ThrowError err end end;
-      IncreaseAllowance tyron_ fee;
+        init_did <-& init.implementation; get_fee <-& init_did.utility[id]; fee = option_uint128_value get_fee;
+        IncreaseAllowance id fee end;
       msg = let m = { _tag: "TransferNFTUsername"; _recipient: init; _amount: zero;
         username: name;
         newAddr: recipient;

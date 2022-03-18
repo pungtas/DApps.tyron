@@ -1,6 +1,6 @@
-(* v3.3.0
-did.tyron: W3C decentralized identifier smart contract
-Tyron Self-Sovereign Identity Protocol
+(* v3.4.0
+did.tyron: W3C Decentralized Identifier DApp
+Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
 
@@ -54,7 +54,6 @@ library DID
   let didUpdate = Update
   let update = "update"
   let recovery = "recovery"
-  let didsr = "socialrecovery"
   let actionAdd = "add"
   let actionRemove = "remove"
   let empty_methods = Emp String ByStr33

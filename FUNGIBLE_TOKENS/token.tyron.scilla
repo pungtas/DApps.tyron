@@ -1,7 +1,7 @@
-(* v2.3.0
-token.tyron: Fungible token <> Proxy smart contract
+(* v2.4.0
+token.tyron: Fungible Token DApp <> Proxy smart contract
 Self-Sovereign Identity Protocol
-Copyright (C) TYRON Pungtas and its affiliates.
+Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
 
 This program is free software: you can redistribute it and/or modify
@@ -45,7 +45,7 @@ library FungibleToken
   let implementation_ = Implementation
   
 contract FungibleToken(
-  init_controller: ByStr20 with contract 
+  contract_owner: ByStr20 with contract 
     field controller: ByStr20,
     field paused: Bool end,
   name: String,
@@ -73,7 +73,7 @@ contract FungibleToken(
   =>
   field implementation: ByStr20 with contract
     field controller: ByStr20,
-    field paused: Bool end = init_controller
+    field paused: Bool end = contract_owner
   field balances: Map ByStr20 Uint128 = init_balances
   field total_supply: Uint128 = init_supply
   field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )

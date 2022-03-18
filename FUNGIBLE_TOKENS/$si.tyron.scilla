@@ -1,7 +1,7 @@
 (* v0.9.0
-$si.tyron: Self-Sovereign Identity Dollar - Fungible algorithmic stablecoin <> Implementation smart contract
+$si.tyron: Self-Sovereign Identity Dollar DApp, Fungible Algorithmic Stablecoin <> Implementation smart contract
 Self-Sovereign Identity Protocol
-Copyright (C) TYRON Pungtas and its affiliates.
+Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
 
 This program is free software: you can redistribute it and/or modify
@@ -288,10 +288,6 @@ transition BurnSuccessCallBack(
   get_dollars = transmute tokenToSsi amount current_rate current_factor; ssi_dollars = option_uint128_value get_dollars;
   current_supply <-& proxy.total_supply; new_supply = builtin add current_supply ssi_dollars;
   get_bal <-& proxy.balances[beneficiary]; bal = option_uint128_value get_bal; new_bal = builtin add bal ssi_dollars;
-  e = { _eventname: "Minted";
-    beneficiary: beneficiary;
-    amount: ssi_dollars
-  }; event e;
   msg_to_proxy = { _tag: "TransmuteCallBack"; _recipient: proxy; _amount: zero;
     beneficiary: beneficiary;
     new_balance: new_bal;
@@ -301,7 +297,11 @@ transition BurnSuccessCallBack(
     minter: beneficiary;
     beneficiary: beneficiary;
     amount: ssi_dollars
-  }; msgs = two_msgs msg_to_proxy msg_to_beneficiary; send msgs end
+  }; msgs = two_msgs msg_to_proxy msg_to_beneficiary; send msgs;
+  e = { _eventname: "Minted";
+    beneficiary: beneficiary;
+    amount: ssi_dollars
+  }; event e end
   
 transition Transfer(
   originator: ByStr20,
@@ -378,7 +378,7 @@ transition Burn(
   beneficiary: ByStr20,
   amount: Uint128
   )
-  IsNotPaused; ThrowIfNotProxy; VerifyController; (* Only the Controller can burn $SI and mint TYRON. *)
+  IsNotPaused; ThrowIfNotProxy; VerifyController; (* Only the Controller can origin the burn of $SI to mint the token *)
   IsNotBlocked originator;
   get_bal <-& proxy.balances[originator]; bal = option_uint128_value get_bal; IsSufficient bal amount;
   current_token <- token;
@@ -407,7 +407,7 @@ transition Burn(
   }; 
   msgs = three_msgs msg_to_proxy msg_to_minter msg_to_beneficiary; send msgs;
   e = { _eventname: "Burnt";
-    minter: originator;
+    burner: originator;
     beneficiary: originator;
     amount: amount
   }; event e end
