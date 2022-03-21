@@ -1,6 +1,6 @@
 (* v0.5.0
-coop.tyron: decentralized identifier NFT cooperative project
-Tyron Self-Sovereign Identity Protocol
+coop.tyron: DID Domain <> NFT Cooperative Project
+Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
 
@@ -18,7 +18,7 @@ scilla_version 0
 
 import IntUtils
 
-library NFT_coop
+library Coop
 
   (* The DID library *)
 
@@ -149,7 +149,7 @@ type Endpoint =
     match pr with
     | PR member hours => hours end
     
-contract NFT_coop(
+contract Coop(
   init_admin: ByStr20,
   init_tyron: ByStr20 with contract field services_: Map String ByStr20, field dns: Map String ( Map String ByStr20 ), field psc_fee: Map String Uint128 end
   )

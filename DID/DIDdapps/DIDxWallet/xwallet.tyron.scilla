@@ -1,5 +1,5 @@
 (* v4.7.0
-xwallet.tyron: W3C Decentralized Identifier smart contract wallet (DIDxWallet)
+xwallet.tyron: W3C Decentralized Identifier Smart Contract Wallet (DIDxWallet)
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
@@ -18,7 +18,7 @@ scilla_version 0
 
 import PairUtils BoolUtils ListUtils IntUtils
 
-library DID
+library DIDxWallet
   type DIDStatus =
     | Deployed
     | Created
