@@ -1,6 +1,6 @@
-(* v0.6.1
-dex.tyron: DID Dex xWallet domain <> NFT Username DNS
-Tyron Self-Sovereign Identity Protocol
+(* v0.7.0
+ssi.tyron: DID Domain - NFT Username DNS <> Decentralized Exchange DApp
+Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
 
@@ -16,7 +16,9 @@ GNU General Public License for more details.*)
 
 scilla_version 0
 
-library Dex
+library SSI
+  let domain = "ssi"
+  
   let one_msg =
     fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
@@ -49,8 +51,6 @@ library Dex
   let option_bystr33_value = let f = @option_value ByStr33 in f zeroByStr33
   let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
   
-  let domain = "dex"
-  
   type Beneficiary =
     | NFTUsername of String
     | Recipient of ByStr20
@@ -59,11 +59,10 @@ library Dex
     | Transfer of String (Option ByStr64) String Beneficiary Uint128 (Option Uint128)
     | Dex of String (Option ByStr64) String String Uint128 Uint128 Uint128 (Option Uint128)
   
-  let zilswap = "zilswap"
   let true = True
   let false = False
 
-contract DIDDex(
+contract SSI(
   init_controller: ByStr20 with contract
     field controller: ByStr20,
     field verification_methods: Map String ByStr33,
@@ -174,13 +173,13 @@ transition UpdateController(
 transition Pause()
   VerifyController;
   IsNotPaused; paused := true;
-  e = { _eventname: "SmartContractPaused";
+  e = { _eventname: "DidDomainPaused";
     pauser: _origin }; event e end
 
 transition Unpause()
   VerifyController;
   IsPaused; paused := false;
-  e = { _eventname: "SmartContractUnpaused";
+  e = { _eventname: "DidDomainUnpaused";
     pauser: _origin }; event e end
 
 (* Receive $ZIL native funds *)
@@ -239,13 +238,14 @@ transition TransferSuccessCallBack( sender: ByStr20, recipient: ByStr20, amount 
 transition TransferFromSuccessCallBack( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsNotPaused end
 
 procedure IncreaseAllowance(
+  dex: String,
   addrID: String,
   amount: Uint128
   )
+  FetchServiceAddr dex; get_dex <- services[dex]; dex_addr = option_bystr20_value get_dex;
   FetchServiceAddr addrID; get_addr <- services[addrID]; addr = option_bystr20_value get_addr;
-  FetchServiceAddr zilswap; get_zilswap <- services[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
   msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
-    spender: zilswap_addr;
+    spender: dex_addr;
     amount: amount } in one_msg m ; send msg end
 
 transition AddLiquidity(
@@ -329,6 +329,7 @@ transition SwapExactTokensForZIL(
     recipient_address: _this_address } in one_msg m ; send msg end
     
 transition SwapExactTokensForTokens(
+  dex: String,
   signature: Option ByStr64,
   addrID: String,
   toAddrID: String,
@@ -338,8 +339,8 @@ transition SwapExactTokensForTokens(
   )
   IsNotPaused; txID = "SwapExactTokensForTokens";
   order = Dex txID signature addrID toAddrID amount minTokenAmount minTokenAmount tyron; VerifyDelegation order;
-  IncreaseAllowance addrID amount;
-  get_zilswap <- services[zilswap]; zilswap_addr = option_bystr20_value get_zilswap;
+  IncreaseAllowance dex addrID amount;
+  get_dex <- services[dex]; dex_addr = option_bystr20_value get_dex;
   get_addr <- services[addrID]; addr = option_bystr20_value get_addr;
   FetchServiceAddr toAddrID; get_toAddr <- services[toAddrID]; toAddr = option_bystr20_value get_toAddr;
   xwallet <- didxwallet; current_block <- &BLOCKNUMBER;

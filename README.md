@@ -2,7 +2,7 @@ Welcome to the open-source ```.tyron``` smart contracts, which are the core of t
 
 - [did.tyron](./DID/did.tyron.scilla): W3C Decentralized Identifier DApp
 
-- DID dapps:
+- DID dApps:
 
     - [xwallet.tyron](./DID/DIDdapps/DIDxWallet/xwallet.tyron.scilla): W3C Decentralized Identifier Smart Contract Wallet (DIDxWallet)
 

@@ -1,4 +1,4 @@
-(* v3.4.0
+(* v3.4.1 
 did.tyron: W3C Decentralized Identifier DApp
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -16,7 +16,7 @@ See the GNU General Public License for more details.*)
 
 scilla_version 0
 
-import PairUtils BoolUtils ListUtils IntUtils
+import BoolUtils
 
 library DID
 
@@ -41,14 +41,15 @@ library DID
   type TransferProtocol =
     | Https
     | Git
+    | Blockchain
 
   type Endpoint =
     | Address of ByStr20
     | Uri of String TransferProtocol String   (* type, transfer protocol & uri *)
-
+  
   type Document =
-    | VerificationMethod of Action String ByStr33 String (* add/remove, key purpose, public key & encrypted private key *)
-    | Service of Action String Endpoint (* add/remove, service ID & service *) 
+    | VerificationMethod of Action String ByStr33 String   (* add/remove, key purpose, public key & encrypted private key *)
+    | Service of Action String Endpoint   (* add/remove, service ID & service *) 
   
   let didRecovery = Recovery
   let didUpdate = Update
@@ -102,12 +103,13 @@ library DID
   let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
 
 contract DID( init_controller: ByStr20 )
-  field did: String = ""    (* the W3C decentralized identifier *)
+  field did: String = ""   (* the W3C decentralized identifier *)
   field controller: ByStr20 = init_controller
   field did_status: DIDStatus = Deployed
   
   (* Verification methods @key: key purpose @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
   field verification_methods: Map String ByStr33 = empty_methods
+  (* Decentralized Key Management System *)
   field dkms: Map String String = empty_dkms
   
   (* Services @key: ID @value: endpoint *)
