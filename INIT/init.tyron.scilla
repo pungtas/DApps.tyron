@@ -1,5 +1,5 @@
-(* v2.3.0
-init.tyron: SSI initialization & DNS <> Proxy smart contract
+(* v2.4.0
+init.tyron: SSI Initialization & DNS DApp <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
@@ -44,14 +44,12 @@ library Init
 contract Init( init_controller: ByStr20 with contract 
   field controller: ByStr20,
   field services: Map String ByStr20,
-  field paused: Bool,
-  field utility: Map String Uint128 end
+  field paused: Bool end
   )
   field implementation: ByStr20 with contract
     field controller: ByStr20,
     field services: Map String ByStr20,
-    field paused: Bool,
-    field utility: Map String Uint128 end = init_controller
+    field paused: Bool end = init_controller
 
   (* DNS records @key: NFT username @value: address *)
   field dns: Map String ByStr20 = let emp = Emp String ByStr20 in builtin put emp init init_controller
@@ -73,14 +71,14 @@ procedure VerifyCaller( caller: Caller )
       verified = builtin eq _sender current_impl; match verified with
       | True => | False => err = CodeWrongCaller; ThrowError err end end end
 
-transition UpdateImplementation( addr: ByStr20 with contract field controller: ByStr20, field services: Map String ByStr20, field paused: Bool, field utility: Map String Uint128 end )
+transition UpdateImplementation( addr: ByStr20 with contract field controller: ByStr20, field services: Map String ByStr20, field paused: Bool end )
   VerifyCaller controller_;
   current_impl <- implementation;
   is_same = builtin eq current_impl addr; match is_same with
   | False => | True => err = CodeNotValid; ThrowError err end;
   implementation := addr; dns[init] := addr;
   e = { _eventname: "ImplementationUpdated";
-    new_implementation: addr }; event e end
+    newImplementation: addr }; event e end
 
 transition NFTUsernameCallBack(
   username: String,

@@ -1,4 +1,4 @@
-(* v2.7.0
+(* v2.8.0
 tokeni.tyron: Fungible Token DApp <> Implementation smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -177,38 +177,38 @@ transition UpdateController( addr: ByStr20 )
   current_controller <- controller; ThrowIfSameAddr current_controller addr;
   controller := addr;
   e = { _eventname: "ControllerUpdated";
-    new_addr: addr }; event e end
+    newController: addr }; event e end (* @todo add pending controller *)
 
-transition UpdatePauser( new_pauser: ByStr20 )
-  IsNotPaused; VerifyController; IsNotNull new_pauser;
+transition UpdatePauser( addr: ByStr20 )
+  IsNotPaused; VerifyController; IsNotNull addr;
   current_pauser <- pauser;
-  ThrowIfSameAddr current_pauser new_pauser; pauser := new_pauser;
+  ThrowIfSameAddr current_pauser addr; pauser := addr;
   e = { _eventname: "PauserUpdated";
-    pauser_updated: new_pauser }; event e end
+    newPauser: addr }; event e end
 
 transition Pause()
   ThrowIfNotProxy; IsPauser;
   IsNotPaused; paused := true;
   e = { _eventname: "SmartContractPaused";
-    pauser: _origin }; event e end
+    pauser: _sender }; event e end
 
 transition Unpause()
   ThrowIfNotProxy; IsPauser;
   IsPaused; paused := false;
   e = { _eventname: "SmartContractUnpaused";
-    pauser: _origin }; event e end
+    pauser: _sender }; event e end
     
-transition UpdateMinter( new_addr: ByStr20 )
-  IsNotPaused; VerifyController; IsNotNull new_addr;
-  current_minter <- minter; ThrowIfSameAddr current_minter new_addr; minter:= new_addr;
+transition UpdateMinter( addr: ByStr20 )
+  IsNotPaused; VerifyController; IsNotNull addr;
+  current_minter <- minter; ThrowIfSameAddr current_minter addr; minter:= addr;
   e = { _eventname: "MinterUpdated";
-    newAddr: new_addr }; event e end
+    newMinter: addr }; event e end
 
-transition UpdateLister( new_addr: ByStr20 )
-  IsNotPaused; VerifyController; IsNotNull new_addr;
-  current_lister <- lister; ThrowIfSameAddr current_lister new_addr; lister:= new_addr;
+transition UpdateLister( addr: ByStr20 )
+  IsNotPaused; VerifyController; IsNotNull addr;
+  current_lister <- lister; ThrowIfSameAddr current_lister addr; lister:= addr;
   e = { _eventname: "ListerUpdated";
-    newAddr: new_addr }; event e end
+    newLister: addr }; event e end
 
 transition Block( addr: ByStr20 )
   IsNotPaused; IsLister;
@@ -229,14 +229,14 @@ transition UpdateFund( addr: ByStr20 )
   current_fund <- fund; ThrowIfSameAddr current_fund addr;
   fund := addr;
   e = { _eventname: "FundAddressUpdated";
-    new_addr: addr }; event e end
+    newFund: addr }; event e end
     
 transition UpdateInsurance( addr: ByStr20 )
   IsNotPaused; VerifyController; IsNotNull addr;
   current_insurance <- insurance; ThrowIfSameAddr current_insurance addr;
   insurance := addr;
   e = { _eventname: "InsuranceAddressUpdated";
-    new_addr: addr }; event e end
+    newInsurance: addr }; event e end
 
 transition UpdateLockup( new: Uint128 )
   IsNotPaused; VerifyController; lockup_period := new end
@@ -296,8 +296,7 @@ transition Mint(
   beneficiary: ByStr20,
   amount: Uint128
   )
-  IsNotPaused; ThrowIfNotProxy;
-  IsMinter originator; IsNotBlocked beneficiary;
+  IsNotPaused; ThrowIfNotProxy; IsMinter originator; IsNotBlocked beneficiary;
   current_supply <-& proxy.total_supply; new_supply = builtin add current_supply amount;
   get_bal <-& proxy.balances[beneficiary]; bal = option_uint128_value get_bal; new_bal = builtin add bal amount;
   e = { _eventname: "Minted";
@@ -366,7 +365,7 @@ transition IncreaseAllowance(
   e = { _eventname: "IncreasedAllowance";
     originator: originator;
     spender: spender;
-    new_allowance : new_allowance }; event e;
+    newAllowance: new_allowance }; event e;
   msg = let m = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     spender: spender;
@@ -385,7 +384,7 @@ transition DecreaseAllowance(
   e = { _eventname: "DecreasedAllowance";
     originator: originator;
     spender: spender;
-    new_allowance: new_allowance }; event e;
+    newAllowance: new_allowance }; event e;
   msg = let m = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     spender: spender;

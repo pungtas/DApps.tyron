@@ -1,4 +1,4 @@
-(* v2.4.0
+(* v2.5.0
 token.tyron: Fungible Token DApp <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -152,7 +152,12 @@ transition TransferCallBack(
   )
   VerifyCaller implementation_;
   balances[originator] := new_originator_bal;
-  balances[beneficiary] := new_beneficiary_bal end
+  balances[beneficiary] := new_beneficiary_bal;
+  e = {
+    _eventname: "TransferSuccess";
+    sender: originator;
+    recipient: beneficiary
+  }; event e end
 
 transition IncreaseAllowance(
   spender: ByStr20,

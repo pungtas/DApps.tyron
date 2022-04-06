@@ -4,11 +4,11 @@ Welcome to the open-source ```.tyron``` smart contracts, which are the core of t
 
 - DID dApps:
 
-    - [xwallet.tyron](./DID/DIDdapps/DIDxWallet/xwallet.tyron.scilla): W3C Decentralized Identifier Smart Contract Wallet (DIDxWallet)
+    - [xwallet.tyron](./DID/dApps/DIDxWallet/xwallet.tyron.scilla): W3C Decentralized Identifier Smart Contract Wallet (DIDxWallet)
 
         DID Domains:
 
-        - [.coop](./DID/DIDdapps/Coop/coop.tyron.scilla): DID NFT Cooperative Project
+        - [.coop](./DID/dApps/Coop/coop.tyron.scilla): DID NFT Cooperative Project
 
 - [Fungible token](./FUNGIBLE_TOKENS/README.md)
 

@@ -265,9 +265,7 @@ transition Mint(
   beneficiary: ByStr20,
   amount: Uint128
   )
-  IsNotPaused; ThrowIfNotProxy;
-  IsNotBlocked originator;
-  current_token <- token;
+  IsNotPaused; ThrowIfNotProxy; IsNotBlocked originator; current_token <- token;
   msg = let m = { _tag: "Burn"; _recipient: current_token; _amount: zero;
     beneficiary: originator;
     amount: amount

@@ -1,4 +1,4 @@
-(* v3.4.1 
+(* v3.5.0
 did.tyron: W3C Decentralized Identifier DApp
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -41,10 +41,13 @@ library DID
   type TransferProtocol =
     | Https
     | Git
-    | Blockchain
+  
+  type BlockchainType =
+    | Zilliqa of ByStr20
+    | Other of String
 
   type Endpoint =
-    | Address of ByStr20
+    | Address of BlockchainType
     | Uri of String TransferProtocol String   (* type, transfer protocol & uri *)
   
   type Document =
@@ -74,6 +77,7 @@ library DID
     | CodeSameId
     | CodeNotValid
     | CodeDidLocked
+    | CodeSameAddress
  
   let make_error = fun( error: Error ) =>
     let result = match error with
@@ -85,13 +89,14 @@ library DID
     | CodeSameId                 => Int32 -6
     | CodeNotValid               => Int32 -7
     | CodeDidLocked              => Int32 -8
+    | CodeSameAddress            => Int32 -9
     end in { _exception: "Error"; code: result }
   
   let zero = Uint128 0
   let zeroByStr20 = 0x0000000000000000000000000000000000000000
   let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
   let zeroByStr64 = 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-  let zero_bystr = builtin to_bystr zeroByStr20
+  let zeroByStr = builtin to_bystr zeroByStr20
 
   let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
     match input with
@@ -105,6 +110,7 @@ library DID
 contract DID( init_controller: ByStr20 )
   field did: String = ""   (* the W3C decentralized identifier *)
   field controller: ByStr20 = init_controller
+  field pending_controller: ByStr20 = zeroByStr20
   field did_status: DIDStatus = Deployed
   
   (* Verification methods @key: key purpose @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
@@ -116,7 +122,7 @@ contract DID( init_controller: ByStr20 )
   field services: Map String ByStr20 = empty_services
   field services_: Map String Endpoint = empty_services_
   
-  field document_hash: ByStr = zero_bystr
+  field did_hash: ByStr = zeroByStr
   
   (* The block number when the DID Create operation occurred *)
   field did_created: BNum = BNum 0
@@ -145,7 +151,7 @@ procedure IsOperational()
 
 procedure VerifyController( tyron: Option Uint128 )
   current_controller <- controller;
-  verified = builtin eq _sender current_controller; match verified with
+  verified = builtin eq _origin current_controller; match verified with
   | True => SupportTyron tyron
   | False => err = CodeWrongCaller; ThrowError err end end
 
@@ -153,12 +159,26 @@ procedure Timestamp()
   current_block <- &BLOCKNUMBER;  latest_tx_number <- tx_number; ledger_time := current_block;
   new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor; tx_number := new_tx_number end
 
+procedure ThrowIfSameAddr(
+  a: ByStr20,
+  b: ByStr20
+  )
+  is_self = builtin eq a b; match is_self with
+  | False => | True => err = CodeSameAddress; ThrowError err end end
+
 transition UpdateController(
   addr: ByStr20,
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron;
-  controller := addr; Timestamp end
+  current_controller <- controller; ThrowIfSameAddr current_controller addr;
+  pending_controller := addr; Timestamp end
+
+transition AcceptPendingController()
+  IsOperational; pending <- pending_controller;
+  verified = builtin eq _origin pending; match verified with
+  | True => | False => err = CodeWrongCaller; ThrowError err end;
+  controller := pending end
 
 (* Verify Schnorr signature - signed data must correspond with a DID key *)
 procedure VerifySignature(
@@ -219,7 +239,10 @@ procedure SaveDocument( document: Document )
           | True => err = CodeSameId; ThrowError err
           | False =>
               match endpoint with
-              | Address addr => services[id] := addr
+              | Address address =>
+                 match address with
+                   | Zilliqa addr => services[id] := addr
+                   | Other adrr => services_[id] := endpoint end
               | Uri eType protocol uri => services_[id] := endpoint end end
       | Remove => err = CodeNotValid; ThrowError err end end end
 
@@ -266,7 +289,10 @@ procedure UpdateDocument( document: Document )
           | True => err = CodeSameId; ThrowError err
           | False => 
               match endpoint with
-              | Address addr => services[id] := addr
+              | Address address =>
+               match address with
+                 | Zilliqa addr => services[id] := addr
+                 | Other adrr => services_[id] := endpoint end
               | Uri eType protocol uri => services_[id] := endpoint end end
       | Remove =>
           match service_exists with
@@ -284,7 +310,7 @@ procedure ValidateDocument(
   | Update => forall document UpdateDocument end end
 
 procedure HashDocument( document: Document )
-  doc_hash <- document_hash;
+  doc_hash <- did_hash;
   match document with
   | VerificationMethod action purpose key encrypted =>
       match action with
@@ -297,13 +323,13 @@ procedure HashDocument( document: Document )
             let h1_3 = builtin concat h1_2 h3 in
             builtin concat h1_3 h4;
           doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-          document_hash := doc_hash_
+          did_hash := doc_hash_
       | Remove =>
           hash = let h1 = builtin sha256hash actionRemove in
             let h2 = builtin sha256hash purpose in
             builtin concat h1 h2;
           doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-          document_hash := doc_hash_ end
+          did_hash := doc_hash_ end
   | Service action id endpoint =>
       match action with
       | Add =>
@@ -315,30 +341,38 @@ procedure HashDocument( document: Document )
                 let h1_2 = builtin concat h1 h2 in
                 builtin concat h1_2 h3;
               doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-              document_hash := doc_hash_
-          | Address addr =>
-              hash = let h1 = builtin sha256hash actionAdd in
-                let h2 = builtin sha256hash id in
-                let h3 = builtin sha256hash addr in
-                let h1_2 = builtin concat h1 h2 in
-                builtin concat h1_2 h3;
+              did_hash := doc_hash_
+          | Address address =>
+              hash = match address with
+                      | Zilliqa addr =>
+                          let h1 = builtin sha256hash actionAdd in
+                          let h2 = builtin sha256hash id in
+                          let h3 = builtin sha256hash addr in
+                          let h1_2 = builtin concat h1 h2 in
+                          builtin concat h1_2 h3
+                      | Other addr =>
+                          let h1 = builtin sha256hash actionAdd in
+                          let h2 = builtin sha256hash id in
+                          let h3 = builtin sha256hash addr in
+                          let h1_2 = builtin concat h1 h2 in
+                          builtin concat h1_2 h3 end;
               doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-              document_hash := doc_hash_ end
+              did_hash := doc_hash_ end
       | Remove =>
           hash = let h1 = builtin sha256hash actionRemove in
             let h2 = builtin sha256hash id in
             builtin concat h1 h2;
           doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-          document_hash := doc_hash_ end end end
+          did_hash := doc_hash_ end end end
 
 procedure VerifyDocument(
   operation: Operation,
   document: List Document,
   signature: Option ByStr64
   )
-  document_hash := zero_bystr;
+  did_hash := zeroByStr;
   forall document HashDocument;
-  doc_hash <- document_hash;
+  doc_hash <- did_hash;
   sig = option_bystr64_value signature;
   id = match operation with
   | Recovery => recovery

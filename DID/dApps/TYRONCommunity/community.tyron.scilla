@@ -1,0 +1,189 @@
+(* v0.2.0
+community.tyron: Governing & Profit-Sharing Community DApp
+Self-Sovereign Identity Protocol
+Copyright (C) Tyron Pungtas and its affiliates.
+www.ssiprotocol.com
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.*)
+
+scilla_version 0
+
+import IntUtils
+
+library Community
+  let one_msg =
+    fun( msg: Message ) =>
+    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+
+  let two_msgs =
+    fun( msg1: Message ) => fun( msg2: Message ) =>
+    let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
+
+  let three_msgs =
+    fun( msg1: Message ) => fun( msg2: Message ) => fun( msg3: Message ) =>
+    let msgs_tmp = two_msgs msg2 msg3 in Cons{ Message } msg1 msgs_tmp
+
+  let four_msgs =
+    fun( msg1: Message ) => fun( msg2: Message ) => fun( msg3: Message ) => fun( msg4: Message ) =>
+    let msgs_tmp = three_msgs msg2 msg3 msg4 in Cons{ Message } msg1 msgs_tmp
+
+  type Error =
+    | CodeWrongCaller
+    | CodeIsPaused
+    | CodeNotPaused
+    | CodeIsBlocked
+    | CodeNotBlocked
+    | CodeSameAddress
+    | CodeIsNull
+    | CodeIsInsufficient
+    | CodeNotValid
+
+  let make_error = fun( error: Error ) =>
+    let result = match error with
+    | CodeWrongCaller            => Int32 -2
+    | CodeIsPaused               => Int32 -3
+    | CodeNotPaused              => Int32 -4
+    | CodeIsBlocked              => Int32 -5
+    | CodeNotBlocked             => Int32 -6
+    | CodeSameAddress            => Int32 -7
+    | CodeIsNull                 => Int32 -8
+    | CodeIsInsufficient         => Int32 -9
+    | CodeNotValid               => Int32 -10
+    end in { _exception: "Error"; code: result }
+
+  let zero = Uint128 0
+  let true = True
+  let false = False
+  let zeroByStr20 = 0x0000000000000000000000000000000000000000
+
+  let option_value =
+    tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) => match opt_val with
+    | Some v => v
+    | None => default end
+
+  let option_uint128_value = let f = @option_value Uint128 in f zero
+  
+  let option2_uint128_value =
+    fun( input: Option( Option Uint128 )) => match input with
+    | Some (Some a) => a
+    | _ => zero end
+
+  let option_uint128 =
+    fun( input: Uint128 ) =>
+    let is_zero = builtin eq input zero in match is_zero with
+    | True => None{ Uint128 }
+    | False => Some{ Uint128 } input end
+
+  let better_subtract =
+    fun( a: Uint128 ) => fun( b: Uint128 ) =>
+    let a_ge_b = uint128_ge a b in match a_ge_b with
+    | True => builtin sub a b
+    | False => zero end
+  
+  let grow: Uint128 -> Uint256 =
+    fun( var : Uint128 ) =>
+    let maybe_big = builtin to_uint256 var in match maybe_big with
+    | Some big => big
+    | None => Uint256 0 end (* should never happen *)
+
+contract Community(
+  init_controller: ByStr20,
+  init_rate: Uint128,
+  init_factor: Uint128
+  )
+  field controller: ByStr20 = init_controller
+  field paused: Bool = False
+  field pauser: ByStr20 = init_controller
+  field rate: Uint128 = init_rate
+  field factor: Uint128 = init_factor
+
+procedure ThrowError( err: Error )
+  e = make_error err; throw e end
+
+procedure VerifyController()
+  current_controller <- controller;
+  verified = builtin eq _origin current_controller; match verified with
+  | True => | False => err = CodeWrongCaller; ThrowError err end end
+
+procedure IsPauser()
+  current_pauser <- pauser;
+  verified = builtin eq _origin current_pauser; match verified with
+  | True  => | False => err = CodeWrongCaller; ThrowError err end end
+
+procedure IsPaused()
+  is_paused <- paused; match is_paused with
+  | True => | False => err = CodeNotPaused; ThrowError err end end
+
+procedure IsNotPaused()
+  is_paused <- paused; match is_paused with
+  | False => | True => err = CodeIsPaused; ThrowError err end end
+
+procedure IsNotNull( addr: ByStr20 )
+  is_null = builtin eq zeroByStr20 addr; match is_null with
+  | False => | True => err = CodeIsNull; ThrowError err end end
+
+procedure IsNotZero( val: Uint128 )
+  is_null = builtin eq zero val; match is_null with
+  | False => | True => err = CodeIsNull; ThrowError err end end
+
+procedure ThrowIfSameAddr(
+  a: ByStr20,
+  b: ByStr20
+  )
+  IsNotNull a; IsNotNull b;
+  is_self = builtin eq a b; match is_self with
+  | False => | True => err = CodeSameAddress; ThrowError err end end
+
+procedure ThrowIfSameFactor(
+  a: Uint128,
+  b: Uint128
+  )
+  is_self = builtin eq a b; match is_self with
+  | False => | True => err = CodeNotValid; ThrowError err end end
+
+procedure IsSufficient(
+  value: Uint128,
+  amount: Uint128
+  )
+  is_sufficient = uint128_ge value amount; match is_sufficient with
+  | True => | False => err = CodeIsInsufficient; ThrowError err end end
+
+transition UpdateController( addr: ByStr20 )
+  IsNotPaused; VerifyController; IsNotNull addr;
+  current_controller <- controller; ThrowIfSameAddr current_controller addr;
+  controller := addr;
+  e = { _eventname: "ControllerUpdated";
+    new_addr: addr }; event e end
+
+transition UpdatePauser( new_pauser: ByStr20 )
+  IsNotPaused; VerifyController; IsNotNull new_pauser;
+  current_pauser <- pauser;
+  ThrowIfSameAddr current_pauser new_pauser; pauser := new_pauser;
+  e = { _eventname: "PauserUpdated";
+    pauser_updated: new_pauser }; event e end
+
+transition Pause()
+  IsPauser;
+  IsNotPaused; paused := true;
+  e = { _eventname: "SmartContractPaused";
+    pauser: _origin }; event e end
+
+transition Unpause()
+  IsPauser;
+  IsPaused; paused := false;
+  e = { _eventname: "SmartContractUnpaused";
+    pauser: _origin }; event e end
+
+transition UpdateFactor( value: Uint128 )
+  IsNotPaused; VerifyController; IsNotZero value;
+  current <- factor; ThrowIfSameFactor current value; factor := value;
+  e = { _eventname: "FactorUpdated";
+    new_value: value }; event e end
