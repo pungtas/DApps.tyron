@@ -1,6 +1,6 @@
-(* v1.2.0
-xpoints.tyron: raise your voice
-Tyron Self-Sovereign Identity Protocol
+(* v1.3.0
+xpoints.tyron: Raise Your Voice <> xPoints DApp
+Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
 
@@ -57,7 +57,7 @@ contract XPoints(
       field utility: Map String Uint128 end,
     field dns: Map String ByStr20 end
   )
-  field version: String = "xpoints-1.2.0"
+  field version: String = "xpoints-1.3.0"
   field ranking: Map ByStr32 Uint128 = Emp ByStr32 Uint128
   field motions: Map ByStr32 String = Emp ByStr32 String
   field nonce: Uint128 = zero
@@ -65,42 +65,11 @@ contract XPoints(
   
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
-  
-transition RaiseYourVoice(
-  action: String,
-  id: Option ByStr32,
-  motion: Option String,
-  amount: Uint128
-  )
-  donate = "donate"; get_addr <-& init.dns[donate]; addr = option_bystr20_value get_addr;
-  msg = let m = { _tag: "XPoints"; _recipient: addr; _amount: zero;
-    addr: _sender;
-    amount: amount } in one_msg m ; send msg;
-  is_new = let new = "new" in builtin eq action new; match is_new with
-  | True =>
-      match motion with
-      | None => err = CodeNotValid; ThrowError err
-      | Some motion_ =>
-          current_nonce <- nonce;
-          new_nonce = let incrementor = Uint128 1 in builtin add current_nonce incrementor; nonce := new_nonce;
-          to_hash = let nonce_str = builtin to_string new_nonce in builtin concat nonce_str motion_; 
-          hash = builtin sha256hash to_hash;
-          motions[hash] := motion_;
-          ranking[hash] := amount end
-  | False =>
-    is_add = let add = "add" in builtin eq action add; match is_add with
-    | True =>
-        match id with
-        | None => err = CodeNotValid; ThrowError err
-        | Some id_ =>
-            get_points <- ranking[id_]; points = option_uint128_value get_points;
-            new = builtin add points amount; ranking[id_] := new end
-    | False => err = CodeNotValid; ThrowError err end end end
 
+(* Using the Init's DID *)
 procedure VerifyController()
-  init_did <-& init.implementation;
-  current_controller <-& init_did.controller;
-  verified = builtin eq _sender current_controller; match verified with
+  init_did <-& init.implementation; current_controller <-& init_did.controller;
+  verified = builtin eq _origin current_controller; match verified with
   | True => | False => err = CodeWrongCaller; ThrowError err end end
 
 procedure ThrowIfSameAddr(
@@ -170,3 +139,35 @@ transition RecipientAcceptTransferFrom( initiator: ByStr20, sender: ByStr20, rec
 transition TransferSuccessCallBack( sender: ByStr20, recipient: ByStr20, amount : Uint128 ) end
 
 transition TransferFromSuccessCallBack( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) end
+
+(* xPoints DApp backbone *)
+
+transition RaiseYourVoice(
+  action: String,
+  id: Option ByStr32,   (* to add xPoints to an existing motion *)
+  motion: Option String,   (* to create a new motion *)
+  amount: Uint128
+  )
+  donate = "donate"; get_addr <-& init.dns[donate]; addr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "XPoints"; _recipient: addr; _amount: zero;
+    amount: amount } in one_msg m ; send msg;
+  is_new = let new = "new" in builtin eq action new; match is_new with
+  | True =>
+      match motion with
+      | None => err = CodeNotValid; ThrowError err
+      | Some motion_ =>
+          current_nonce <- nonce;
+          new_nonce = let incrementor = Uint128 1 in builtin add current_nonce incrementor; nonce := new_nonce;
+          to_hash = let nonce_str = builtin to_string new_nonce in builtin concat nonce_str motion_; 
+          hash = builtin sha256hash to_hash;
+          motions[hash] := motion_;
+          ranking[hash] := amount end
+  | False =>
+    is_add = let add = "add" in builtin eq action add; match is_add with
+    | True =>
+        match id with
+        | None => err = CodeNotValid; ThrowError err
+        | Some id_ =>
+            get_points <- ranking[id_]; points = option_uint128_value get_points;
+            new = builtin add points amount; ranking[id_] := new end
+    | False => err = CodeNotValid; ThrowError err end end end

@@ -1,6 +1,6 @@
-(* v1.2.0
-donate.tyron: DIDxWallet for the SSI Community donations
-Tyron Self-Sovereign Identity Protocol
+(* v1.3.0
+donate.tyron: DIDxWallet for the SSI Community donations <> Donate DApp
+Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
 
@@ -18,7 +18,7 @@ scilla_version 0
 
 import PairUtils BoolUtils ListUtils IntUtils
 
-library DID
+library DIDxWallet
   type DIDStatus =
     | Deployed
     | Created
@@ -107,7 +107,6 @@ library DID
   (* xWallet library *)
   let domain = "did"
   let transfer = "transfer"
-  let tyron_ = "tyron"
   let zil = "zil"
   let zilswap = "zilswap"
   let empty_guardians = Emp ByStr32 Bool
@@ -126,7 +125,10 @@ library DID
     | NFTUsername of String
     | Recipient of ByStr20
 
-contract DIDxWallet(
+  (* Donate DApp library *)
+  let tyron_ = "tyron"
+
+contract DonateDApp(
   init_controller: ByStr20,
   init: ByStr20 with contract
     field implementation: ByStr20 with contract
@@ -135,7 +137,7 @@ contract DIDxWallet(
     field dns: Map String ByStr20,
     field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end
   )
-  field version: String = "donate--1.2.0"
+  field version: String = "donate--1.3.0"
   field did: String = ""    (* the W3C decentralized identifier *)
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
@@ -217,7 +219,7 @@ transition AcceptPendingController()
   pending <- pending_controller;
   verified = builtin eq _origin pending; match verified with
   | True => | False => err = CodeWrongCaller; ThrowError err end;
-  controller := _origin end
+  controller := pending end
 
 (* Verify Schnorr signature - signed data must correspond with a DID key *)
 procedure VerifySignature(
@@ -632,51 +634,6 @@ transition UpdateGuardianship(
     username: username;
     guardian: guardian } in one_msg m; send msg; Timestamp end
 
-(* Receive $ZIL native funds *)
-transition AddFunds()
-  IsOperational; accept;
-  get_xpoints <- xpoints[_sender]; x_points = option_uint128_value get_xpoints;
-  new_bal = builtin add x_points _amount; xpoints[_sender] := new_bal;
-  percent = builtin div _amount hundred; wfp_ = builtin mul percent ten; insurance_ = builtin mul percent ten; coop_ = builtin mul percent eighty;
-  get_wfp_bal <- donations[wfp]; wfp_bal = option_uint128_value get_wfp_bal; new_wfp = builtin add wfp_bal wfp_; donations[wfp] := new_wfp;
-  get_insurance_bal <- donations[insurance]; insurance_bal = option_uint128_value get_insurance_bal; new_insurance = builtin add insurance_bal insurance_; donations[insurance] := new_insurance;
-  get_coop_bal <- donations[coop]; coop_bal = option_uint128_value get_coop_bal; new_coop = builtin add coop_bal coop_; donations[coop] := new_coop;
-  Timestamp end
-
-procedure IsSufficient(
-  value: Uint128,
-  amount: Uint128
-  )
-  is_sufficient = uint128_ge value amount; match is_sufficient with
-  | True => | False => err = CodeIsInsufficient; ThrowError err end end
-
-transition Withdrawal( amount: Uint128 )
-  get_wfp <-& init.dns[wfp]; wfp_addr = option_bystr20_value get_wfp;
-  is_wfp = builtin eq _sender wfp_addr; match is_wfp with
-  | True =>
-      get_balance <- donations[wfp]; balance = option_uint128_value get_balance;
-      IsSufficient balance amount;
-      msg = let m = { _tag: "AddFunds"; _recipient: wfp_addr; _amount: amount } in one_msg m; send msg;
-      new_bal = builtin sub balance amount; donations[wfp] := new_bal  
-  | False =>
-      get_insurance <-& init.dns[insurance]; insurance_addr = option_bystr20_value get_insurance;
-      is_insurance = builtin eq _sender insurance_addr; match is_insurance with
-      | True =>
-          get_balance <- donations[insurance]; balance = option_uint128_value get_balance;
-          IsSufficient balance amount;
-          msg = let m = { _tag: "AddFunds"; _recipient: insurance_addr; _amount: amount } in one_msg m; send msg;
-          new_bal = builtin sub balance amount; donations[insurance] := new_bal
-      | False =>
-          get_coop <-& init.dns[tyron_]; coop_addr = option_bystr20_value get_coop;
-          is_coop = builtin eq _sender coop_addr; match is_coop with
-          | True =>
-              get_balance <- donations[coop]; balance = option_uint128_value get_balance;
-              IsSufficient balance amount;
-              msg = let m = { _tag: "AddFunds"; _recipient: coop_addr; _amount: amount } in one_msg m; send msg;
-              new_bal = builtin sub balance amount; donations[coop] := new_bal
-          | False => err = CodeWrongCaller; ThrowError err end end end;
-  Timestamp end
-
 transition Transfer(
   addrName: String,
   beneficiary: Beneficiary,
@@ -688,12 +645,12 @@ transition Transfer(
   match beneficiary with
   | NFTUsername username =>
       get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
-      accept; msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
         to: addr;
         amount: amount } in one_msg m ; send msg
   | Recipient addr =>
       ThrowIfSameAddr _this_address addr;
-      accept; msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
         to: addr;
         amount: amount } in one_msg m ; send msg end; Timestamp end
 
@@ -764,13 +721,56 @@ transition Upgrade(
   msg = let m = { _tag: "AddFunds"; _recipient: recipient; _amount: current_balance } in one_msg m ; send msg;
   Timestamp end
 
-transition XPoints(
-  addr: ByStr20,
+(* Donate DApp backbone *)
+
+(* Receive $ZIL native funds *)
+transition AddFunds()
+  IsOperational; accept;
+  get_xpoints <- xpoints[_origin]; x_points = option_uint128_value get_xpoints;
+  new_bal = builtin add x_points _amount; xpoints[_origin] := new_bal;
+  percent = builtin div _amount hundred; wfp_ = builtin mul percent ten; insurance_ = builtin mul percent ten; coop_ = builtin mul percent eighty;
+  get_wfp_bal <- donations[wfp]; wfp_bal = option_uint128_value get_wfp_bal; new_wfp = builtin add wfp_bal wfp_; donations[wfp] := new_wfp;
+  get_insurance_bal <- donations[insurance]; insurance_bal = option_uint128_value get_insurance_bal; new_insurance = builtin add insurance_bal insurance_; donations[insurance] := new_insurance;
+  get_coop_bal <- donations[coop]; coop_bal = option_uint128_value get_coop_bal; new_coop = builtin add coop_bal coop_; donations[coop] := new_coop;
+  Timestamp end
+
+procedure IsSufficient(
+  value: Uint128,
   amount: Uint128
   )
+  is_sufficient = uint128_ge value amount; match is_sufficient with
+  | True => | False => err = CodeIsInsufficient; ThrowError err end end
+
+transition Withdrawal( amount: Uint128 )
+  get_wfp <-& init.dns[wfp]; wfp_addr = option_bystr20_value get_wfp;
+  is_wfp = builtin eq _sender wfp_addr; match is_wfp with
+  | True =>
+      get_balance <- donations[wfp]; balance = option_uint128_value get_balance;
+      IsSufficient balance amount;
+      msg = let m = { _tag: "AddFunds"; _recipient: wfp_addr; _amount: amount } in one_msg m; send msg;
+      new_bal = builtin sub balance amount; donations[wfp] := new_bal  
+  | False =>
+      get_insurance <-& init.dns[insurance]; insurance_addr = option_bystr20_value get_insurance;
+      is_insurance = builtin eq _sender insurance_addr; match is_insurance with
+      | True =>
+          get_balance <- donations[insurance]; balance = option_uint128_value get_balance;
+          IsSufficient balance amount;
+          msg = let m = { _tag: "AddFunds"; _recipient: insurance_addr; _amount: amount } in one_msg m; send msg;
+          new_bal = builtin sub balance amount; donations[insurance] := new_bal
+      | False =>
+          get_coop <-& init.dns[tyron_]; coop_addr = option_bystr20_value get_coop;
+          is_coop = builtin eq _sender coop_addr; match is_coop with
+          | True =>
+              get_balance <- donations[coop]; balance = option_uint128_value get_balance;
+              IsSufficient balance amount;
+              msg = let m = { _tag: "AddFunds"; _recipient: coop_addr; _amount: amount } in one_msg m; send msg;
+              new_bal = builtin sub balance amount; donations[coop] := new_bal
+          | False => err = CodeWrongCaller; ThrowError err end end end;
+  Timestamp end
+
+transition XPoints( amount: Uint128 )
   xpoints_ = "xpoints"; get_addr <-& init.dns[xpoints_]; xAddr = option_bystr20_value get_addr;
   is_xaddr = builtin eq _sender xAddr; match is_xaddr with
   | True => | False => err = CodeWrongCaller; ThrowError err end;
-  get_xpoints <- xpoints[addr]; x_points = option_uint128_value get_xpoints;
-  IsSufficient x_points amount;
-  new_bal = builtin sub x_points amount; xpoints[addr] := new_bal end
+  get_xpoints <- xpoints[_origin]; x_points = option_uint128_value get_xpoints; IsSufficient x_points amount;
+  new_bal = builtin sub x_points amount; xpoints[_origin] := new_bal end
