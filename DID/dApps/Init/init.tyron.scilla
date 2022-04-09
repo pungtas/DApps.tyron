@@ -1,4 +1,4 @@
-(* v2.4.0
+(* v2.5.0
 init.tyron: SSI Initialization & DNS DApp <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -22,15 +22,17 @@ library Init
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
     
   type Error =
-    | CodeWrongCaller
     | CodeWrongStatus
+    | CodeWrongCaller
     | CodeNotValid
+    | CodeSameAddress
 
   let make_error = fun( error: Error ) =>
     let result = match error with
+    | CodeWrongStatus            => Int32 0
     | CodeWrongCaller            => Int32 -1
-    | CodeWrongStatus            => Int32 -2
-    | CodeNotValid               => Int32 -3
+    | CodeNotValid               => Int32 -2
+    | CodeSameAddress            => Int32 -3
     end in { _exception: "Error"; code: result }
   
   type Caller =
@@ -42,18 +44,23 @@ library Init
   let init = "init"
 
 contract Init( init_controller: ByStr20 with contract 
-  field controller: ByStr20,
+  field nft_username: String,
   field services: Map String ByStr20,
   field paused: Bool end
   )
   field implementation: ByStr20 with contract
-    field controller: ByStr20,
+    field nft_username: String,
     field services: Map String ByStr20,
     field paused: Bool end = init_controller
 
-  (* DNS records @key: NFT username @value: address *)
+  (* DNS records @key: NFT Username @value: address *)
   field dns: Map String ByStr20 = let emp = Emp String ByStr20 in builtin put emp init init_controller
-  field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end = Emp String ByStr20 with contract field verification_methods: Map String ByStr33 end
+  field guardians: Map String ByStr20 with contract
+    field controller: ByStr20,
+    field verification_methods: Map String ByStr33 end =
+      Emp String ByStr20 with contract
+        field controller: ByStr20,
+        field verification_methods: Map String ByStr33 end
 
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
@@ -64,18 +71,31 @@ procedure VerifyCaller( caller: Caller )
   | False => | True => err = CodeWrongStatus; ThrowError err end;
   match caller with
   | Controller =>
-      controller <-& current_impl.controller;
-      verified = builtin eq _origin controller; match verified with
-      | True => | False => err = CodeWrongCaller; ThrowError err end
+      current_username <-& current_impl.nft_username;
+      get_addr <- guardians[current_username]; match get_addr with
+      | None => err = CodeNotValid; ThrowError err
+      | Some addr =>
+          current_controller <-& addr.controller;
+          verified = builtin eq _origin current_controller; match verified with
+          | True => | False => err = CodeWrongCaller; ThrowError err end end
   | Implementation =>
       verified = builtin eq _sender current_impl; match verified with
       | True => | False => err = CodeWrongCaller; ThrowError err end end end
 
-transition UpdateImplementation( addr: ByStr20 with contract field controller: ByStr20, field services: Map String ByStr20, field paused: Bool end )
-  VerifyCaller controller_;
-  current_impl <- implementation;
-  is_same = builtin eq current_impl addr; match is_same with
-  | False => | True => err = CodeNotValid; ThrowError err end;
+procedure ThrowIfSameAddr(
+  a: ByStr20,
+  b: ByStr20
+  )
+  is_self = builtin eq a b; match is_self with
+  | False => | True => err = CodeSameAddress; ThrowError err end end
+
+transition UpdateImplementation(
+  addr: ByStr20 with contract
+    field nft_username: String,
+    field services: Map String ByStr20,
+    field paused: Bool end
+  )
+  VerifyCaller controller_; current_impl <- implementation; ThrowIfSameAddr current_impl addr;
   implementation := addr; dns[init] := addr;
   e = { _eventname: "ImplementationUpdated";
     newImplementation: addr }; event e end
@@ -88,7 +108,9 @@ transition NFTUsernameCallBack(
 
 transition BuyNFTUsername(
   username: String,
-  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end
+  guardianship: Option ByStr20 with contract
+    field controller: ByStr20,
+    field verification_methods: Map String ByStr33 end
   )
   current_impl <- implementation;
   accept; msg = let m = { _tag: "BuyNFTUsername"; _recipient: current_impl; _amount: _amount;
@@ -98,13 +120,17 @@ transition BuyNFTUsername(
 
 transition NFTGuardianshipCallBack(
   username: String,
-  addr: ByStr20 with contract field verification_methods: Map String ByStr33 end
+  addr: ByStr20 with contract
+    field controller: ByStr20,
+    field verification_methods: Map String ByStr33 end
   )
   VerifyCaller implementation_; guardians[username] := addr end
   
 transition UpdateGuardianship(
   username: String,
-  addr: ByStr20 with contract field verification_methods: Map String ByStr33 end
+  addr: ByStr20 with contract
+    field controller: ByStr20,
+    field verification_methods: Map String ByStr33 end
   )
   current_impl <- implementation;
   accept; msg = let m = { _tag: "UpdateGuardianship"; _recipient: current_impl; _amount: _amount;
@@ -118,7 +144,9 @@ transition RemoveGuardianshipCallBack( username: String )
 transition TransferNFTUsername(
   username: String,
   newAddr: ByStr20,
-  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end
+  guardianship: Option ByStr20 with contract
+    field controller: ByStr20,
+    field verification_methods: Map String ByStr33 end
   )
   current_impl <- implementation;
   accept; msg = let m = { _tag: "TransferNFTUsername"; _recipient: current_impl; _amount: _amount;
