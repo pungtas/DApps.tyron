@@ -1,4 +1,4 @@
-(* v2.8.0
+(* v2.8.1
 initi.tyron: SSI Initialization & DNS DApp <> Implementation smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -559,7 +559,6 @@ transition Unpause( tyron: Option Uint128 )
     pauser: _origin }; event e end
 
 transition AddUtility(
-  val: String,
   id: String,
   fee: Uint128,
   tyron: Option Uint128
@@ -567,12 +566,11 @@ transition AddUtility(
   IsOperational; IsNotPaused; VerifyController tyron; utility[id] := fee end
   
 transition RemoveUtility(
-  val: String,
   id: String,
   tyron: Option Uint128
   )
   IsOperational; IsNotPaused; VerifyController tyron; delete utility[id] end
-  
+
 procedure NFTUsernameCallBack(
   username: String,
   addr: ByStr20
