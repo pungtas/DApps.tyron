@@ -1,4 +1,4 @@
-(* v4.9.0
+(* v4.9.1
 xwallet.tyron: W3C Decentralized Identifier Smart Contract Wallet (DIDxWallet)
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -126,7 +126,9 @@ contract DIDxWallet(
       field services: Map String ByStr20,
       field utility: Map String Uint128 end,
     field dns: Map String ByStr20,
-    field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end
+    field guardians: Map String ByStr20 with contract
+      field controller: ByStr20,
+      field verification_methods: Map String ByStr33 end end
   )
   field version: String = "xwallet-4.9.0"
   field did: String = ""    (* the W3C decentralized identifier *)
@@ -163,7 +165,9 @@ contract DIDxWallet(
       field services: Map String ByStr20,
       field utility: Map String Uint128 end,
     field dns: Map String ByStr20,
-    field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end = init
+    field guardians: Map String ByStr20 with contract
+      field controller: ByStr20,
+      field verification_methods: Map String ByStr33 end end = init
   field dns: Map String ByStr20 = Emp String ByStr20
 
 procedure SupportTyron( tyron: Option Uint128 )
@@ -562,42 +566,44 @@ procedure FetchServiceAddr( id: String )
   get_service <-& init_did.services[id]; addr = option_bystr20_value get_service; services[id] := addr end
 
 procedure IncreaseAllowanceInit(
-  addrID: String,
+  addrName: String,
   amount: Uint128
   )
   init_did <-& init.implementation;
-  FetchServiceAddr addrID; get_addr <- services[addrID]; addr = option_bystr20_value get_addr;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
   msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
     spender: init_did;
     amount: amount } in one_msg m ; send msg end
 
 transition IncreaseAllowance(
-  addrID: String,
+  addrName: String,
   spender: ByStr20,
   amount: Uint128,
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron;
-  FetchServiceAddr addrID; get_addr <- services[addrID]; addr = option_bystr20_value get_addr;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
   msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
     spender: spender;
     amount: amount } in one_msg m ; send msg end
 
 transition DecreaseAllowance(
-  addrID: String,
+  addrName: String,
   spender: ByStr20,
   amount: Uint128,
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron;
-  FetchServiceAddr addrID; get_addr <- services[addrID]; addr = option_bystr20_value get_addr;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
   msg = let m = { _tag: "DecreaseAllowance"; _recipient: addr; _amount: zero;
     spender: spender;
     amount: amount } in one_msg m ; send msg end
 
 transition BuyNFTUsername(
   username: String,
-  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
+  guardianship: Option ByStr20 with contract
+    field controller: ByStr20,
+    field verification_methods: Map String ByStr33 end,
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron;
@@ -613,7 +619,9 @@ transition BuyNFTUsername(
 transition TransferNFTUsername(
   username: String,
   newAddr: ByStr20,
-  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
+  guardianship: Option ByStr20 with contract
+    field controller: ByStr20,
+    field verification_methods: Map String ByStr33 end,
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron; ThrowIfSameAddr _this_address newAddr;
@@ -629,7 +637,9 @@ transition TransferNFTUsername(
 
 transition UpdateGuardianship(
   username: String,
-  guardian: ByStr20 with contract field verification_methods: Map String ByStr33 end,
+  guardian: ByStr20 with contract
+    field controller: ByStr20,
+    field verification_methods: Map String ByStr33 end,
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron; 
@@ -658,13 +668,13 @@ transition SendFunds(
       msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg end; Timestamp end
 
 transition Transfer(
-  addrID: String,
+  addrName: String,
   beneficiary: Beneficiary,
   amount: Uint128,
   tyron: Option Uint128
   ) 
   IsOperational; VerifyController tyron;
-  FetchServiceAddr addrID; get_token_addr <- services[addrID]; token_addr = option_bystr20_value get_token_addr;
+  FetchServiceAddr addrName; get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
   match beneficiary with
   | NFTUsername username =>
       get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
@@ -727,7 +737,9 @@ procedure TransferTokens( input: Pair String Uint128 )
 transition Upgrade(
   username: Option String,
   recipient: ByStr20,
-  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
+  guardianship: Option ByStr20 with contract
+    field controller: ByStr20,
+    field verification_methods: Map String ByStr33 end,
   tokens: List( Pair String Uint128 ),
   tyron: Option Uint128
   )
