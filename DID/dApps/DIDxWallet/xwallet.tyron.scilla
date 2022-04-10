@@ -1,4 +1,4 @@
-(* v4.10.0
+(* v4.11.0
 xwallet.tyron: W3C Decentralized Identifier Smart Contract Wallet (DIDxWallet)
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -127,7 +127,7 @@ contract DIDxWallet(
   init_controller: ByStr20,
   init: ByStr20 with contract field dApp: ByStr20 with contract
     field implementation: ByStr20 with contract
-      field utility: Map String Uint128 end,
+      field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
       field did: String,   (* the W3C decentralized identifier *)
@@ -144,7 +144,7 @@ contract DIDxWallet(
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
   field did_status: DidStatus = Deployed
-  field version: String = "xwallet-4.10.0" (* @todo update *)
+  field version: String = "xwallet-4.10.1" (* @todo update *)
   
   (* Verification methods @key: key purpose @value: public DID key *)
   field verification_methods: Map String ByStr33 = empty_methods
@@ -175,7 +175,7 @@ contract DIDxWallet(
 
   field xinit: ByStr20 with contract field dApp: ByStr20 with contract
     field implementation: ByStr20 with contract
-      field utility: Map String Uint128 end,
+      field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
       field did: String,   (* the W3C decentralized identifier *)
@@ -416,18 +416,18 @@ procedure HashDocument( document: Document )
               did_hash := doc_hash_
           | Address address =>
               hash = match address with
-                      | Zilliqa addr =>
-                          let h1 = builtin sha256hash actionAdd in
-                          let h2 = builtin sha256hash id in
-                          let h3 = builtin sha256hash addr in
-                          let h1_2 = builtin concat h1 h2 in
-                          builtin concat h1_2 h3
-                      | Other addr =>
-                          let h1 = builtin sha256hash actionAdd in
-                          let h2 = builtin sha256hash id in
-                          let h3 = builtin sha256hash addr in
-                          let h1_2 = builtin concat h1 h2 in
-                          builtin concat h1_2 h3 end;
+              | Zilliqa addr =>
+                  let h1 = builtin sha256hash actionAdd in
+                  let h2 = builtin sha256hash id in
+                  let h3 = builtin sha256hash addr in
+                  let h1_2 = builtin concat h1 h2 in
+                  builtin concat h1_2 h3
+              | Other addr =>
+                  let h1 = builtin sha256hash actionAdd in
+                  let h2 = builtin sha256hash id in
+                  let h3 = builtin sha256hash addr in
+                  let h1_2 = builtin concat h1 h2 in
+                  builtin concat h1_2 h3 end;
               doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
               did_hash := doc_hash_ end
       | Remove =>
@@ -619,11 +619,12 @@ procedure IncreaseAllowanceInit(
   addrName: String,
   amount: Uint128
   )
+  FetchServiceAddr addrName;
+  get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
   current_init <-& init.dApp; initDApp = "init";
-  get_addr <-& current_init.dns[initDApp]; init_addr = option_bystr20_value get_addr;
-  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
-  msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
-    spender: init_addr;
+  get_addr <-& current_init.did_dns[initDApp]; init_did = option_bystr20_value get_addr;
+  msg = let m = { _tag: "IncreaseAllowance"; _recipient: token_addr; _amount: zero;
+    spender: init_did;
     amount: amount } in one_msg m ; send msg end
 
 transition IncreaseAllowance(
@@ -632,9 +633,9 @@ transition IncreaseAllowance(
   amount: Uint128,
   tyron: Option Uint128
   )
-  IsOperational; VerifyController tyron;
-  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
-  msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
+  IsOperational; VerifyController tyron; FetchServiceAddr addrName;
+  get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
+  msg = let m = { _tag: "IncreaseAllowance"; _recipient: token_addr; _amount: zero;
     spender: spender;
     amount: amount } in one_msg m ; send msg end
 
@@ -644,61 +645,31 @@ transition DecreaseAllowance(
   amount: Uint128,
   tyron: Option Uint128
   )
-  IsOperational; VerifyController tyron;
-  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
-  msg = let m = { _tag: "DecreaseAllowance"; _recipient: addr; _amount: zero;
+  IsOperational; VerifyController tyron; FetchServiceAddr addrName;
+  get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
+  msg = let m = { _tag: "DecreaseAllowance"; _recipient: token_addr; _amount: zero;
     spender: spender;
     amount: amount } in one_msg m ; send msg end
 
 transition BuyNftUsername(
   username: String,
-  dID: Option ByStr20 with contract
-    field did: String,
-    field nft_username: String,
-    field controller: ByStr20,
-    field did_status: DidStatus,
-    field version: String,
-    field verification_methods: Map String ByStr33,
-    field services: Map String ByStr20,
-    field did_domain_dns: Map String ByStr20 end,
+  addr: Option ByStr20,
   tyron: Option Uint128
   )
-  IsOperational; VerifyController tyron;
-  id = builtin substr username zero_ six;
-  is_free = let free = "free00" in builtin eq id free; match is_free with
+  IsOperational; VerifyController tyron; current_init <-& init.dApp;
+  paymentID = builtin substr username zero_ six;
+  is_free = let free = "free00" in builtin eq paymentID free; match is_free with
   | True => | False =>
-    current_init <-& init.dApp; current_impl <-& current_init.implementation; 
-    get_fee <-& current_impl.utility[id]; fee = option_uint128_value get_fee;
-    IncreaseAllowanceInit id fee end;
-  msg = let m = { _tag: "BuyNftUsername"; _recipient: init; _amount: zero;
+    current_impl <-& current_init.implementation; txID = "BuyNftUsername";
+    get_fee <-& current_impl.utility[paymentID][txID]; fee = option_uint128_value get_fee;
+    IncreaseAllowanceInit paymentID fee end;
+  address = match addr with
+  | Some addr_ => addr_
+  | None => _this_address end;
+  msg = let m = { _tag: "BuyNftUsername"; _recipient: current_init; _amount: zero;
     username: username;
-    dID: dID } in one_msg m; send msg; Timestamp end
-
-transition TransferNftUsername(
-  username: String,
-  newAddr: ByStr20,
-  dID: Option ByStr20 with contract
-    field did: String,
-    field nft_username: String,
-    field controller: ByStr20,
-    field did_status: DidStatus,
-    field version: String,
-    field verification_methods: Map String ByStr33,
-    field services: Map String ByStr20,
-    field did_domain_dns: Map String ByStr20 end,
-  tyron: Option Uint128
-  )
-  IsOperational; VerifyController tyron; ThrowIfSameAddr _this_address newAddr;
-  id = builtin substr username zero_ six;
-  is_free = let free = "free00" in builtin eq id free; match is_free with
-  | True => | False => 
-    current_init <-& init.dApp; current_impl <-& current_init.implementation;
-    get_fee <-& current_impl.utility[id]; fee = option_uint128_value get_fee;
-    IncreaseAllowanceInit id fee end;
-  msg = let m = { _tag: "TransferNftUsername"; _recipient: init; _amount: zero;
-    username: username;
-    newAddr: newAddr;
-    dID: dID } in one_msg m; send msg; Timestamp end
+    addr: address;
+    dID: _this_address } in one_msg m; send msg; Timestamp end
 
 transition UpdateNftDid(
   username: String,
@@ -706,17 +677,46 @@ transition UpdateNftDid(
     field did: String,
     field nft_username: String,
     field controller: ByStr20,
-    field did_status: DidStatus,
     field version: String,
     field verification_methods: Map String ByStr33,
     field services: Map String ByStr20,
     field did_domain_dns: Map String ByStr20 end,
   tyron: Option Uint128
   )
-  IsOperational; VerifyController tyron;
-
-  msg = let m = { _tag: "UpdateNftDid"; _recipient: init; _amount: zero;
+  IsOperational; VerifyController tyron; current_init <-& init.dApp;
+  paymentID = builtin substr username zero_ six;
+  is_free = let free = "free00" in builtin eq paymentID free; match is_free with
+  | True => | False =>
+    current_impl <-& current_init.implementation; txID = "UpdateNftDid";
+    get_fee <-& current_impl.utility[paymentID][txID]; fee = option_uint128_value get_fee;
+    IncreaseAllowanceInit paymentID fee end;
+  msg = let m = { _tag: "UpdateNftDid"; _recipient: current_init; _amount: zero;
     username: username;
+    dID: dID } in one_msg m; send msg; Timestamp end
+
+transition TransferNftUsername(
+  username: String,
+  addr: ByStr20,
+  dID: Option ByStr20 with contract
+    field did: String,
+    field nft_username: String,
+    field controller: ByStr20,
+    field version: String,
+    field verification_methods: Map String ByStr33,
+    field services: Map String ByStr20,
+    field did_domain_dns: Map String ByStr20 end,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyController tyron; current_init <-& init.dApp;
+  paymentID = builtin substr username zero_ six;
+  is_free = let free = "free00" in builtin eq paymentID free; match is_free with
+  | True => | False => 
+    current_impl <-& current_init.implementation; txID = "TransferNftUsername";
+    get_fee <-& current_impl.utility[paymentID][txID]; fee = option_uint128_value get_fee;
+    IncreaseAllowanceInit paymentID fee end;
+  msg = let m = { _tag: "TransferNftUsername"; _recipient: current_init; _amount: zero;
+    username: username;
+    addr: addr;
     dID: dID } in one_msg m; send msg; Timestamp end
 
 (* Receive $ZIL native funds *)
@@ -746,8 +746,8 @@ transition Transfer(
   amount: Uint128,
   tyron: Option Uint128
   ) 
-  IsOperational; VerifyController tyron;
-  FetchServiceAddr addrName; get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
+  IsOperational; VerifyController tyron; FetchServiceAddr addrName;
+  get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
   match beneficiary with
   | NftUsername username =>
       current_init <-& init.dApp;
@@ -802,20 +802,19 @@ transition XPoints(
 procedure TransferTokens( input: Pair String Uint128 )
   addr_name = let fst_element = @fst String Uint128 in fst_element input;
   amount = let snd_element = @snd String Uint128 in snd_element input;
-  FetchServiceAddr addr_name; get_addr <- services[addr_name]; addr = option_bystr20_value get_addr;
-  recipient <- controller;
-  msg = let m = { _tag: "Transfer"; _recipient: addr; _amount: zero;
-    to: recipient;
+  dID <- controller; FetchServiceAddr addr_name;
+  get_token_addr <- services[addr_name]; token_addr = option_bystr20_value get_token_addr;
+  msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+    to: dID;
     amount: amount } in one_msg m ; send msg end
 
 transition Upgrade(
   username: Option String,
-  recipient: ByStr20,
-  dID: Option ByStr20 with contract
+  addr: ByStr20,
+  dID: ByStr20 with contract
     field did: String,
     field nft_username: String,
     field controller: ByStr20,
-    field did_status: DidStatus,
     field version: String,
     field verification_methods: Map String ByStr33,
     field services: Map String ByStr20,
@@ -824,21 +823,22 @@ transition Upgrade(
   tyron: Option Uint128
   )
   IsOperational; VerifyController tyron;
-  ThrowIfSameAddr _this_address recipient;
+  ThrowIfSameAddr _this_address dID;
   match username with
   | None => | Some name =>
-      id = builtin substr name zero_ six;
-      is_free = let free = "free00" in builtin eq id free; match is_free with
+      current_init <-& init.dApp;
+      paymentID = builtin substr name zero_ six;
+      is_free = let free = "free00" in builtin eq paymentID free; match is_free with
       | True => | False =>
-        current_init <-& init.dApp; current_impl <-& current_init.implementation; 
-        get_fee <-& current_impl.utility[id]; fee = option_uint128_value get_fee;
-        IncreaseAllowanceInit id fee end;
-      msg = let m = { _tag: "TransferNftUsername"; _recipient: init; _amount: zero;
+        current_impl <-& current_init.implementation; txID = "TransferNftUsername";
+        get_fee <-& current_impl.utility[paymentID][txID]; fee = option_uint128_value get_fee;
+        IncreaseAllowanceInit paymentID fee end;
+      msg = let m = { _tag: "TransferNftUsername"; _recipient: current_init; _amount: zero;
         username: name;
-        newAddr: recipient;
+        addr: addr;
         dID: dID } in one_msg m; send msg end;
-  current_controller <- controller; controller := recipient;
+  current_controller <- controller; controller := dID;
   forall tokens TransferTokens; controller := current_controller;
   current_balance <- _balance;
-  msg = let m = { _tag: "AddFunds"; _recipient: recipient; _amount: current_balance } in one_msg m ; send msg;
+  msg = let m = { _tag: "AddFunds"; _recipient: dID; _amount: current_balance } in one_msg m ; send msg;
   Timestamp end

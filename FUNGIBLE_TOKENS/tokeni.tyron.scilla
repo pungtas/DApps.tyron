@@ -1,4 +1,4 @@
-(* v2.9.0
+(* v2.10.0
 tokeni.tyron: Fungible Token DApp <> Implementation smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -91,6 +91,8 @@ contract FungibleTokenI(
     field total_supply: Uint128,
     field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) end,
   init: ByStr20 with contract field dApp: ByStr20 with contract
+    field implementation: ByStr20 with contract
+      field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
       field did: String,   (* the W3C decentralized identifier *)
@@ -117,8 +119,10 @@ contract FungibleTokenI(
   field lockup_period: Uint128 = Uint128 2933582
 
   field insurance: ByStr20 = init_controller
-
+  
   field xinit: ByStr20 with contract field dApp: ByStr20 with contract
+    field implementation: ByStr20 with contract
+      field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
       field did: String,   (* the W3C decentralized identifier *)
@@ -128,6 +132,8 @@ contract FungibleTokenI(
       field verification_methods: Map String ByStr33,
       field services: Map String ByStr20,
       field did_domain_dns: Map String ByStr20 end end end = init
+      
+  field version: String = "tokeni--2.10.0" (* @todo update *)
 
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with

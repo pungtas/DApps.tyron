@@ -1,4 +1,4 @@
-(* v2.6.0
+(* v2.7.0
 token.tyron: Fungible Token DApp <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -51,6 +51,8 @@ contract FungibleToken(
     field nft_username: String,
     field paused: Bool,
     field xinit: ByStr20 with contract field dApp: ByStr20 with contract
+      field implementation: ByStr20 with contract
+        field utility: Map String Map String Uint128 end,
       field dns: Map String ByStr20,
       field did_dns: Map String ByStr20 with contract
         field did: String,   (* the W3C decentralized identifier *)
@@ -87,7 +89,9 @@ contract FungibleToken(
     field nft_username: String,
     field paused: Bool,
     field xinit: ByStr20 with contract field dApp: ByStr20 with contract
-      field dns: Map String ByStr20,
+      field implementation: ByStr20 with contract
+      field utility: Map String Map String Uint128 end,
+        field dns: Map String ByStr20,
       field did_dns: Map String ByStr20 with contract
         field did: String,   (* the W3C decentralized identifier *)
         field nft_username: String,
@@ -99,6 +103,7 @@ contract FungibleToken(
   field balances: Map ByStr20 Uint128 = init_balances
   field total_supply: Uint128 = init_supply
   field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
+  field version: String = "token---2.7.0" (* @todo update *)
   
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
@@ -133,6 +138,8 @@ transition UpdateImplementation(
     field nft_username: String,
     field paused: Bool,
     field xinit: ByStr20 with contract field dApp: ByStr20 with contract
+      field implementation: ByStr20 with contract
+        field utility: Map String Map String Uint128 end,
       field dns: Map String ByStr20,
       field did_dns: Map String ByStr20 with contract
         field did: String,   (* the W3C decentralized identifier *)

@@ -18,4 +18,4 @@ scilla_version 0
 contract Init_( init_username: String )
   field nft_username: String = init_username
   field paused: Bool = False
-  field utility: Map String Uint128 = Emp String Uint128
+  field utility: Map String Map String Uint128 = Emp String Map String Uint128

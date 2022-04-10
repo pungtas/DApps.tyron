@@ -1,4 +1,5 @@
-(* v0.2.0
+(* v0.3.0
+xInit DApp
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
 www.ssiprotocol.com
@@ -46,7 +47,7 @@ contract XInit(
   init_username: String,
   init: ByStr20 with contract
     field implementation: ByStr20 with contract
-      field utility: Map String Uint128 end,
+      field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
       field did: String,   (* the W3C decentralized identifier *)
@@ -61,7 +62,7 @@ contract XInit(
   field pending_username: String = ""
   field dApp: ByStr20 with contract
     field implementation: ByStr20 with contract
-      field utility: Map String Uint128 end,
+      field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
       field did: String,   (* the W3C decentralized identifier *)
@@ -129,7 +130,7 @@ procedure ThrowIfSameAddr(
 transition UpdateDApp(
   addr: ByStr20 with contract
     field implementation: ByStr20 with contract
-      field utility: Map String Uint128 end,
+      field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
       field did: String,   (* the W3C decentralized identifier *)

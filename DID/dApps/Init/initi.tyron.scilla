@@ -1,4 +1,4 @@
-(* v2.10.0
+(* v2.11.0
 initi.tyron: SSI Initialization & DNS DApp <> Implementation smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -126,9 +126,7 @@ library InitI
   let true = True
   let false = False
   let tyron_id = "tyron0"
-  let ssi_id = "$si000"
   let tyron_addr = 0x9df88becdcc0752038446ba0eccab221c22b8136 (* test/ @todo *)
-  let ssi_addr = 0xb8dc094ad8e34d4bec3076afa8bd52a3e73f8221
   
   let compare_participant = fun( addr: ByStr20 ) => fun( participant: ByStr20 ) => builtin eq addr participant
   
@@ -150,7 +148,7 @@ contract InitI(
   field pending_username: String = ""
   field controller: ByStr20 = zeroByStr20
   field did_status: DidStatus = Deployed
-  field version: String = "initi---2.10.0" (* @todo *)
+  field version: String = "initi---2.11.0" (* @todo *)
   
   (* Verification methods @key: key purpose @value: public DID key *)
   field verification_methods: Map String ByStr33 = empty_methods
@@ -158,7 +156,7 @@ contract InitI(
   
   (* Services @key: ID @value: endpoint *)
   field services: Map String ByStr20 = let emp = Emp String ByStr20 in
-    let m = builtin put emp tyron_id tyron_addr in builtin put m ssi_id ssi_addr
+    builtin put emp tyron_id tyron_addr
   field services_: Map String Endpoint = empty_services_
   
   field did_domain_dns: Map String ByStr20 = Emp String ByStr20
@@ -176,9 +174,10 @@ contract InitI(
   
   field paused: Bool = False
 
-  field utility: Map String Uint128 = let emp = Emp String Uint128 in
-    let ten = Uint128 10000000000000 in let m = builtin put emp ssi_id ten in
-    builtin put m tyron_id ten
+  field utility: Map String Map String Uint128 =
+    let emp = Emp String Map String Uint128 in let emp_ = Emp String Uint128 in
+    let ten = Uint128 10000000000000 in let m = builtin put emp_ tyron_id ten in
+    let txID = "BuyNftUsername" in builtin put emp txID m
   
   field minchar: Uint32 = Uint32 6
 
@@ -400,18 +399,18 @@ procedure HashDocument( document: Document )
               did_hash := doc_hash_
           | Address address =>
               hash = match address with
-                      | Zilliqa addr =>
-                          let h1 = builtin sha256hash actionAdd in
-                          let h2 = builtin sha256hash id in
-                          let h3 = builtin sha256hash addr in
-                          let h1_2 = builtin concat h1 h2 in
-                          builtin concat h1_2 h3
-                      | Other addr =>
-                          let h1 = builtin sha256hash actionAdd in
-                          let h2 = builtin sha256hash id in
-                          let h3 = builtin sha256hash addr in
-                          let h1_2 = builtin concat h1 h2 in
-                          builtin concat h1_2 h3 end;
+              | Zilliqa addr =>
+                  let h1 = builtin sha256hash actionAdd in
+                  let h2 = builtin sha256hash id in
+                  let h3 = builtin sha256hash addr in
+                  let h1_2 = builtin concat h1 h2 in
+                  builtin concat h1_2 h3
+              | Other addr =>
+                  let h1 = builtin sha256hash actionAdd in
+                  let h2 = builtin sha256hash id in
+                  let h3 = builtin sha256hash addr in
+                  let h1_2 = builtin concat h1 h2 in
+                  builtin concat h1_2 h3 end;
               doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
               did_hash := doc_hash_ end
       | Remove =>
@@ -577,54 +576,18 @@ transition Unpause( tyron: Option Uint128 )
     pauser: _origin }; event e end
 
 transition AddUtility(
-  id: String,
+  paymentID: String,
+  txID: String,
   fee: Uint128,
   tyron: Option Uint128
   )
-  IsOperational; IsNotPaused; VerifyController tyron; utility[id] := fee end
+  IsOperational; IsNotPaused; VerifyController tyron; utility[paymentID][txID] := fee end
   
 transition RemoveUtility(
   id: String,
   tyron: Option Uint128
   )
   IsOperational; IsNotPaused; VerifyController tyron; delete utility[id] end
-
-procedure NftUsernameCallBack(
-  username: String,
-  addr: ByStr20
-  )
-  msg = let m = { _tag: "NftUsernameCallBack"; _recipient: init; _amount: zero;
-    username: username;
-    addr: addr } in one_msg m; send msg end
-  
-procedure PremiumNftUsername_( premium: String )
-  current_controller <- controller;
-  get_addr <-& init.dns[premium]; match get_addr with
-  | Some addr => err = CodeNftUsernameTaken; ThrowError err
-  | None => NftUsernameCallBack premium current_controller end end
-
-transition PremiumNftUsername(
-  premium: List String,
-  tyron: Option Uint128
-  )
-  IsOperational; IsNotPaused; VerifyController tyron;
-  forall premium PremiumNftUsername_ end
-
-procedure NftDidCallBack(
-  username: String,
-  did_: ByStr20 with contract
-    field did: String,
-    field nft_username: String,
-    field controller: ByStr20,
-    field did_status: DidStatus,
-    field version: String,
-    field verification_methods: Map String ByStr33,
-    field services: Map String ByStr20,
-    field did_domain_dns: Map String ByStr20 end
-  )
-  msg = let m = { _tag: "NftDidCallBack"; _recipient: init; _amount: zero;
-    username: username;
-    did_: did_ } in one_msg m; send msg end
 
 transition UpdateMinChar(
   val: Uint32,
@@ -649,14 +612,49 @@ transition UpdateFreeList(
   IsOperational; IsNotPaused; VerifyController tyron;
   forall val UpdateFreeList_ end
 
-transition BuyNftUsername(
+procedure NftUsernameCallBack(
   username: String,
-  addr: ByStr20,
-  dID: Option ByStr20 with contract
+  addr: ByStr20
+  )
+  msg = let m = { _tag: "NftUsernameCallBack"; _recipient: init; _amount: zero;
+    username: username;
+    addr: addr } in one_msg m; send msg end
+  
+procedure PremiumNftUsername_( premium: String )
+  current_controller <- controller;
+  get_addr <-& init.dns[premium]; match get_addr with
+  | Some addr => err = CodeNftUsernameTaken; ThrowError err
+  | None => NftUsernameCallBack premium current_controller end end
+
+transition PremiumNftUsername(
+  premium: List String,
+  tyron: Option Uint128
+  )
+  IsOperational; IsNotPaused; VerifyController tyron;
+  forall premium PremiumNftUsername_ end
+
+procedure NftDidCallBack(
+  username: String,
+  dID: ByStr20 with contract
     field did: String,
     field nft_username: String,
     field controller: ByStr20,
-    field did_status: DidStatus,
+    field version: String,
+    field verification_methods: Map String ByStr33,
+    field services: Map String ByStr20,
+    field did_domain_dns: Map String ByStr20 end
+  )
+  msg = let m = { _tag: "NftDidCallBack"; _recipient: init; _amount: zero;
+    username: username;
+    dID: dID } in one_msg m; send msg end
+
+transition BuyNftUsername(
+  username: String,
+  addr: ByStr20,
+  dID: ByStr20 with contract
+    field did: String,
+    field nft_username: String,
+    field controller: ByStr20,
     field version: String,
     field verification_methods: Map String ByStr33,
     field services: Map String ByStr20,
@@ -670,67 +668,80 @@ transition BuyNftUsername(
       is_participant = list_part compare_participant _origin list;
       match is_participant with
       | True =>
-          list_filter = @list_filter ByStr20; remove_participant = fun( participant: ByStr20 ) => let is_addr = builtin eq _origin participant in negb is_addr;
+          list_filter = @list_filter ByStr20; remove_participant = fun( participant: ByStr20 )
+            => let is_addr = builtin eq _origin participant in negb is_addr;
           list_updated = list_filter remove_participant list;
           free_list := list_updated
       | False =>
-          id = builtin substr username zero_ six;
-          get_fee <- utility[id]; match get_fee with
+          paymentID = builtin substr username zero_ six; txID = "BuyNftUsername";
+          get_fee <- utility[paymentID][txID]; match get_fee with
           | None => err = CodeIsNull; ThrowError err
           | Some fee =>
-              get_token_addr <- services[id]; token_addr = option_bystr20_value get_token_addr;
+              get_token_addr <- services[paymentID]; token_addr = option_bystr20_value get_token_addr;
               msg = let m = { _tag: "TransferFrom"; _recipient: token_addr; _amount: zero;
-                from: addr;
+                from: dID;
                 to: _this_address;
                 amount: fee } in one_msg m; send msg end end end;
   username_ = let total_len = builtin strlen username in let len = builtin sub total_len six in
     builtin substr username six len;
-  NftUsernameCallBack username_ addr;
-  match dID with
-  | None => | Some did_ => NftDidCallBack username_ did_ end end
+  NftUsernameCallBack username_ addr; NftDidCallBack username_ dID end
 
 transition UpdateNftDid(
   username: String,
-  addr: ByStr20,
   dID: ByStr20 with contract
     field did: String,
     field nft_username: String,
     field controller: ByStr20,
-    field did_status: DidStatus,
     field version: String,
     field verification_methods: Map String ByStr33,
     field services: Map String ByStr20,
     field did_domain_dns: Map String ByStr20 end
   )
   IsOperational; ThrowIfNotProxy; IsNotPaused;
-  get_addr <-& init.dns[username]; match get_addr with
-  | Some addr_ =>
-      is_owner = builtin eq addr addr_;
-      match is_owner with
-      | False => err = CodeWrongCaller; ThrowError err
-      | True => NftDidCallBack username dID end
+  get_did <-& init.did_dns[username]; match get_did with
+  | Some did_ =>
+      current_controller <-& did_.controller;
+      verified = builtin eq _origin current_controller; match verified with
+      | True => | False => err = CodeWrongCaller; ThrowError err end;
+      list_part = @list_mem ByStr20; list <- free_list;
+      is_participant = list_part compare_participant _origin list;
+      match is_participant with
+      | True =>
+          list_filter = @list_filter ByStr20; remove_participant = fun( participant: ByStr20 )
+            => let is_addr = builtin eq _origin participant in negb is_addr;
+          list_updated = list_filter remove_participant list;
+          free_list := list_updated
+      | False =>
+          paymentID = builtin substr username zero_ six; txID = "UpdateNftDid";
+          get_fee <- utility[paymentID][txID]; match get_fee with
+          | None => err = CodeIsNull; ThrowError err
+          | Some fee =>
+              get_token_addr <- services[paymentID]; token_addr = option_bystr20_value get_token_addr;
+              msg = let m = { _tag: "TransferFrom"; _recipient: token_addr; _amount: zero;
+                from: did_;
+                to: _this_address;
+                amount: fee } in one_msg m; send msg end end;
+      NftDidCallBack username dID
   | None => err = CodeIsNull; ThrowError err end end
 
 transition TransferNftUsername(
   username: String,
   addr: ByStr20,
-  newAddr: ByStr20,
-  dID: Option ByStr20 with contract
+  dID: ByStr20 with contract
     field did: String,
     field nft_username: String,
     field controller: ByStr20,
-    field did_status: DidStatus,
     field version: String,
     field verification_methods: Map String ByStr33,
     field services: Map String ByStr20,
     field did_domain_dns: Map String ByStr20 end
   )
-  IsOperational; ThrowIfNotProxy; IsNotPaused; IsNotNull newAddr;
-  get_addr <-& init.dns[username]; addr_ = option_bystr20_value get_addr;
-  is_owner = builtin eq addr addr_;
-  match is_owner with
-  | False => err = CodeWrongCaller; ThrowError err
-  | True =>
+  IsOperational; ThrowIfNotProxy; IsNotPaused; IsNotNull addr;
+  get_did <-& init.did_dns[username]; match get_did with
+  | Some did_ =>
+      current_controller <-& did_.controller;
+      verified = builtin eq _origin current_controller; match verified with
+      | True => | False => err = CodeWrongCaller; ThrowError err end;
       list_part = @list_mem ByStr20; list <- free_list;
       is_participant = list_part compare_participant _origin list;
       match is_participant with
@@ -740,20 +751,16 @@ transition TransferNftUsername(
           list_updated = list_filter remove_participant list;
           free_list := list_updated
       | False =>
-          id = builtin substr username zero_ six;
-          get_fee <- utility[id]; match get_fee with
+          paymentID = builtin substr username zero_ six; txID = "TransferNftUsername";
+          get_fee <- utility[paymentID][txID]; match get_fee with
           | None => err = CodeIsNull; ThrowError err
           | Some fee =>
-              get_token_addr <- services[id]; token_addr = option_bystr20_value get_token_addr;
+              get_token_addr <- services[paymentID]; token_addr = option_bystr20_value get_token_addr;
               msg = let m = { _tag: "TransferFrom"; _recipient: token_addr; _amount: zero;
-                from: addr;
+                from: did_;
                 to: _this_address;
-                amount: fee } in one_msg m; send msg end end end;
-  username_ = let total_len = builtin strlen username in let len = builtin sub total_len six in
-    builtin substr username six len;
-  NftUsernameCallBack username_ newAddr;
-  match dID with
-  | Some did_ => NftDidCallBack username_ did_
-  | None =>
-      msg = let m = { _tag: "RemoveNftDidCallBack"; _recipient: _sender; _amount: zero;
-        username: username_ } in one_msg m; send msg end end
+                amount: fee } in one_msg m; send msg end end;
+      username_ = let total_len = builtin strlen username in let len = builtin sub total_len six in
+        builtin substr username six len;
+      NftUsernameCallBack username_ addr; NftDidCallBack username_ dID
+  | None => err = CodeIsNull; ThrowError err end end
