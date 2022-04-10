@@ -1,4 +1,4 @@
-(* v3.5.0
+(* v3.6.0
 did.tyron: W3C Decentralized Identifier DApp
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -22,13 +22,12 @@ library DID
 
   let tyronAddr = 0xA3725fA67FaA3a1cAe6869C57b475ff173D98Ba7
 
-  type DIDStatus =
+  type DidStatus =
     | Deployed
     | Created
     | Recovered
     | Updated
     | Deactivated
-    | Locked
 
   type Operation =
     | Recovery
@@ -109,9 +108,11 @@ library DID
 
 contract DID( init_controller: ByStr20 )
   field did: String = ""   (* the W3C decentralized identifier *)
+  field nft_username: String = ""
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
-  field did_status: DIDStatus = Deployed
+  field did_status: DidStatus = Deployed
+  field version: String = "did-----3.6.0" (* @todo update *)
   
   (* Verification methods @key: key purpose @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
   field verification_methods: Map String ByStr33 = empty_methods
@@ -133,6 +134,8 @@ contract DID( init_controller: ByStr20 )
   (* A monotonically increasing number representing the amount of transactions that have taken place *)
   field tx_number: Uint128 = zero
 
+  field did_domain_dns: Map String ByStr20 = Emp String ByStr20
+
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
   | Some donation => 
@@ -146,7 +149,6 @@ procedure IsOperational()
   current_status <- did_status;
   match current_status with
   | Deactivated => err = CodeWrongStatus; ThrowError err
-  | Locked => err = CodeDidLocked; ThrowError err
   | _ => end end
 
 procedure VerifyController( tyron: Option Uint128 )
@@ -175,10 +177,10 @@ transition UpdateController(
   pending_controller := addr; Timestamp end
 
 transition AcceptPendingController()
-  IsOperational; pending <- pending_controller;
-  verified = builtin eq _origin pending; match verified with
+  IsOperational; current_pending <- pending_controller;
+  verified = builtin eq _origin current_pending; match verified with
   | True => | False => err = CodeWrongCaller; ThrowError err end;
-  controller := pending end
+  controller := current_pending end
 
 (* Verify Schnorr signature - signed data must correspond with a DID key *)
 procedure VerifySignature(
@@ -425,3 +427,17 @@ transition DidDeactivate(
   VerifyDocument didRecovery document signature;
   verification_methods := empty_methods; services := empty_services; services_ := empty_services_;
   new_status = Deactivated; did_status := new_status; Timestamp end
+
+transition Dns(
+  addr: ByStr20,
+  domain: String,
+  didKey: ByStr33,
+  encrypted: String,
+  tyron: Option Uint128
+  )
+  current_status <- did_status; match current_status with
+  | Created => | Recovered => | Updated =>
+  | _ => err = CodeWrongStatus; ThrowError err end;
+  VerifyController tyron; ThrowIfSameAddr _this_address addr;
+  verification_methods[domain] := didKey; dkms[domain] := encrypted; did_domain_dns[domain] := addr; 
+  new_status = Updated; did_status := new_status; Timestamp end

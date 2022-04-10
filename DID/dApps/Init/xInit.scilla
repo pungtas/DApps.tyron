@@ -1,0 +1,146 @@
+(* v0.2.0
+Self-Sovereign Identity Protocol
+Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
+www.ssiprotocol.com
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.*)
+
+scilla_version 0
+
+library XInit
+  let one_msg = fun( msg: Message ) =>
+    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+
+  type Error =
+    | CodeWrongCaller
+    | CodeSameAddress
+    | CodeSameUsername
+    | CodeIsNull
+    
+  let make_error = fun( error: Error ) =>
+    let result = match error with
+    | CodeWrongCaller            => Int32 -1
+    | CodeSameAddress            => Int32 -2
+    | CodeSameUsername           => Int32 -3
+    | CodeIsNull                 => Int32 -4
+    end in { _exception: "Error"; code: result }
+
+let zeroByStr20 = 0x0000000000000000000000000000000000000000
+
+let option_value = 
+  tfun 'A => fun( default: 'A ) => fun( input: Option 'A) => match input with
+  | Some v => v
+  | None => default end
+
+let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
+
+contract XInit(
+  init_username: String,
+  init: ByStr20 with contract
+    field implementation: ByStr20 with contract
+      field utility: Map String Uint128 end,
+    field dns: Map String ByStr20,
+    field did_dns: Map String ByStr20 with contract
+      field did: String,   (* the W3C decentralized identifier *)
+      field nft_username: String,
+      field controller: ByStr20,
+      field version: String,
+      field verification_methods: Map String ByStr33,
+      field services: Map String ByStr20,
+      field did_domain_dns: Map String ByStr20 end end
+  )
+  field nft_username: String = init_username
+  field pending_username: String = ""
+  field dApp: ByStr20 with contract
+    field implementation: ByStr20 with contract
+      field utility: Map String Uint128 end,
+    field dns: Map String ByStr20,
+    field did_dns: Map String ByStr20 with contract
+      field did: String,   (* the W3C decentralized identifier *)
+      field nft_username: String,
+      field controller: ByStr20,
+      field version: String,
+      field verification_methods: Map String ByStr33,
+      field services: Map String ByStr20,
+      field did_domain_dns: Map String ByStr20 end end = init
+
+procedure SupportTyron( tyron: Option Uint128 )
+  match tyron with
+  | None => | Some donation =>
+      donateDApp = "donate"; get_addr <-& init.dns[donateDApp]; addr = option_bystr20_value get_addr;
+      accept; msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: donation } in one_msg m; send msg end end
+
+procedure ThrowError( err: Error )
+  e = make_error err; throw e end
+
+procedure VerifyController( tyron: Option Uint128 )
+  current_username <- nft_username; current_dApp <- dApp;
+  get_did <-& current_dApp.did_dns[current_username]; match get_did with
+  | None => err = CodeIsNull; ThrowError err
+  | Some did_ =>
+      current_controller <-& did_.controller;
+      verified = builtin eq _origin current_controller; match verified with
+      | True => | False => err = CodeWrongCaller; ThrowError err end;
+      SupportTyron tyron end end
+
+procedure ThrowIfSameName(
+  a: String,
+  b: String
+  )
+  is_same = builtin eq a b; match is_same with
+  | False => | True => err = CodeSameUsername; ThrowError err end end
+
+transition UpdateUsername(
+  username: String,
+  tyron: Option Uint128
+  )
+  VerifyController tyron;
+  current_username <- nft_username; ThrowIfSameName current_username username;
+  current_dApp <- dApp;
+  get_did <-& current_dApp.did_dns[username]; match get_did with
+  | None => err = CodeIsNull; ThrowError err
+  | Some did_ => pending_username := username end end
+
+transition AcceptPendingUsername()
+  current_pending <- pending_username; current_dApp <- dApp;
+  get_did <-& current_dApp.did_dns[current_pending]; match get_did with
+  | None => err = CodeIsNull; ThrowError err
+  | Some did_ =>
+      current_controller <-& did_.controller;
+      verified = builtin eq _origin current_controller; match verified with
+      | True => | False => err = CodeWrongCaller; ThrowError err end;
+      nft_username := current_pending end end
+
+procedure ThrowIfSameAddr(
+  a: ByStr20,
+  b: ByStr20
+  )
+  is_same = builtin eq a b; match is_same with
+  | False => | True => err = CodeSameAddress; ThrowError err end end
+
+transition UpdateDApp(
+  addr: ByStr20 with contract
+    field implementation: ByStr20 with contract
+      field utility: Map String Uint128 end,
+    field dns: Map String ByStr20,
+    field did_dns: Map String ByStr20 with contract
+      field did: String,   (* the W3C decentralized identifier *)
+      field nft_username: String,
+      field controller: ByStr20,
+      field version: String,
+      field verification_methods: Map String ByStr33,
+      field services: Map String ByStr20,
+      field did_domain_dns: Map String ByStr20 end end,
+  tyron: Option Uint128
+  )
+  VerifyController tyron;
+  current_dApp <- dApp; ThrowIfSameAddr current_dApp addr;
+  dApp := addr end

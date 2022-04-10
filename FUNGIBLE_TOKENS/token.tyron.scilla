@@ -1,7 +1,7 @@
-(* v2.5.0
+(* v2.6.0
 token.tyron: Fungible Token DApp <> Proxy smart contract
 Self-Sovereign Identity Protocol
-Copyright (C) Tyron Pungtas and its affiliates.
+Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
 www.ssiprotocol.com
 
 This program is free software: you can redistribute it and/or modify
@@ -24,15 +24,17 @@ library FungibleToken
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
   type Error =
-    | CodeWrongCaller
     | CodeWrongStatus
-    | CodeNotValid
+    | CodeWrongCaller
+    | CodeIsNull
+    | CodeSameAddress
 
   let make_error = fun( error: Error ) =>
     let result = match error with
+    | CodeWrongStatus            => Int32 0
     | CodeWrongCaller            => Int32 -1
-    | CodeWrongStatus            => Int32 -2
-    | CodeNotValid               => Int32 -3
+    | CodeIsNull                 => Int32 -2
+    | CodeSameAddress            => Int32 -3
     end in { _exception: "Error"; code: result }
   
   let zero = Uint128 0
@@ -46,8 +48,18 @@ library FungibleToken
   
 contract FungibleToken(
   contract_owner: ByStr20 with contract 
-    field controller: ByStr20,
-    field paused: Bool end,
+    field nft_username: String,
+    field paused: Bool,
+    field xinit: ByStr20 with contract field dApp: ByStr20 with contract
+      field dns: Map String ByStr20,
+      field did_dns: Map String ByStr20 with contract
+        field did: String,   (* the W3C decentralized identifier *)
+        field nft_username: String,
+        field controller: ByStr20,
+        field version: String,
+        field verification_methods: Map String ByStr33,
+        field services: Map String ByStr20,
+        field did_domain_dns: Map String ByStr20 end end end end,
   name: String,
   symbol: String,
   decimals: Uint32,
@@ -72,8 +84,18 @@ contract FungibleToken(
       andb name_symbol_ok decimals_ok
   =>
   field implementation: ByStr20 with contract
-    field controller: ByStr20,
-    field paused: Bool end = contract_owner
+    field nft_username: String,
+    field paused: Bool,
+    field xinit: ByStr20 with contract field dApp: ByStr20 with contract
+      field dns: Map String ByStr20,
+      field did_dns: Map String ByStr20 with contract
+        field did: String,   (* the W3C decentralized identifier *)
+        field nft_username: String,
+        field controller: ByStr20,
+        field version: String,
+        field verification_methods: Map String ByStr33,
+        field services: Map String ByStr20,
+        field did_domain_dns: Map String ByStr20 end end end end = contract_owner
   field balances: Map ByStr20 Uint128 = init_balances
   field total_supply: Uint128 = init_supply
   field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
@@ -87,20 +109,44 @@ procedure VerifyCaller( caller: Caller )
   | False => | True => err = CodeWrongStatus; ThrowError err end;
   match caller with
   | Controller =>
-      controller <-& current_impl.controller;
-      verified = builtin eq _origin controller; match verified with
-      | True => | False => err = CodeWrongCaller; ThrowError err end
+      current_username <-& current_impl.nft_username;
+      init <-& current_impl.xinit; current_init <-& init.dApp;
+      get_did <-& current_init.did_dns[current_username]; match get_did with
+      | None => err = CodeIsNull; ThrowError err
+      | Some did_ =>
+          current_controller <-& did_.controller;
+          verified = builtin eq _origin current_controller; match verified with
+          | True => | False => err = CodeWrongCaller; ThrowError err end end
   | Implementation =>
       verified = builtin eq _sender current_impl; match verified with
       | True => | False => err = CodeWrongCaller; ThrowError err end end end
 
-transition UpdateImplementation( addr: ByStr20 with contract field controller: ByStr20, field paused: Bool end )
-  VerifyCaller controller_; current_impl <- implementation;
-  is_same = builtin eq current_impl addr; match is_same with
-  | False => | True => err = CodeNotValid; ThrowError err end;
+procedure ThrowIfSameAddr(
+  a: ByStr20,
+  b: ByStr20
+  )
+  is_self = builtin eq a b; match is_self with
+  | False => | True => err = CodeSameAddress; ThrowError err end end
+
+transition UpdateImplementation(
+  addr: ByStr20 with contract
+    field nft_username: String,
+    field paused: Bool,
+    field xinit: ByStr20 with contract field dApp: ByStr20 with contract
+      field dns: Map String ByStr20,
+      field did_dns: Map String ByStr20 with contract
+        field did: String,   (* the W3C decentralized identifier *)
+        field nft_username: String,
+        field controller: ByStr20,
+        field version: String,
+        field verification_methods: Map String ByStr33,
+        field services: Map String ByStr20,
+        field did_domain_dns: Map String ByStr20 end end end end
+  )
+  VerifyCaller controller_; current_impl <- implementation; ThrowIfSameAddr current_impl addr;
   implementation := addr;
   e = { _eventname: "ImplementationUpdated";
-    new_implementation: addr }; event e end
+    newImplementation: addr }; event e end
 
 transition Mint(
   beneficiary: ByStr20,
@@ -127,12 +173,12 @@ transition Burn(
 
 transition TransmuteCallBack(
   beneficiary: ByStr20,
-  new_balance: Uint128,
-  new_supply: Uint128
+  newBalance: Uint128,
+  newSupply: Uint128
   )
   VerifyCaller implementation_;
-  balances[beneficiary] := new_balance;
-  total_supply := new_supply end
+  balances[beneficiary] := newBalance;
+  total_supply := newSupply end
   
 transition Transfer(
   to: ByStr20,
@@ -147,12 +193,12 @@ transition Transfer(
 transition TransferCallBack(
   originator: ByStr20,
   beneficiary: ByStr20,
-  new_originator_bal: Uint128,
-  new_beneficiary_bal: Uint128
+  originatorBal: Uint128,
+  beneficiaryBal: Uint128
   )
   VerifyCaller implementation_;
-  balances[originator] := new_originator_bal;
-  balances[beneficiary] := new_beneficiary_bal;
+  balances[originator] := originatorBal;
+  balances[beneficiary] := beneficiaryBal;
   e = {
     _eventname: "TransferSuccess";
     sender: originator;
@@ -183,10 +229,10 @@ transition DecreaseAllowance(
 transition AllowanceCallBack(
   originator: ByStr20,
   spender: ByStr20,
-  new_allowance: Uint128
+  newAllowance: Uint128
   )
   VerifyCaller implementation_;
-  allowances[originator][spender] := new_allowance end
+  allowances[originator][spender] := newAllowance end
 
 transition TransferFrom(
   from: ByStr20, 
