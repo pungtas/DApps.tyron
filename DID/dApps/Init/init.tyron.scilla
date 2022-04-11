@@ -1,4 +1,4 @@
-(* v2.6.0
+(* v3.1.0
 init.tyron: SSI Initialization & DNS DApp <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -63,7 +63,7 @@ contract Init(
     field utility: Map String Map String Uint128 end = init_
 
   (* DNS records @key: NFT Username @value: address *)
-  field dns: Map String ByStr20 = Emp String ByStr20
+  field dns: Map String ByStr20 = let emp = Emp String ByStr20 in builtin put emp name nameDid
   field did_dns: Map String ByStr20 with contract
     field did: String,
     field nft_username: String,
@@ -82,7 +82,7 @@ contract Init(
         field did_domain_dns: Map String ByStr20 end
       in builtin put emp name nameDid
 
-  field version: String = "init----2.6.0" (* @todo update *)
+  field version: String = "init----3.1.0" (* @todo update *)
 
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
@@ -96,8 +96,8 @@ procedure VerifyCaller( caller: Caller )
       current_username <-& current_impl.nft_username;
       get_did <- did_dns[current_username]; match get_did with
       | None => err = CodeIsNull; ThrowError err
-      | Some did =>
-          current_controller <-& did.controller;
+      | Some did_ =>
+          current_controller <-& did_.controller;
           verified = builtin eq _origin current_controller; match verified with
           | True => | False => err = CodeWrongCaller; ThrowError err end end
   | Implementation =>
@@ -115,10 +115,17 @@ transition UpdateImplementation(
   addr: ByStr20 with contract
     field nft_username: String,
     field paused: Bool,
-    field utility: Map String Map String Uint128 end
+    field utility: Map String Map String Uint128,
+    field did: String,
+    field nft_username: String,
+    field controller: ByStr20,
+    field version: String,
+    field verification_methods: Map String ByStr33,
+    field services: Map String ByStr20,
+    field did_domain_dns: Map String ByStr20 end
   )
   VerifyCaller controller_; current_impl <- implementation; ThrowIfSameAddr current_impl addr;
-  implementation := addr; initDApp = "init"; dns[initDApp] := addr;
+  implementation := addr; initDApp = "init"; dns[initDApp] := addr; did_dns[initDApp] := addr;
   e = { _eventname: "ImplementationUpdated";
     newImplementation: addr }; event e end
 

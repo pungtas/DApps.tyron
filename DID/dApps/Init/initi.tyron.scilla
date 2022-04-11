@@ -1,4 +1,4 @@
-(* v2.11.0
+(* v3.0.0
 initi.tyron: SSI Initialization & DNS DApp <> Implementation smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -126,7 +126,7 @@ library InitI
   let true = True
   let false = False
   let tyron_id = "tyron0"
-  let tyron_addr = 0x9df88becdcc0752038446ba0eccab221c22b8136 (* test/ @todo *)
+  let tyron_addr = 0x7c8e77441667ce1e223c1a5bd658287ab1ebd5cc   (* @todo *)
   
   let compare_participant = fun( addr: ByStr20 ) => fun( participant: ByStr20 ) => builtin eq addr participant
   
@@ -148,10 +148,12 @@ contract InitI(
   field pending_username: String = ""
   field controller: ByStr20 = zeroByStr20
   field did_status: DidStatus = Deployed
-  field version: String = "initi---2.11.0" (* @todo *)
+  field version: String = "initi---3.0.0" (* @todo *)
   
   (* Verification methods @key: key purpose @value: public DID key *)
   field verification_methods: Map String ByStr33 = empty_methods
+  
+  (* Decentralized Key Management System *)
   field dkms: Map String String = empty_dkms
   
   (* Services @key: ID @value: endpoint *)
@@ -176,8 +178,8 @@ contract InitI(
 
   field utility: Map String Map String Uint128 =
     let emp = Emp String Map String Uint128 in let emp_ = Emp String Uint128 in
-    let ten = Uint128 10000000000000 in let m = builtin put emp_ tyron_id ten in
-    let txID = "BuyNftUsername" in builtin put emp txID m
+    let txID = "BuyNftUsername" in let ten = Uint128 10000000000000 in let m = builtin put emp_ txID ten in
+    builtin put emp tyron_id m
   
   field minchar: Uint32 = Uint32 6
 
@@ -619,34 +621,29 @@ procedure NftUsernameCallBack(
   msg = let m = { _tag: "NftUsernameCallBack"; _recipient: init; _amount: zero;
     username: username;
     addr: addr } in one_msg m; send msg end
-  
-procedure PremiumNftUsername_( premium: String )
-  current_controller <- controller;
-  get_addr <-& init.dns[premium]; match get_addr with
-  | Some addr => err = CodeNftUsernameTaken; ThrowError err
-  | None => NftUsernameCallBack premium current_controller end end
-
-transition PremiumNftUsername(
-  premium: List String,
-  tyron: Option Uint128
-  )
-  IsOperational; IsNotPaused; VerifyController tyron;
-  forall premium PremiumNftUsername_ end
 
 procedure NftDidCallBack(
   username: String,
-  dID: ByStr20 with contract
-    field did: String,
-    field nft_username: String,
-    field controller: ByStr20,
-    field version: String,
-    field verification_methods: Map String ByStr33,
-    field services: Map String ByStr20,
-    field did_domain_dns: Map String ByStr20 end
+  dID: ByStr20
   )
   msg = let m = { _tag: "NftDidCallBack"; _recipient: init; _amount: zero;
     username: username;
     dID: dID } in one_msg m; send msg end
+ 
+procedure PremiumNftUsername_( premium: String )
+  current_controller <- controller;
+  get_addr <-& init.dns[premium]; match get_addr with
+  | Some addr => err = CodeNftUsernameTaken; ThrowError err
+  | None =>
+      NftUsernameCallBack premium current_controller;
+      NftDidCallBack premium _this_address end end
+
+transition PremiumNftUsername(
+  premium: List String,
+  tyron: Uint128
+  )
+  IsOperational; IsNotPaused; tyron_ = Some{ Uint128 } tyron; VerifyController tyron_;
+  forall premium PremiumNftUsername_ end
 
 transition BuyNftUsername(
   username: String,

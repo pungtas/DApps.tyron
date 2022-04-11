@@ -16,32 +16,36 @@ GNU General Public License for more details.*)
 scilla_version 0
 
 contract ContractOwner(
-  name: String,
-  xInit: ByStr20 with contract field dApp: ByStr20 with contract
+  name: String
+  (*
+  ,xInit: ByStr20 with contract field dApp: ByStr20 with contract
     field implementation: ByStr20 with contract
       field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
-      field did: String,   (* the W3C decentralized identifier *)
+      field did: String,
       field nft_username: String,
       field controller: ByStr20,
       field version: String,
       field verification_methods: Map String ByStr33,
       field services: Map String ByStr20,
       field did_domain_dns: Map String ByStr20 end end end
+  *)
   )
   field nft_username: String = name
   field paused: Bool = False
-  field utility: Map String Uint128 = Emp String Uint128
+  field utility: Map String Map String Uint128 = Emp String Map String Uint128
+  (*
   field xinit: ByStr20 with contract field dApp: ByStr20 with contract
     field implementation: ByStr20 with contract
       field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
-      field did: String,   (* the W3C decentralized identifier *)
+      field did: String,
       field nft_username: String,
       field controller: ByStr20,
       field version: String,
       field verification_methods: Map String ByStr33,
       field services: Map String ByStr20,
       field did_domain_dns: Map String ByStr20 end end end = xInit
+  *)

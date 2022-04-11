@@ -1,4 +1,4 @@
-(* v2.7.0
+(* v3.0.0
 token.tyron: Fungible Token DApp <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -103,7 +103,7 @@ contract FungibleToken(
   field balances: Map ByStr20 Uint128 = init_balances
   field total_supply: Uint128 = init_supply
   field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
-  field version: String = "token---2.7.0" (* @todo update *)
+  field version: String = "token---3.0.0" (* @todo update *)
   
 procedure ThrowError( err: Error )
   e = make_error err; throw e end

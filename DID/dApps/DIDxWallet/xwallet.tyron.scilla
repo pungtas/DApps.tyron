@@ -1,4 +1,4 @@
-(* v4.11.0
+(* v5.0.0
 xwallet.tyron: W3C Decentralized Identifier Smart Contract Wallet (DIDxWallet)
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -144,7 +144,7 @@ contract DIDxWallet(
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
   field did_status: DidStatus = Deployed
-  field version: String = "xwallet-4.10.1" (* @todo update *)
+  field version: String = "xwallet-5.0.0" (* @todo *)
   
   (* Verification methods @key: key purpose @value: public DID key *)
   field verification_methods: Map String ByStr33 = empty_methods
@@ -505,7 +505,7 @@ transition DidDeactivate(
   verification_methods := empty_methods; services := empty_services; services_ := empty_services_;
   new_status = Deactivated; did_status := new_status; Timestamp end
 
-(* xWallet backbone *)
+(* Wallet backbone *)
 
 procedure ConcatGuardians( id: ByStr32 )
   ghash <- did_hash; ghash_ = let h = builtin to_bystr id in builtin concat ghash h;
@@ -696,8 +696,8 @@ transition UpdateNftDid(
 
 transition TransferNftUsername(
   username: String,
-  addr: ByStr20,
-  dID: Option ByStr20 with contract
+  addr: Option ByStr20,
+  dID: ByStr20 with contract
     field did: String,
     field nft_username: String,
     field controller: ByStr20,
@@ -714,9 +714,12 @@ transition TransferNftUsername(
     current_impl <-& current_init.implementation; txID = "TransferNftUsername";
     get_fee <-& current_impl.utility[paymentID][txID]; fee = option_uint128_value get_fee;
     IncreaseAllowanceInit paymentID fee end;
+  address = match addr with
+  | Some addr_ => addr_
+  | None => _this_address end;
   msg = let m = { _tag: "TransferNftUsername"; _recipient: current_init; _amount: zero;
     username: username;
-    addr: addr;
+    addr: address;
     dID: dID } in one_msg m; send msg; Timestamp end
 
 (* Receive $ZIL native funds *)

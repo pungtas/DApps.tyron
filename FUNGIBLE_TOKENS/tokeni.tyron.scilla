@@ -1,4 +1,4 @@
-(* v2.10.0
+(* v3.0.0
 tokeni.tyron: Fungible Token DApp <> Implementation smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -116,7 +116,7 @@ contract FungibleTokenI(
   
   field fund: ByStr20 = init_controller
   field accounts: Map ByStr20 Account = Emp ByStr20 Account
-  field lockup_period: Uint128 = Uint128 2933582
+  field lockup_period: Uint128 = Uint128 2900000
 
   field insurance: ByStr20 = init_controller
   
@@ -133,7 +133,7 @@ contract FungibleTokenI(
       field services: Map String ByStr20,
       field did_domain_dns: Map String ByStr20 end end end = init
       
-  field version: String = "tokeni--2.10.0" (* @todo update *)
+  field version: String = "tokeni--3.0.0" (* @todo *)
 
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
@@ -257,14 +257,12 @@ transition UpdatePauser(
     newPauser: username }; event e end
 
 transition Pause()
-  ThrowIfNotProxy; IsPauser;
-  IsNotPaused; paused := true;
+  IsNotPaused; IsPauser; paused := true;
   e = { _eventname: "SmartContractPaused";
     pauser: _sender }; event e end
 
 transition Unpause()
-  ThrowIfNotProxy; IsPauser;
-  IsPaused; paused := false;
+  IsPaused; IsPauser; paused := false;
   e = { _eventname: "SmartContractUnpaused";
     pauser: _sender }; event e end
     
@@ -328,14 +326,14 @@ transition UpdateLockup(
   )
   IsNotPaused; VerifyController tyron; lockup_period := val end
 
-transition AddAcount(
+transition AddAccount(
   investor: ByStr20,
   amount: Uint128,
   schedule: Uint128,
   start: Uint128,
-  tyron: Option Uint128
+  tyron: Uint128
   )
-  IsNotPaused; VerifyController tyron; current_fund <- fund;
+  IsNotPaused; tyron_ = Some{ Uint128 } tyron; VerifyController tyron_; current_fund <- fund;
   IsNotBlocked current_fund; IsNotBlocked investor; ThrowIfSameAddr current_fund investor;
   get_fund_bal <-& proxy.balances[current_fund]; fund_bal = option_uint128_value get_fund_bal;
   new_fund_bal = builtin sub fund_bal amount;
