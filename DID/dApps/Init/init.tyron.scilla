@@ -1,4 +1,4 @@
-(* v3.1.0
+(* v3.2.0
 init.tyron: SSI Initialization & DNS DApp <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -20,7 +20,7 @@ library Init
   let one_msg =
     fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
-    
+
   type Error =
     | CodeWrongStatus
     | CodeWrongCaller
@@ -55,7 +55,16 @@ contract Init(
   init_: ByStr20 with contract 
     field nft_username: String,
     field paused: Bool,
-    field utility: Map String Map String Uint128 end
+    field utility: Map String Map String Uint128 end,
+  initDns: Map String ByStr20,
+  initDidDns: Map String ByStr20 with contract
+    field did: String,
+    field nft_username: String,
+    field controller: ByStr20,
+    field version: String,
+    field verification_methods: Map String ByStr33,
+    field services: Map String ByStr20,
+    field did_domain_dns: Map String ByStr20 end
   )
   field implementation: ByStr20 with contract
     field nft_username: String,
@@ -63,7 +72,7 @@ contract Init(
     field utility: Map String Map String Uint128 end = init_
 
   (* DNS records @key: NFT Username @value: address *)
-  field dns: Map String ByStr20 = let emp = Emp String ByStr20 in builtin put emp name nameDid
+  field dns: Map String ByStr20 = builtin put initDns name nameDid
   field did_dns: Map String ByStr20 with contract
     field did: String,
     field nft_username: String,
@@ -71,22 +80,13 @@ contract Init(
     field version: String,
     field verification_methods: Map String ByStr33,
     field services: Map String ByStr20,
-    field did_domain_dns: Map String ByStr20 end =
-      let emp = Emp String ByStr20 with contract
-        field did: String,
-        field nft_username: String,
-        field controller: ByStr20,
-        field version: String,
-        field verification_methods: Map String ByStr33,
-        field services: Map String ByStr20,
-        field did_domain_dns: Map String ByStr20 end
-      in builtin put emp name nameDid
+    field did_domain_dns: Map String ByStr20 end = builtin put initDidDns name nameDid
 
-  field version: String = "init----3.1.0" (* @todo update *)
+  field version: String = "init----3.2.0" (* @todo *)
 
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
-  
+
 procedure VerifyCaller( caller: Caller )
   current_impl <- implementation;
   is_paused <-& current_impl.paused; match is_paused with
