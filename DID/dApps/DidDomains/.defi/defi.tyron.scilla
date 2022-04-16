@@ -1,5 +1,5 @@
-(* v0.10.0
-$si.tyron: Self-Sovereign Identity Dollar DApp, Fungible Algorithmic Stablecoin <> Implementation smart contract
+(* v0.8.0
+defi.tyron: Decentralized Finance DID Domain DApp - NFT Username DNS
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
@@ -16,146 +16,65 @@ GNU General Public License for more details.*)
 
 scilla_version 0
 
-import IntUtils
-
-library SsiDollar
+library DidDomain
   let one_msg =
     fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
-  let two_msgs =
-    fun( msg1: Message ) => fun( msg2: Message ) =>
-    let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
-
-  let three_msgs =
-    fun( msg1: Message ) => fun( msg2: Message ) => fun( msg3: Message ) =>
-    let msgs_tmp = two_msgs msg2 msg3 in Cons{ Message } msg1 msgs_tmp
-
-  let four_msgs =
-    fun( msg1: Message ) => fun( msg2: Message ) => fun( msg3: Message ) => fun( msg4: Message ) =>
-    let msgs_tmp = three_msgs msg2 msg3 msg4 in Cons{ Message } msg1 msgs_tmp
-
   type Error =
-    | CodeNotProxy
+    | CodeWrongStatus
     | CodeWrongCaller
     | CodeIsNull
+    | CodeWrongSignature
+    | CodeNotValid
     | CodeSameAddress
-    | CodeSameUsername
-    | CodeIsPaused
-    | CodeNotPaused
-    | CodeIsBlocked
-    | CodeNotBlocked
-    | CodeIsInsufficient
-
+ 
   let make_error = fun( error: Error ) =>
     let result = match error with
-    | CodeNotProxy               => Int32 0
+    | CodeWrongStatus            => Int32 0
     | CodeWrongCaller            => Int32 -1
     | CodeIsNull                 => Int32 -2
-    | CodeSameAddress            => Int32 -3
-    | CodeSameUsername           => Int32 -4
-    | CodeIsPaused               => Int32 -5
-    | CodeNotPaused              => Int32 -6
-    | CodeIsBlocked              => Int32 -7
-    | CodeNotBlocked             => Int32 -8
-    | CodeIsInsufficient         => Int32 -9
+    | CodeWrongSignature         => Int32 -3
+    | CodeNotValid               => Int32 -4
+    | CodeSameAddress            => Int32 -5
     end in { _exception: "Error"; code: result }
-
+  
   let zero = Uint128 0
-  let true = True
-  let false = False
   let zeroByStr20 = 0x0000000000000000000000000000000000000000
-
-  let option_value =
-    tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) => match opt_val with
+  
+  let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
+    match input with
     | Some v => v
     | None => default end
-
   let option_uint128_value = let f = @option_value Uint128 in f zero
   let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
   
-  let option2_uint128_value =
-    fun( input: Option( Option Uint128 )) => match input with
-    | Some (Some a) => a
-    | _ => zero end
+  type Beneficiary =
+    | NftUsername of String
+    | Recipient of ByStr20
 
-  let option_uint128 =
-    fun( input: Uint128 ) =>
-    let is_zero = builtin eq input zero in match is_zero with
-    | True => None{ Uint128 }
-    | False => Some{ Uint128 } input end
-
-  let better_subtract =
-    fun( a: Uint128 ) => fun( b: Uint128 ) =>
-    let a_ge_b = uint128_ge a b in match a_ge_b with
-    | True => builtin sub a b
-    | False => zero end
+  let true = True
+  let false = False
+  let community = "community"
+  let tyron_id = "tyron0"
+  let ssi_id = "$si000"
   
-  let grow: Uint128 -> Uint256 =
-    fun( var : Uint128 ) =>
-    let maybe_big = builtin to_uint256 var in match maybe_big with
-    | Some big => big
-    | None => Uint256 0 (* should never happen *)
-    end
-    
-  type Direction =
-    | TokenToSsi
-    | SsiToToken
-  
-  let tokenToSsi = TokenToSsi
-  let ssiToToken = SsiToToken
-  
-  let transmute: Direction -> Uint128 -> Uint128 -> Uint128 -> Option Uint128 =
-    fun( d: Direction ) => fun( a: Uint128 ) => fun( r: Uint128 ) => fun( f: Uint128) =>
-    let big_a = grow a in let big_r = grow r in let big_f = grow f in
-    let result = match d with
-    | TokenToSsi =>
-        let a_times_r = builtin mul big_a big_r in
-        builtin div a_times_r big_f
-    | SsiToToken =>
-        let a_div_r = builtin div big_a big_r in
-        builtin mul a_div_r big_f end in
-    builtin to_uint128 result
-
-contract SsiDollar(
-  init_username: String,
-  init_controller: ByStr20,
-  proxy: ByStr20 with contract 
-    field balances: Map ByStr20 Uint128,
-    field total_supply: Uint128,
-    field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) end,
-  init_token: ByStr20,
-  init_community: ByStr20 with contract
-    field rate: Uint128,
-    field factor: Uint128 end,
+contract DidDomain(
+  init_usernameHash: ByStr,
   init: ByStr20 with contract field dApp: ByStr20 with contract
-    field implementation: ByStr20 with contract
-      field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
-      field did: String,   (* the W3C decentralized identifier *)
-      field nft_username: String,
       field controller: ByStr20,
-      field version: String,
-      field verification_methods: Map String ByStr33,
       field services: Map String ByStr20,
-      field did_domain_dns: Map String ByStr20 end end end
+      field deadline: Uint128 end end end
   )
-  field nft_username: String = init_username
-  field pending_username: String = ""
+  field username_hash: ByStr = init_usernameHash
+  field paused: Bool = false
 
-  field pauser: String = init_username
-  field paused: Bool = False
+  (* A monotonically increasing number representing the amount of transactions that have taken place *)
+  field tx_number: Uint128 = zero
+  field services: Map String ByStr20 = Emp String ByStr20
   
-  field lister: String = init_username
-  field blocked: Map ByStr20 Bool = Emp ByStr20 Bool
-  
-  field insurance: ByStr20 = init_controller
-  field token: ByStr20 = init_token
-  field community: ByStr20 with contract field rate: Uint128, field factor: Uint128 end = init_community
-  
-  field version: String = "$si-----0.10.0" (* @todo *)
-
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
   | None => | Some donation =>
@@ -166,58 +85,25 @@ procedure SupportTyron( tyron: Option Uint128 )
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
 
-procedure ThrowIfNotProxy()
-  verified = builtin eq proxy _sender; match verified with
-  | True => | False => err= CodeNotProxy; ThrowError err end end
-
-procedure VerifyController( tyron: Option Uint128 )
-  current_username <- nft_username; current_init <-& init.dApp;
-  get_did <-& current_init.did_dns[current_username]; match get_did with
-  | None => err = CodeIsNull; ThrowError err
-  | Some did_ =>
-      current_controller <-& did_.controller;
-      verified = builtin eq _origin current_controller; match verified with
-      | True => | False => err = CodeWrongCaller; ThrowError err end;
-      SupportTyron tyron end end
-
-procedure IsPauser()
-  current_pauser <- pauser; current_init <-& init.dApp;
-  get_did <-& current_init.did_dns[current_pauser]; match get_did with
+procedure VerifyController(
+  username: String,
+  tyron: Option Uint128
+  )
+  usernameHash = builtin sha256hash username; usernameHash_ = builtin to_bystr usernameHash;
+  current_usernameHash <- username_hash;
+  verified_name = builtin eq usernameHash_ current_usernameHash; match verified_name with
+  | True => | False => err = CodeNotValid; ThrowError err end;
+  current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[username]; match get_did with
   | None => err = CodeIsNull; ThrowError err
   | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
       | True => | False => err = CodeWrongCaller; ThrowError err end end end
 
-procedure IsPaused()
-  is_paused <- paused; match is_paused with
-  | True => | False => err = CodeNotPaused; ThrowError err end end
-
-procedure IsNotPaused()
-  is_paused <- paused; match is_paused with
-  | False => | True => err = CodeIsPaused; ThrowError err end end
-  
-procedure IsLister()
-  current_lister <- lister; current_init <-& init.dApp;
-  get_did <-& current_init.did_dns[current_lister]; match get_did with
-  | None => err = CodeIsNull; ThrowError err
-  | Some did_ =>
-      current_controller <-& did_.controller;
-      verified = builtin eq _origin current_controller; match verified with
-      | True => | False => err = CodeWrongCaller; ThrowError err end end end
-
-procedure IsBlocked( addr: ByStr20 )
-  is_blocked <- exists blocked[addr]; match is_blocked with
-  | True => | False => err = CodeNotBlocked; ThrowError err end end
-
-procedure IsNotNull( addr: ByStr20 )
-  is_null = builtin eq zeroByStr20 addr; match is_null with
-  | False => | True => err = CodeIsNull; ThrowError err end end
-
-procedure IsNotBlocked( addr: ByStr20 )
-  IsNotNull addr;
-  is_blocked <- exists blocked[addr]; match is_blocked with
-  | False => | True => err = CodeIsBlocked; ThrowError err end end
+procedure Timestamp()
+  latest_tx_number <- tx_number; new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor;
+  tx_number := new_tx_number end
 
 procedure ThrowIfSameAddr(
   a: ByStr20,
@@ -226,332 +112,317 @@ procedure ThrowIfSameAddr(
   is_self = builtin eq a b; match is_self with
   | False => | True => err = CodeSameAddress; ThrowError err end end
 
-procedure IsSufficient(
-  value: Uint128,
-  amount: Uint128
-  )
-  is_sufficient = uint128_ge value amount; match is_sufficient with
-  | True => | False => err = CodeIsInsufficient; ThrowError err end end
-
-procedure ThrowIfSameName(
-  a: String,
-  b: String
-  )
-  is_same = builtin eq a b; match is_same with
-  | False => | True => err = CodeSameUsername; ThrowError err end end
-
-transition UpdateUsername(
+procedure IsNotPaused()
+  is_paused <- paused; match is_paused with
+  | False => | True => err = CodeWrongStatus; ThrowError err end end
+  
+procedure IsPaused()
+  is_paused <- paused; match is_paused with
+  | True => | False => err = CodeWrongStatus; ThrowError err end end
+  
+transition Pause(
   username: String,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController tyron;
-  current_username <- nft_username; ThrowIfSameName current_username username;
+  IsNotPaused; VerifyController username tyron; paused := true;
+  e = { _eventname: "DidDomainPaused";
+    pauser: _sender }; event e;
+  Timestamp end
+
+transition Unpause(
+  username: String,
+  tyron: Option Uint128
+  )
+  IsPaused; VerifyController username tyron; paused := false;
+  e = { _eventname: "DidDomainUnpaused";
+    pauser: _sender }; event e;
+  Timestamp end
+
+(* Receive $ZIL native funds *)
+transition AddFunds()
+  IsNotPaused; accept; Timestamp end
+
+(* Send $ZIL to any recipient that implements the tag, e.g. "AddFunds", "", etc. *)
+transition SendFunds(
+  username: String,
+  tag: String,
+  beneficiary: Beneficiary,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  match beneficiary with
+  | NftUsername username_ =>
+      current_init <-& init.dApp;
+      get_addr <-& current_init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
+      msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
+  | Recipient addr_ =>
+      ThrowIfSameAddr _this_address addr_;
+      msg = let m = { _tag: tag; _recipient: addr_; _amount: amount } in one_msg m; send msg end;
+  Timestamp end
+
+procedure FetchServiceAddr( id: String )
+  current_init <-& init.dApp; initDApp = "init";
+  get_did <-& current_init.did_dns[initDApp]; match get_did with
+  | None => err = CodeIsNull; ThrowError err
+  | Some did_ =>
+      get_service <-& did_.services[id]; addr = option_bystr20_value get_service;
+      services[id] := addr end end
+
+transition Transfer(
+  username: String,
+  addrName: String,
+  beneficiary: Beneficiary,
+  amount: Uint128,
+  tyron: Option Uint128
+  ) 
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr addrName; get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
+  match beneficiary with
+  | NftUsername username_ =>
+      current_init <-& init.dApp;
+      get_addr <-& current_init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
+      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+        to: addr;
+        amount: amount } in one_msg m ; send msg
+  | Recipient addr_ =>
+      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+        to: addr_;
+        amount: amount } in one_msg m ; send msg end;
+  Timestamp end
+
+transition RecipientAcceptTransfer( sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsNotPaused; Timestamp end
+
+transition RecipientAcceptTransferFrom( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsNotPaused; Timestamp end
+
+transition TransferSuccessCallBack( sender: ByStr20, recipient: ByStr20, amount : Uint128 ) IsNotPaused end
+
+transition TransferFromSuccessCallBack( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsNotPaused end
+
+procedure IncreaseAllowanceDApp(
+  dApp: String,
+  addrName: String,
+  amount: Uint128
+  )
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
+    spender: dApp_addr;
+    amount: amount } in one_msg m ; send msg end
+
+transition IncreaseAllowance(
+  username: String,
+  addrName: String,
+  spender: ByStr20,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
+    spender: spender;
+    amount: amount } in one_msg m ; send msg;
+  Timestamp end
+
+transition DecreaseAllowance(
+  username: String,
+  addrName: String,
+  spender: ByStr20,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "DecreaseAllowance"; _recipient: addr; _amount: zero;
+    spender: spender;
+    amount: amount } in one_msg m ; send msg;
+  Timestamp end
+
+transition AddLiquidity(
+  username: String,
+  dApp: String,
+  addrName: String,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  IncreaseAllowanceDApp dApp addrName amount;
+  get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[username]; match get_did with
   | None => err = CodeIsNull; ThrowError err
-  | Some did_ => pending_username := username end end
+  | Some did_ =>
+      current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
+      accept; msg = let m = { _tag: "AddLiquidity"; _recipient: dApp_addr; _amount: _amount;
+        token_address: addr;
+        min_contribution_amount: amount;
+        max_token_amount: amount;
+        deadline_block: this_deadline } in one_msg m ; send msg end;
+  Timestamp end
 
-transition AcceptPendingUsername()
-  IsNotPaused; current_pending <- pending_username;
+transition JoinTYRONCommunity(
+  username: String,
+  amount: Uint128,
+  amountTyron: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  IncreaseAllowanceDApp community ssi_id amount; IncreaseAllowanceDApp community tyron_id amountTyron;
+  get_dApp <- services[community]; dApp_addr = option_bystr20_value get_dApp;
   current_init <-& init.dApp;
-  get_did <-& current_init.did_dns[current_pending]; match get_did with
+  get_did <-& current_init.did_dns[username]; match get_did with
   | None => err = CodeIsNull; ThrowError err
   | Some did_ =>
-      current_controller <-& did_.controller;
-      verified = builtin eq _origin current_controller; match verified with
-      | True => | False => err = CodeWrongCaller; ThrowError err end;
-      nft_username := current_pending end end
+      current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
+      msg = let m = { _tag: "JoinTYRONCommunity"; _recipient: dApp_addr; _amount: zero;
+        min_contribution_amount: amount;
+        max_token_amount: amount;
+        deadline_block: this_deadline } in one_msg m ; send msg end;
+  Timestamp end
 
-transition UpdatePauser(
+transition RemoveLiquidity(
   username: String,
+  dApp: String,
+  addrName: String,
+  amount: Uint128,
+  minZilAmount: Uint128,
+  minTokenAmount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController tyron;
-  current_pauser <- pauser; ThrowIfSameName current_pauser username;
-  pauser := username;
-  e = { _eventname: "PauserUpdated";
-    newPauser: username }; event e end
+  IsNotPaused;
+  VerifyController username tyron;
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[username]; match get_did with
+  | None => err = CodeIsNull; ThrowError err
+  | Some did_ =>
+      current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
+      msg = let m = { _tag: "RemoveLiquidity"; _recipient: dApp_addr; _amount: zero;
+        token_address: addr;
+        contribution_amount: amount;
+        min_zil_amount: minZilAmount;
+        min_token_amount: minTokenAmount;
+        deadline_block: this_deadline } in one_msg m ; send msg end;
+  Timestamp end
 
-transition Pause()
-  ThrowIfNotProxy; IsPauser;
-  IsNotPaused; paused := true;
-  e = { _eventname: "SmartContractPaused";
-    pauser: _origin }; event e end
-
-transition Unpause()
-  ThrowIfNotProxy; IsPauser;
-  IsPaused; paused := false;
-  e = { _eventname: "SmartContractUnpaused";
-    pauser: _origin }; event e end
-
-transition UpdateLister(
+transition SwapExactZILForTokens(
   username: String,
+  dApp: String,
+  addrName: String,
+  amount: Uint128,
+  minTokenAmount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController tyron;
-  current_lister <- lister; ThrowIfSameName current_lister username;
-  lister:= username;
-  e = { _eventname: "ListerUpdated";
-    newLister: username }; event e end
+  IsNotPaused;
+  VerifyController username tyron;
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[username]; match get_did with
+  | None => err = CodeIsNull; ThrowError err
+  | Some did_ =>
+      current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
+      accept; msg = let m = { _tag: "SwapExactZILForTokens"; _recipient: dApp_addr; _amount: amount;
+        token_address: addr;
+        min_token_amount: minTokenAmount;
+        deadline_block: this_deadline;
+        recipient_address: _this_address } in one_msg m; send msg end;
+  Timestamp end
 
-transition Block( addr: ByStr20 )
-  IsNotPaused; IsLister;
-  IsNotBlocked addr; blocked[addr] := true;
-  e = { _eventname: "AddressBlocked";
-    address: addr;
-    lister: _origin }; event e end
-
-transition Unblock( addr: ByStr20 )
-  IsNotPaused; IsLister;
-  IsBlocked addr; delete blocked[addr];
-  e = { _eventname: "AddressUnblocked";
-    address: addr;
-    lister: _origin }; event e end
-    
-transition UpdateInsurance(
-  addr: ByStr20,
+transition SwapExactTokensForZIL(
+  username: String,
+  dApp: String,
+  addrName: String,
+  amount: Uint128,
+  minZilAmount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController tyron; IsNotNull addr;
-  current_insurance <- insurance; ThrowIfSameAddr current_insurance addr;
-  insurance := addr;
-  e = { _eventname: "InsuranceAddressUpdated";
-    newInsurance: addr }; event e end
+  IsNotPaused;
+  VerifyController username tyron;
+  IncreaseAllowanceDApp dApp addrName amount;
+  get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[username]; match get_did with
+  | None => err = CodeIsNull; ThrowError err
+  | Some did_ =>
+      current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
+      msg = let m = { _tag: "SwapExactTokensForZIL"; _recipient: dApp_addr; _amount: zero;
+        token_address: addr;
+        token_amount: amount;
+        min_zil_amount: minZilAmount;
+        deadline_block: this_deadline;
+        recipient_address: _this_address } in one_msg m ; send msg end;
+  Timestamp end
 
-transition UpdateToken(
-  addr: ByStr20,
+transition SwapExactTokensForTokens(
+  username: String,
+  dApp: String,
+  addrName: String,
+  toaddrName: String,
+  amount: Uint128,
+  minTokenAmount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController tyron; IsNotNull addr;
-  current_addr <- token; ThrowIfSameAddr current_addr addr; token := addr;
-  e = { _eventname: "TokenAddressUpdated";
-    new_addr: addr }; event e end
-
-transition UpdateCommunity(
-  addr: ByStr20 with contract
-    field rate: Uint128,
-    field factor: Uint128 end,
-  tyron: Option Uint128
-  )
-  IsNotPaused; VerifyController tyron; IsNotNull addr;
-  current_addr <- community; ThrowIfSameAddr current_addr addr; community := addr;
-  e = { _eventname: "CommunityAddressUpdated";
-    new_addr: addr }; event e end
-    
-procedure IsValidToSelf( addr: ByStr20 )
-  is_valid = builtin eq addr _this_address; match is_valid with
-  | True => | False => err = CodeWrongCaller; ThrowError err end end
+  IsNotPaused;
+  VerifyController username tyron;
+  IncreaseAllowanceDApp dApp addrName amount;
+  get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  FetchServiceAddr toaddrName; get_toAddr <- services[toaddrName]; toAddr = option_bystr20_value get_toAddr;
+  current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[username]; match get_did with
+  | None => err = CodeIsNull; ThrowError err
+  | Some did_ =>
+      current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
+      msg = let m = { _tag: "SwapExactTokensForTokens"; _recipient: dApp_addr; _amount: zero;
+        token0_address: addr;
+        token1_address: toAddr;
+        token0_amount: amount;
+        min_token1_amount: minTokenAmount;
+        deadline_block: this_deadline;
+        recipient_address: _this_address } in one_msg m ; send msg end;
+  Timestamp end
 
 transition Mint(
-  originator: ByStr20,
+  username: String,
+  dApp: String,
+  addrName: String,
   beneficiary: ByStr20,
-  amount: Uint128
-  )
-  IsNotPaused; ThrowIfNotProxy; IsNotBlocked originator; current_token <- token;
-  msg = let m = { _tag: "Burn"; _recipient: current_token; _amount: zero;
-    beneficiary: originator;
-    amount: amount
-  } in one_msg m; send msg;
-  msg_to_minter = let m = { _tag: "MintSuccessCallBack"; _recipient: originator; _amount: zero;
-    minter: originator;
-    beneficiary: originator;
-    amount: amount
-  } in one_msg m; send msg_to_minter end
-  
-transition BurnSuccessCallBack(
-  minter: ByStr20,
-  beneficiary: ByStr20,
-  amount: Uint128
-  )
-  IsValidToSelf minter;
-  current_community <- community; current_rate <-& current_community.rate; current_factor <-& current_community.factor;
-  get_dollars = transmute tokenToSsi amount current_rate current_factor; ssi_dollars = option_uint128_value get_dollars;
-  current_supply <-& proxy.total_supply; new_supply = builtin add current_supply ssi_dollars;
-  get_bal <-& proxy.balances[beneficiary]; bal = option_uint128_value get_bal; new_bal = builtin add bal ssi_dollars;
-  msg_to_proxy = { _tag: "TransmuteCallBack"; _recipient: proxy; _amount: zero;
-    beneficiary: beneficiary;
-    new_balance: new_bal;
-    new_supply: new_supply
-  };
-  msg_to_beneficiary = { _tag: "RecipientAcceptMint"; _recipient: beneficiary; _amount: zero;
-    minter: beneficiary;
-    beneficiary: beneficiary;
-    amount: ssi_dollars
-  }; msgs = two_msgs msg_to_proxy msg_to_beneficiary; send msgs;
-  e = { _eventname: "Minted";
-    beneficiary: beneficiary;
-    amount: ssi_dollars
-  }; event e end
-  
-transition Transfer(
-  originator: ByStr20,
-  beneficiary: ByStr20,
-  amount: Uint128
-  )
-  IsNotPaused; ThrowIfNotProxy;
-  IsNotBlocked originator; IsNotNull beneficiary; IsNotBlocked beneficiary; ThrowIfSameAddr originator beneficiary;
-  get_originator_bal <-& proxy.balances[originator]; originator_bal = option_uint128_value get_originator_bal;
-  IsSufficient originator_bal amount; new_originator_bal = builtin sub originator_bal amount;
-  get_beneficiary_bal <-& proxy.balances[beneficiary]; beneficiary_bal = option_uint128_value get_beneficiary_bal;
-  new_beneficiary_bal = builtin add beneficiary_bal amount;
-  e = { _eventname: "TransferSuccess";
-    originator: originator;
-    beneficiary: beneficiary;
-    amount: amount }; event e;
-  msg_to_proxy = { _tag: "TransferCallBack"; _recipient: _sender; _amount: zero;
-    originator: originator;
-    beneficiary: beneficiary;
-    new_originator_bal: new_originator_bal;
-    new_beneficiary_bal: new_beneficiary_bal
-  };
-  msg_to_originator = { _tag: "TransferSuccessCallBack"; _recipient: originator; _amount: zero;
-    sender: originator;
-    recipient: beneficiary;
-    amount: amount
-  };
-  msg_to_beneficiary = { _tag: "RecipientAcceptTransfer"; _recipient: beneficiary; _amount: zero;
-    sender: originator;
-    recipient: beneficiary;
-    amount: amount
-  }; msgs = three_msgs msg_to_proxy msg_to_originator msg_to_beneficiary; send msgs end
-
-transition IncreaseAllowance(
-  originator: ByStr20,
-  spender: ByStr20,
-  amount: Uint128
-  )
-  IsNotPaused; ThrowIfNotProxy;
-  IsNotBlocked originator; IsNotBlocked spender; ThrowIfSameAddr originator spender;
-  get_allowance <-& proxy.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
-  new_allowance = builtin add allowance amount;
-  e = { _eventname: "IncreasedAllowance";
-    originator: originator;
-    spender: spender;
-    new_allowance : new_allowance }; event e;
-  msg = let m = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
-    originator: originator;
-    spender: spender;
-    new_allowance: new_allowance
-  } in one_msg m; send msg end
-
-transition DecreaseAllowance(
-  originator: ByStr20,
-  spender: ByStr20,
-  amount: Uint128
-  )
-  IsNotPaused; ThrowIfNotProxy;
-  IsNotBlocked originator; IsNotBlocked spender; ThrowIfSameAddr originator spender;
-  get_allowance <-& proxy.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
-  new_allowance = better_subtract allowance amount;
-  e = { _eventname: "DecreasedAllowance";
-    originator: originator;
-    spender: spender;
-    new_allowance: new_allowance }; event e;
-  msg = let m = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
-    originator: originator;
-    spender: spender;
-    new_allowance: new_allowance
-  } in one_msg m; send msg end
-
-transition Burn(
-  originator: ByStr20,
-  beneficiary: ByStr20,
-  amount: Uint128
-  )
-  IsNotPaused; ThrowIfNotProxy;
-  none = None{ Uint128 }; VerifyController none; (* Only the Controller can origin the burn of $SI to mint the token *)
-  IsNotBlocked originator;
-  get_bal <-& proxy.balances[originator]; bal = option_uint128_value get_bal; IsSufficient bal amount;
-  current_token <- token;
-  current_community <- community; current_rate <-& current_community.rate; current_factor <-& current_community.factor;
-  get_tokens = transmute ssiToToken amount current_rate current_factor; token_amount = option_uint128_value get_tokens;
-  msg = let m = { _tag: "Mint"; _recipient: current_token; _amount: zero;
-    beneficiary: originator;
-    amount: token_amount
-  } in one_msg m; send msg;
-  current_supply <-& proxy.total_supply; new_supply = builtin sub current_supply amount;
-  new_bal = builtin sub bal amount;
-  msg_to_proxy = { _tag: "TransmuteCallBack"; _recipient: proxy; _amount: zero;
-    beneficiary: originator;
-    new_balance: new_bal;
-    new_supply: new_supply
-  };
-  msg_to_minter = { _tag: "BurnSuccessCallBack"; _recipient: originator; _amount: zero;
-    minter: originator;
-    beneficiary: originator;
-    amount: amount
-  };
-  msg_to_beneficiary = { _tag: "RecipientAcceptBurn"; _recipient: originator; _amount: zero;
-    minter: originator;
-    beneficiary: originator;
-    amount: amount
-  }; 
-  msgs = three_msgs msg_to_proxy msg_to_minter msg_to_beneficiary; send msgs;
-  e = { _eventname: "Burnt";
-    burner: originator;
-    beneficiary: originator;
-    amount: amount
-  }; event e end
-
-transition MintSuccessCallBack(
-  minter: ByStr20,
-  beneficiary: ByStr20,
-  amount: Uint128
-  )
-  IsValidToSelf minter end
-
-transition TransferFrom(
-  originator: ByStr20,
-  spender: ByStr20,
-  beneficiary: ByStr20, 
-  amount: Uint128
-  )
-  IsNotPaused; ThrowIfNotProxy;
-  IsNotBlocked originator; IsNotBlocked spender; IsNotBlocked beneficiary; ThrowIfSameAddr originator beneficiary;
-  get_originator_bal <-& proxy.balances[originator]; originator_bal = option_uint128_value get_originator_bal;
-  IsSufficient originator_bal amount;
-  get_allowance <-& proxy.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
-  IsSufficient allowance amount;
-  get_beneficiary_bal <-& proxy.balances[beneficiary]; beneficiary_bal = option_uint128_value get_beneficiary_bal;
-  new_originator_bal = builtin sub originator_bal amount; new_allowance = builtin sub allowance amount; new_beneficiary_bal = builtin add beneficiary_bal amount;
-  e = { _eventname: "TransferFromSuccess";
-    originator: originator;
-    spender: spender;
-    beneficiary: beneficiary;
-    amount: amount }; event e;
-  msg_to_proxy_balances = { _tag: "TransferCallBack"; _recipient: _sender; _amount: zero;
-    originator: originator;
-    beneficiary: beneficiary;
-    new_originator_bal: new_originator_bal;
-    new_beneficiary_bal: new_beneficiary_bal
-  };
-  msg_to_proxy_allowance = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
-    originator: originator;
-    spender: spender;
-    new_allowance: new_allowance
-  };
-  msg_to_spender = { _tag: "TransferFromSuccessCallBack"; _recipient: spender; _amount: zero;
-    initiator: spender;
-    sender: originator;
-    recipient: beneficiary;
-    amount: amount
-  };
-  msg_to_beneficiary = { _tag: "RecipientAcceptTransferFrom"; _recipient: beneficiary; _amount: zero;
-    initiator: spender;
-    sender: originator;
-    recipient: beneficiary;
-    amount: amount
-  }; msgs = four_msgs msg_to_proxy_balances msg_to_proxy_allowance msg_to_spender msg_to_beneficiary; send msgs end
-
-transition Recalibrate(
-  val: Uint128,
+  amount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController tyron; current_insurance <- insurance;
-  get_insurance_bal <-& proxy.balances[current_insurance]; insurance_bal = option_uint128_value get_insurance_bal;
-  new_insurance_bal = builtin sub insurance_bal val;
-  msg = let m = { _tag: "TransferCallBack"; _recipient: proxy; _amount: zero;
-    originator: current_insurance;
-    beneficiary: current_insurance;
-    originatorBal: new_insurance_bal;
-    beneficiaryBal: new_insurance_bal } in one_msg m; send msg end
+  IsNotPaused; VerifyController username tyron;
+  IncreaseAllowanceDApp dApp addrName amount;
+  get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  msg = let m = { _tag: "Mint"; _recipient: dApp_addr; _amount: zero;
+    addrName: addrName;
+    beneficiary: beneficiary;
+    amount: amount } in one_msg m ; send msg;
+  Timestamp end
+
+transition Burn(
+  username: String,
+  dApp: String,
+  addrName: String,
+  beneficiary: ByStr20,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  msg = let m = { _tag: "Burn"; _recipient: dApp_addr; _amount: zero;
+    addrName: addrName;
+    beneficiary: beneficiary;
+    amount: amount } in one_msg m ; send msg;
+  Timestamp end
+
+transition RecipientAcceptBurn( minter: ByStr20, beneficiary: ByStr20, amount: Uint128 ) IsNotPaused end
+
+transition MintSuccessCallBack( minter: ByStr20, beneficiary: ByStr20, amount: Uint128 ) IsNotPaused end
+
+transition RecipientAcceptMint( minter: ByStr20, beneficiary: ByStr20, amount: Uint128 ) IsNotPaused end
+
+transition BurnSuccessCallBack( minter: ByStr20, beneficiary: ByStr20, amount: Uint128 ) IsNotPaused end

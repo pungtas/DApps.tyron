@@ -1,5 +1,5 @@
-(* v0.10.0
-$si.tyron: Self-Sovereign Identity Dollar DApp, Fungible Algorithmic Stablecoin <> Implementation smart contract
+(* v0.11.0
+$sii.tyron: Self-Sovereign Identity Dollar DApp, Fungible Algorithmic Stablecoin <> Implementation smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
@@ -129,17 +129,9 @@ contract SsiDollar(
     field rate: Uint128,
     field factor: Uint128 end,
   init: ByStr20 with contract field dApp: ByStr20 with contract
-    field implementation: ByStr20 with contract
-      field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
-      field did: String,   (* the W3C decentralized identifier *)
-      field nft_username: String,
-      field controller: ByStr20,
-      field version: String,
-      field verification_methods: Map String ByStr33,
-      field services: Map String ByStr20,
-      field did_domain_dns: Map String ByStr20 end end end
+      field controller: ByStr20 end end end
   )
   field nft_username: String = init_username
   field pending_username: String = ""
@@ -154,7 +146,7 @@ contract SsiDollar(
   field token: ByStr20 = init_token
   field community: ByStr20 with contract field rate: Uint128, field factor: Uint128 end = init_community
   
-  field version: String = "$si-----0.10.0" (* @todo *)
+  field version: String = "$sii----0.11.0" (* @todo *)
 
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
@@ -337,7 +329,7 @@ transition UpdateCommunity(
   current_addr <- community; ThrowIfSameAddr current_addr addr; community := addr;
   e = { _eventname: "CommunityAddressUpdated";
     new_addr: addr }; event e end
-    
+
 procedure IsValidToSelf( addr: ByStr20 )
   is_valid = builtin eq addr _this_address; match is_valid with
   | True => | False => err = CodeWrongCaller; ThrowError err end end
