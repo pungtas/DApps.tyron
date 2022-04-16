@@ -1,4 +1,4 @@
-(* v3.0.0
+(* v3.1.0
 initi.tyron: SSI Initialization & DNS DApp <> Implementation smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -126,7 +126,7 @@ library InitI
   let true = True
   let false = False
   let tyron_id = "tyron0"
-  let tyron_addr = 0x7c8e77441667ce1e223c1a5bd658287ab1ebd5cc   (* @todo *)
+  let tyron_addr = 0x38e7670000523e81eebac1f0912b280f968e5fb0   (* @todo *)
   
   let compare_participant = fun( addr: ByStr20 ) => fun( participant: ByStr20 ) => builtin eq addr participant
   
@@ -141,14 +141,16 @@ contract InitI(
       field version: String,
       field verification_methods: Map String ByStr33,
       field services: Map String ByStr20,
-      field did_domain_dns: Map String ByStr20 end end
+      field social_guardians: Map ByStr32 Bool,
+      field did_domain_dns: Map String ByStr20,
+      field deadline: Uint128 end end
   )
   field did: String = ""    (* the W3C decentralized identifier *)
   field nft_username: String = init_username
   field pending_username: String = ""
   field controller: ByStr20 = zeroByStr20
   field did_status: DidStatus = Deployed
-  field version: String = "initi---3.0.0" (* @todo *)
+  field version: String = "initi---3.1.0" (* @todo *)
   
   (* Verification methods @key: key purpose @value: public DID key *)
   field verification_methods: Map String ByStr33 = empty_methods
@@ -160,8 +162,11 @@ contract InitI(
   field services: Map String ByStr20 = let emp = Emp String ByStr20 in
     builtin put emp tyron_id tyron_addr
   field services_: Map String Endpoint = empty_services_
+
+  field social_guardians: Map ByStr32 Bool = Emp ByStr32 Bool
   
   field did_domain_dns: Map String ByStr20 = Emp String ByStr20
+  field deadline: Uint128 = Uint128 10
 
   field did_hash: ByStr = zeroByStr
   

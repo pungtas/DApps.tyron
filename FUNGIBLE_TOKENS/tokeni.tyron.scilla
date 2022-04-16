@@ -38,27 +38,27 @@ library FungibleTokenI
   type Error =
     | CodeNotProxy
     | CodeWrongCaller
+    | CodeIsNull
+    | CodeSameAddress
+    | CodeSameUsername
     | CodeIsPaused
     | CodeNotPaused
     | CodeIsBlocked
     | CodeNotBlocked
-    | CodeSameAddress
-    | CodeSameUsername
-    | CodeIsNull
     | CodeIsInsufficient
 
   let make_error = fun( error: Error ) =>
     let result = match error with
-    | CodeNotProxy               => Int32 -1
-    | CodeWrongCaller            => Int32 -2
-    | CodeIsPaused               => Int32 -3
-    | CodeNotPaused              => Int32 -4
-    | CodeIsBlocked              => Int32 -5
-    | CodeNotBlocked             => Int32 -6
-    | CodeSameAddress            => Int32 -7
-    | CodeSameUsername           => Int32 -8
-    | CodeIsNull                 => Int32 -9
-    | CodeIsInsufficient         => Int32 -10
+    | CodeNotProxy               => Int32 0
+    | CodeWrongCaller            => Int32 -1
+    | CodeIsNull                 => Int32 -2
+    | CodeSameAddress            => Int32 -3
+    | CodeSameUsername           => Int32 -4
+    | CodeIsPaused               => Int32 -5
+    | CodeNotPaused              => Int32 -6
+    | CodeIsBlocked              => Int32 -7
+    | CodeNotBlocked             => Int32 -8
+    | CodeIsInsufficient         => Int32 -9
     end in { _exception: "Error"; code: result }
 
   let zero = Uint128 0
