@@ -1,4 +1,4 @@
-(* v3.2.0
+(* v3.3.0
 init.tyron: SSI Initialization & DNS DApp <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -51,7 +51,9 @@ contract Init(
     field version: String,
     field verification_methods: Map String ByStr33,
     field services: Map String ByStr20,
-    field did_domain_dns: Map String ByStr20 end,
+    field social_guardians: Map ByStr32 Bool,
+    field did_domain_dns: Map String ByStr20,
+    field deadline: Uint128 end,
   init_: ByStr20 with contract 
     field nft_username: String,
     field paused: Bool,
@@ -64,7 +66,9 @@ contract Init(
     field version: String,
     field verification_methods: Map String ByStr33,
     field services: Map String ByStr20,
-    field did_domain_dns: Map String ByStr20 end
+    field social_guardians: Map ByStr32 Bool,
+    field did_domain_dns: Map String ByStr20,
+    field deadline: Uint128 end
   )
   field implementation: ByStr20 with contract
     field nft_username: String,
@@ -80,9 +84,11 @@ contract Init(
     field version: String,
     field verification_methods: Map String ByStr33,
     field services: Map String ByStr20,
-    field did_domain_dns: Map String ByStr20 end = builtin put initDidDns name nameDid
+    field social_guardians: Map ByStr32 Bool,
+    field did_domain_dns: Map String ByStr20,
+    field deadline: Uint128 end = builtin put initDidDns name nameDid
 
-  field version: String = "init----3.2.0" (* @todo *)
+  field version: String = "init----3.3.0" (* @todo *)
 
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
@@ -122,7 +128,9 @@ transition UpdateImplementation(
     field version: String,
     field verification_methods: Map String ByStr33,
     field services: Map String ByStr20,
-    field did_domain_dns: Map String ByStr20 end
+    field social_guardians: Map ByStr32 Bool,
+    field did_domain_dns: Map String ByStr20,
+    field deadline: Uint128 end
   )
   VerifyCaller controller_; current_impl <- implementation; ThrowIfSameAddr current_impl addr;
   implementation := addr; initDApp = "init"; dns[initDApp] := addr; did_dns[initDApp] := addr;
@@ -145,7 +153,9 @@ transition BuyNftUsername(
     field version: String,
     field verification_methods: Map String ByStr33,
     field services: Map String ByStr20,
-    field did_domain_dns: Map String ByStr20 end
+    field social_guardians: Map ByStr32 Bool,
+    field did_domain_dns: Map String ByStr20,
+    field deadline: Uint128 end
   )
   current_impl <- implementation;
   accept; msg = let m = { _tag: "BuyNftUsername"; _recipient: current_impl; _amount: _amount;
@@ -162,7 +172,9 @@ transition UpdateNftDid(
     field version: String,
     field verification_methods: Map String ByStr33,
     field services: Map String ByStr20,
-    field did_domain_dns: Map String ByStr20 end
+    field social_guardians: Map ByStr32 Bool,
+    field did_domain_dns: Map String ByStr20,
+    field deadline: Uint128 end
   )
   current_impl <- implementation;
   accept; msg = let m = { _tag: "UpdateNftDid"; _recipient: current_impl; _amount: _amount;
@@ -178,7 +190,9 @@ transition NftDidCallBack(
     field version: String,
     field verification_methods: Map String ByStr33,
     field services: Map String ByStr20,
-    field did_domain_dns: Map String ByStr20 end
+    field social_guardians: Map ByStr32 Bool,
+    field did_domain_dns: Map String ByStr20,
+    field deadline: Uint128 end
   )
   VerifyCaller implementation_; did_dns[username] := dID end
 
@@ -192,7 +206,9 @@ transition TransferNftUsername(
     field version: String,
     field verification_methods: Map String ByStr33,
     field services: Map String ByStr20,
-    field did_domain_dns: Map String ByStr20 end
+    field social_guardians: Map ByStr32 Bool,
+    field did_domain_dns: Map String ByStr20,
+    field deadline: Uint128 end
   )
   current_impl <- implementation;
   accept; msg = let m = { _tag: "TransferNftUsername"; _recipient: current_impl; _amount: _amount;

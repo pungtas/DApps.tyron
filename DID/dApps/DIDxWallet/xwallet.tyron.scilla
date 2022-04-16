@@ -1,4 +1,4 @@
-(* v5.0.0
+(* v5.1.0
 xwallet.tyron: W3C Decentralized Identifier Smart Contract Wallet (DIDxWallet)
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -71,6 +71,7 @@ library DIDxWallet
   type Error =
     | CodeWrongStatus
     | CodeWrongCaller
+    | CodeIsNull
     | CodeWrongSignature
     | CodeUndefinedKey
     | CodeSameKey
@@ -79,21 +80,20 @@ library DIDxWallet
     | CodeDidLocked
     | CodeSameAddress
     | CodeSameUsername
-    | CodeIsNull
  
   let make_error = fun( error: Error ) =>
     let result = match error with
-    | CodeWrongStatus            => Int32 -0
+    | CodeWrongStatus            => Int32 0
     | CodeWrongCaller            => Int32 -1
-    | CodeWrongSignature         => Int32 -2
-    | CodeUndefinedKey           => Int32 -3
-    | CodeSameKey                => Int32 -4
-    | CodeSameId                 => Int32 -5
-    | CodeNotValid               => Int32 -6
-    | CodeDidLocked              => Int32 -7
-    | CodeSameAddress            => Int32 -8
-    | CodeSameUsername           => Int32 -9
-    | CodeIsNull                 => Int32 -10
+    | CodeIsNull                 => Int32 -2
+    | CodeWrongSignature         => Int32 -3
+    | CodeUndefinedKey           => Int32 -4
+    | CodeSameKey                => Int32 -5
+    | CodeSameId                 => Int32 -6
+    | CodeNotValid               => Int32 -7
+    | CodeDidLocked              => Int32 -8
+    | CodeSameAddress            => Int32 -9
+    | CodeSameUsername           => Int32 -10
     end in { _exception: "Error"; code: result }
   
   let zero = Uint128 0
@@ -136,7 +136,9 @@ contract DIDxWallet(
       field version: String,
       field verification_methods: Map String ByStr33,
       field services: Map String ByStr20,
-      field did_domain_dns: Map String ByStr20 end end end
+      field social_guardians: Map ByStr32 Bool,
+      field did_domain_dns: Map String ByStr20,
+      field deadline: Uint128 end end end
   )
   field did: String = ""    (* the W3C decentralized identifier *)
   field nft_username: String = ""
@@ -144,7 +146,7 @@ contract DIDxWallet(
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
   field did_status: DidStatus = Deployed
-  field version: String = "xwallet-5.0.0" (* @todo *)
+  field version: String = "xwallet-5.1.0" (* @todo *)
   
   (* Verification methods @key: key purpose @value: public DID key *)
   field verification_methods: Map String ByStr33 = empty_methods
@@ -169,22 +171,8 @@ contract DIDxWallet(
   field counter: Uint32 = zero_
   field signed_addr: ByStr = zeroByStr
   
-  field deadline: Uint128 = Uint128 10
-
   field did_domain_dns: Map String ByStr20 = Emp String ByStr20
-
-  field xinit: ByStr20 with contract field dApp: ByStr20 with contract
-    field implementation: ByStr20 with contract
-      field utility: Map String Map String Uint128 end,
-    field dns: Map String ByStr20,
-    field did_dns: Map String ByStr20 with contract
-      field did: String,   (* the W3C decentralized identifier *)
-      field nft_username: String,
-      field controller: ByStr20,
-      field version: String,
-      field verification_methods: Map String ByStr33,
-      field services: Map String ByStr20,
-      field did_domain_dns: Map String ByStr20 end end end = init
+  field deadline: Uint128 = Uint128 10
 
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
@@ -233,13 +221,15 @@ transition UpdateController(
   )
   IsOperational; VerifyController tyron;
   current_controller <- controller; ThrowIfSameAddr current_controller addr;
-  pending_controller := addr; Timestamp end
+  pending_controller := addr;
+  Timestamp end
   
 transition AcceptPendingController()
   IsOperational; current_pending <- pending_controller;
   verified = builtin eq _origin current_pending; match verified with
   | True => | False => err = CodeWrongCaller; ThrowError err end;
-  controller := current_pending end
+  controller := current_pending;
+  Timestamp end
 
 transition UpdateUsername(
   username: String,
@@ -250,7 +240,8 @@ transition UpdateUsername(
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[username]; match get_did with
   | None => err = CodeIsNull; ThrowError err
-  | Some did_ => pending_username := username; Timestamp end end
+  | Some did_ => pending_username := username end;
+  Timestamp end
 
 transition AcceptPendingUsername()
   IsOperational; current_pending <- pending_username;
@@ -261,7 +252,8 @@ transition AcceptPendingUsername()
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
       | True => | False => err = CodeWrongCaller; ThrowError err end;
-      nft_username := current_pending end end
+      nft_username := current_pending end;
+  Timestamp end
 
 (* Verify Schnorr signature - signed data must correspond with a DID key *)
 procedure VerifySignature(
@@ -344,8 +336,9 @@ transition DidCreate(
       get_update_key <- verification_methods[update]; ThrowIfNoKey get_update_key; did_update = option_bystr33_value get_update_key;
       ThrowIfSameKey did_recovery did_update;
       new_status = Created; did_status := new_status;
-      current_block <- &BLOCKNUMBER; did_created := current_block; Timestamp
-  | _ => err = CodeWrongStatus; ThrowError err end end
+      current_block <- &BLOCKNUMBER; did_created := current_block
+  | _ => err = CodeWrongStatus; ThrowError err end;
+  Timestamp end
 
 procedure UpdateDocument( document: Document )
   match document with
@@ -478,7 +471,8 @@ transition DidRecover(
       get_update_key <- verification_methods[update]; ThrowIfNoKey get_update_key; did_update = option_bystr33_value get_update_key;
       ThrowIfSameKey did_recovery did_update
   | _ => err = CodeWrongStatus; ThrowError err end;
-  new_status = Recovered; did_status := new_status; Timestamp end
+  new_status = Recovered; did_status := new_status;
+  Timestamp end
 
 transition DidUpdate(
   document: List Document,
@@ -493,7 +487,8 @@ transition DidUpdate(
   get_update_key <- verification_methods[update]; did_update = option_bystr33_value get_update_key;
   VerifyDocument didUpdate document signature;
   VerifyDIDkeys didUpdate did_recovery did_update;
-  new_status = Updated; did_status := new_status; Timestamp end
+  new_status = Updated; did_status := new_status;
+  Timestamp end
 
 transition DidDeactivate(
   document: List Document,
@@ -503,7 +498,8 @@ transition DidDeactivate(
   IsOperational; VerifyController tyron;
   VerifyDocument didRecovery document signature;
   verification_methods := empty_methods; services := empty_services; services_ := empty_services_;
-  new_status = Deactivated; did_status := new_status; Timestamp end
+  new_status = Deactivated; did_status := new_status;
+  Timestamp end
 
 (* Wallet backbone *)
 
@@ -554,8 +550,8 @@ transition Lock(
       is_right_signature = builtin schnorr_verify did_key hash signature;
       match is_right_signature with
       | False => err = CodeWrongSignature; ThrowError err
-      | True => locked = Locked; did_status := locked end end;
-  SupportTyron tyron; Timestamp end
+      | True => SupportTyron tyron; locked = Locked; did_status := locked end end;
+  Timestamp end
 
 procedure VerifySocialRecovery( proof: Pair String ByStr64 )
   guardian_name = let fst_element = @fst String ByStr64 in fst_element proof;
@@ -605,7 +601,8 @@ transition UpdateDeadline(
   val: Uint128,
   tyron: Option Uint128
   )
-  IsOperational; VerifyController tyron; deadline := val end
+  IsOperational; VerifyController tyron; deadline := val;
+  Timestamp end
 
 procedure FetchServiceAddr( id: String )
   current_init <-& init.dApp; initDApp = "init";
@@ -637,7 +634,8 @@ transition IncreaseAllowance(
   get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
   msg = let m = { _tag: "IncreaseAllowance"; _recipient: token_addr; _amount: zero;
     spender: spender;
-    amount: amount } in one_msg m ; send msg end
+    amount: amount } in one_msg m ; send msg;
+  Timestamp end
 
 transition DecreaseAllowance(
   addrName: String,
@@ -649,7 +647,8 @@ transition DecreaseAllowance(
   get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
   msg = let m = { _tag: "DecreaseAllowance"; _recipient: token_addr; _amount: zero;
     spender: spender;
-    amount: amount } in one_msg m ; send msg end
+    amount: amount } in one_msg m ; send msg;
+  Timestamp end
 
 transition BuyNftUsername(
   username: String,
@@ -669,7 +668,8 @@ transition BuyNftUsername(
   msg = let m = { _tag: "BuyNftUsername"; _recipient: current_init; _amount: zero;
     username: username;
     addr: address;
-    dID: _this_address } in one_msg m; send msg; Timestamp end
+    dID: _this_address } in one_msg m; send msg;
+  Timestamp end
 
 transition UpdateNftDid(
   username: String,
@@ -692,7 +692,8 @@ transition UpdateNftDid(
     IncreaseAllowanceInit paymentID fee end;
   msg = let m = { _tag: "UpdateNftDid"; _recipient: current_init; _amount: zero;
     username: username;
-    dID: dID } in one_msg m; send msg; Timestamp end
+    dID: dID } in one_msg m; send msg;
+  Timestamp end
 
 transition TransferNftUsername(
   username: String,
@@ -720,7 +721,8 @@ transition TransferNftUsername(
   msg = let m = { _tag: "TransferNftUsername"; _recipient: current_init; _amount: zero;
     username: username;
     addr: address;
-    dID: dID } in one_msg m; send msg; Timestamp end
+    dID: dID } in one_msg m; send msg;
+  Timestamp end
 
 (* Receive $ZIL native funds *)
 transition AddFunds()
@@ -735,38 +737,40 @@ transition SendFunds(
   )
   IsOperational; VerifyController tyron;
   match beneficiary with
-  | NftUsername username =>
+  | NftUsername username_ =>
       current_init <-& init.dApp;
-      get_addr <-& current_init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
+      get_addr <-& current_init.dns[username_]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
       msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
-  | Recipient addr =>
-      ThrowIfSameAddr _this_address addr;
-      msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg end; Timestamp end
+  | Recipient addr_ =>
+      ThrowIfSameAddr _this_address addr_;
+      msg = let m = { _tag: tag; _recipient: addr_; _amount: amount } in one_msg m; send msg end;
+  Timestamp end
 
 transition Transfer(
   addrName: String,
   beneficiary: Beneficiary,
   amount: Uint128,
   tyron: Option Uint128
-  ) 
+  )
   IsOperational; VerifyController tyron; FetchServiceAddr addrName;
   get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
   match beneficiary with
-  | NftUsername username =>
+  | NftUsername username_ =>
       current_init <-& init.dApp;
-      get_addr <-& current_init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
+      get_addr <-& current_init.dns[username_]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
       msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
         to: addr;
         amount: amount } in one_msg m ; send msg
-  | Recipient addr =>
-      ThrowIfSameAddr _this_address addr;
+  | Recipient addr_ =>
+      ThrowIfSameAddr _this_address addr_;
       msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
-        to: addr;
-        amount: amount } in one_msg m ; send msg end; Timestamp end
+        to: addr_;
+        amount: amount } in one_msg m ; send msg end;
+  Timestamp end
 
-transition RecipientAcceptTransfer( sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsOperational end
+transition RecipientAcceptTransfer( sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsOperational; Timestamp end
 
-transition RecipientAcceptTransferFrom( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsOperational end
+transition RecipientAcceptTransferFrom( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsOperational; Timestamp end
 
 transition TransferSuccessCallBack( sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsOperational end
 
@@ -784,7 +788,8 @@ transition Dns(
   | _ => err = CodeWrongStatus; ThrowError err end;
   VerifyController tyron; ThrowIfSameAddr _this_address addr;
   verification_methods[domain] := didKey; dkms[domain] := encrypted; did_domain_dns[domain] := addr; 
-  new_status = Updated; did_status := new_status; Timestamp end
+  new_status = Updated; did_status := new_status;
+  Timestamp end
   
 transition XPoints(
   action: String,
@@ -800,7 +805,8 @@ transition XPoints(
     id: id;
     action: action;
     motion: motion;
-    amount: amount } in one_msg m ; send msg; Timestamp end
+    amount: amount } in one_msg m ; send msg;
+  Timestamp end
 
 procedure TransferTokens( input: Pair String Uint128 )
   addr_name = let fst_element = @fst String Uint128 in fst_element input;
@@ -828,16 +834,16 @@ transition Upgrade(
   IsOperational; VerifyController tyron;
   ThrowIfSameAddr _this_address dID;
   match username with
-  | None => | Some name =>
+  | None => | Some username_ =>
       current_init <-& init.dApp;
-      paymentID = builtin substr name zero_ six;
+      paymentID = builtin substr username_ zero_ six;
       is_free = let free = "free00" in builtin eq paymentID free; match is_free with
       | True => | False =>
         current_impl <-& current_init.implementation; txID = "TransferNftUsername";
         get_fee <-& current_impl.utility[paymentID][txID]; fee = option_uint128_value get_fee;
         IncreaseAllowanceInit paymentID fee end;
       msg = let m = { _tag: "TransferNftUsername"; _recipient: current_init; _amount: zero;
-        username: name;
+        username: username_;
         addr: addr;
         dID: dID } in one_msg m; send msg end;
   current_controller <- controller; controller := dID;
