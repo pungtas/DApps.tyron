@@ -36,3 +36,8 @@ The following four pieces of data make up an Investor Account:
 ### Is it vested?
 
 When processing a token transfer, the implementation will ensure whether the Originator has an Investor Account. To do so, it executes the ```IsVested``` procedure. If there is an Account, it checks that the Originator has enough funds so that the transfer does not require any lockup tokens, enabling the investor to behave like a regular user. Furthermore, it updates the Investor Account, releasing more tokens by reducing the lockup amount when able to do so. When the investor purchase is fully vested, their Account gets automatically deleted.
+
+# Documentation
+- [Contract Parts](./contractparts.md) : Upgradeables Smart Contacts for Fungible Tokens.
+
+- [TYRON COMMUNITY DAPP](TYRONCommunityDApp.md) :  Specification and description of TYRON Token and $SI.
