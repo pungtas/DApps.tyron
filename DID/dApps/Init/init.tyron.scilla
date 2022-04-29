@@ -1,4 +1,4 @@
-(* v3.3.0
+(* v3.4.0
 init.tyron: SSI Initialization & DNS DApp <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -29,10 +29,10 @@ library Init
 
   let make_error = fun( error: Error ) =>
     let result = match error with
-    | CodeWrongStatus            => Int32 0
-    | CodeWrongCaller            => Int32 -1
-    | CodeIsNull                 => Int32 -2
-    | CodeSameAddress            => Int32 -3
+      | CodeWrongStatus            => Int32 0
+      | CodeWrongCaller            => Int32 -1
+      | CodeIsNull                 => Int32 -2
+      | CodeSameAddress            => Int32 -3
     end in { _exception: "Error"; code: result }
   
   type Caller =
@@ -41,6 +41,8 @@ library Init
   
   let controller_ = Controller
   let implementation_ = Implementation
+  let donateDApp = "donate"
+  let donateAddr = 0x38e7670000523e81eebac1f0912b280f968e5fb0
 
 contract Init(
   name: String,
@@ -76,7 +78,7 @@ contract Init(
     field utility: Map String Map String Uint128 end = init_
 
   (* DNS records @key: NFT Username @value: address *)
-  field dns: Map String ByStr20 = builtin put initDns name nameDid
+  field dns: Map String ByStr20 = let map = builtin put initDns name nameDid in builtin put map donateDApp donateAddr
   field did_dns: Map String ByStr20 with contract
     field did: String,
     field nft_username: String,
@@ -86,9 +88,9 @@ contract Init(
     field services: Map String ByStr20,
     field social_guardians: Map ByStr32 Bool,
     field did_domain_dns: Map String ByStr20,
-    field deadline: Uint128 end = builtin put initDidDns name nameDid
+    field deadline: Uint128 end = let map = builtin put initDidDns name nameDid in builtin put map donateDApp nameDid
 
-  field version: String = "init----3.3.0" (* @todo *)
+  field version: String = "init----3.4.0" (* @todo *)
 
 procedure ThrowError( err: Error )
   e = make_error err; throw e end
@@ -123,7 +125,6 @@ transition UpdateImplementation(
     field paused: Bool,
     field utility: Map String Map String Uint128,
     field did: String,
-    field nft_username: String,
     field controller: ByStr20,
     field version: String,
     field verification_methods: Map String ByStr33,
@@ -143,44 +144,6 @@ transition NftUsernameCallBack(
   )
   VerifyCaller implementation_; dns[username] := addr end
 
-transition BuyNftUsername(
-  username: String,
-  addr: ByStr20,
-  dID: ByStr20 with contract
-    field did: String,
-    field nft_username: String,
-    field controller: ByStr20,
-    field version: String,
-    field verification_methods: Map String ByStr33,
-    field services: Map String ByStr20,
-    field social_guardians: Map ByStr32 Bool,
-    field did_domain_dns: Map String ByStr20,
-    field deadline: Uint128 end
-  )
-  current_impl <- implementation;
-  accept; msg = let m = { _tag: "BuyNftUsername"; _recipient: current_impl; _amount: _amount;
-    username: username;
-    addr: addr;
-    dID: dID } in one_msg m; send msg end
-  
-transition UpdateNftDid(
-  username: String,
-  dID: ByStr20 with contract
-    field did: String,
-    field nft_username: String,
-    field controller: ByStr20,
-    field version: String,
-    field verification_methods: Map String ByStr33,
-    field services: Map String ByStr20,
-    field social_guardians: Map ByStr32 Bool,
-    field did_domain_dns: Map String ByStr20,
-    field deadline: Uint128 end
-  )
-  current_impl <- implementation;
-  accept; msg = let m = { _tag: "UpdateNftDid"; _recipient: current_impl; _amount: _amount;
-    username: username;
-    dID: dID } in one_msg m; send msg end
-
 transition NftDidCallBack(
   username: String,
   dID: ByStr20 with contract
@@ -196,7 +159,50 @@ transition NftDidCallBack(
   )
   VerifyCaller implementation_; did_dns[username] := dID end
 
+transition BuyNftUsername(
+  id: String,
+  username: String,
+  addr: ByStr20,
+  dID: ByStr20 with contract
+    field did: String,
+    field nft_username: String,
+    field controller: ByStr20,
+    field version: String,
+    field verification_methods: Map String ByStr33,
+    field services: Map String ByStr20,
+    field social_guardians: Map ByStr32 Bool,
+    field did_domain_dns: Map String ByStr20,
+    field deadline: Uint128 end
+  )
+  current_impl <- implementation;
+  accept; msg = let m = { _tag: "BuyNftUsername"; _recipient: current_impl; _amount: _amount;
+    id: id;
+    username: username;
+    addr: addr;
+    dID: dID } in one_msg m; send msg end
+
+transition UpdateNftDid(
+  id: String,
+  username: String,
+  dID: ByStr20 with contract
+    field did: String,
+    field nft_username: String,
+    field controller: ByStr20,
+    field version: String,
+    field verification_methods: Map String ByStr33,
+    field services: Map String ByStr20,
+    field social_guardians: Map ByStr32 Bool,
+    field did_domain_dns: Map String ByStr20,
+    field deadline: Uint128 end
+  )
+  current_impl <- implementation;
+  accept; msg = let m = { _tag: "UpdateNftDid"; _recipient: current_impl; _amount: _amount;
+    id: id;
+    username: username;
+    dID: dID } in one_msg m; send msg end
+
 transition TransferNftUsername(
+  id: String,
   username: String,
   addr: ByStr20,
   dID: ByStr20 with contract
@@ -212,6 +218,7 @@ transition TransferNftUsername(
   )
   current_impl <- implementation;
   accept; msg = let m = { _tag: "TransferNftUsername"; _recipient: current_impl; _amount: _amount;
+    id: id;
     username: username;
     addr: addr;
     dID: dID } in one_msg m; send msg end

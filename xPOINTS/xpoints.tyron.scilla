@@ -1,5 +1,5 @@
-(* v1.3.0
-xpoints.tyron: Raise Your Voice <> xPoints DApp
+(* v1.4.0
+xpoints.tyron: xPoints DApp <> Raise Your Voice
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
 www.ssiprotocol.com
@@ -57,7 +57,7 @@ contract XPoints(
       field utility: Map String Uint128 end,
     field dns: Map String ByStr20 end
   )
-  field version: String = "xpoints-1.3.0"
+  field version: String = "xpoints-1.4.0"
   field ranking: Map ByStr32 Uint128 = Emp ByStr32 Uint128
   field motions: Map ByStr32 String = Emp ByStr32 String
   field nonce: Uint128 = zero
@@ -79,67 +79,6 @@ procedure ThrowIfSameAddr(
   is_self = builtin eq a b; match is_self with
   | False => | True => err = CodeSameAddress; ThrowError err end end
 
-procedure FetchServiceAddr( id: String )
-  init_did <-& init.implementation;
-  get_service <-& init_did.services[id]; addr = option_bystr20_value get_service; services[id] := addr end
-
-procedure IncreaseAllowance(
-  addrID: String,
-  amount: Uint128
-  )
-  init_did <-& init.implementation;
-  FetchServiceAddr addrID; get_addr <- services[addrID]; addr = option_bystr20_value get_addr;
-  msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
-    spender: init_did;
-    amount: amount } in one_msg m ; send msg end
-    
-transition TransferNFTUsername(
-  username: String,
-  newAddr: ByStr20,
-  guardianship: Option ByStr20 with contract field verification_methods: Map String ByStr33 end,
-  id: String,
-  amount: Uint128,
-  tyron: Option Uint128
-  )
-  VerifyController; ThrowIfSameAddr _this_address newAddr;
-  init_did <-& init.implementation; transfer = "transfer";
-  get_fee <-& init_did.utility[transfer]; fee = option_uint128_value get_fee;
-  is_tyron = builtin eq id tyron_; match is_tyron with
-  | True => | False => err = CodeNotValid; ThrowError err end;
-  IncreaseAllowance tyron_ fee;
-  msg = let m = { _tag: "TransferNFTUsername"; _recipient: init; _amount: zero;
-    username: username;
-    newAddr: newAddr;
-    guardianship: guardianship } in one_msg m; send msg end
-
-transition Transfer(
-  addrName: String,
-  beneficiary: Beneficiary,
-  amount: Uint128,
-  tyron: Option Uint128
-  ) 
-  VerifyController;
-  FetchServiceAddr addrName; get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
-  match beneficiary with
-  | NFTUsername username =>
-      get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
-      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
-        to: addr;
-        amount: amount } in one_msg m ; send msg
-  | Recipient addr =>
-      ThrowIfSameAddr _this_address addr;
-      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
-        to: addr;
-        amount: amount } in one_msg m ; send msg end end
-
-transition RecipientAcceptTransfer( sender: ByStr20, recipient: ByStr20, amount: Uint128 ) end
-
-transition RecipientAcceptTransferFrom( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) end
-
-transition TransferSuccessCallBack( sender: ByStr20, recipient: ByStr20, amount : Uint128 ) end
-
-transition TransferFromSuccessCallBack( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) end
-
 (* xPoints DApp backbone *)
 
 transition RaiseYourVoice(
@@ -148,7 +87,7 @@ transition RaiseYourVoice(
   motion: Option String,   (* to create a new motion *)
   amount: Uint128
   )
-  donate = "donate"; get_addr <-& init.dns[donate]; addr = option_bystr20_value get_addr;
+  donateDApp = "donate"; get_addr <-& init.dns[donateDApp]; addr = option_bystr20_value get_addr;
   msg = let m = { _tag: "XPoints"; _recipient: addr; _amount: zero;
     amount: amount } in one_msg m ; send msg;
   is_new = let new = "new" in builtin eq action new; match is_new with

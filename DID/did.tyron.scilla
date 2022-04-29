@@ -1,4 +1,4 @@
-(* v3.6.0
+(* v3.7.0
 did.tyron: W3C Decentralized Identifier DApp
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -112,7 +112,7 @@ contract DID( init_controller: ByStr20 )
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
   field did_status: DidStatus = Deployed
-  field version: String = "did-----3.6.0" (* @todo update *)
+  field version: String = "did-----3.7.0" (* @todo update *)
   
   (* Verification methods @key: key purpose @value: public key of type "SchnorrSecp256k1VerificationKey2019" *)
   field verification_methods: Map String ByStr33 = empty_methods
@@ -257,7 +257,7 @@ transition DidCreate(
   match current_status with
   | Deployed =>
       VerifyController tyron;
-      new_did = let did_prefix = "did:tyron:zil:test:" in let did_suffix = builtin to_string _this_address in
+      new_did = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address in
         builtin concat did_prefix did_suffix; did := new_did;
       forall document SaveDocument;
       get_recovery_key <- verification_methods[recovery]; ThrowIfNoKey get_recovery_key; did_recovery = option_bystr33_value get_recovery_key;
@@ -282,21 +282,18 @@ procedure UpdateDocument( document: Document )
               delete dkms[purpose]
           | False => err = CodeNotValid; ThrowError err end end
   | Service action id endpoint =>
-      is_service <- exists services[id];
-      is_service_ <- exists services_[id];
-      service_exists = orb is_service is_service_;
       match action with
       | Add =>
-          match service_exists with
-          | True => err = CodeSameId; ThrowError err
-          | False => 
-              match endpoint with
-              | Address address =>
-               match address with
-                 | Zilliqa addr => services[id] := addr
-                 | Other adrr => services_[id] := endpoint end
-              | Uri eType protocol uri => services_[id] := endpoint end end
+          match endpoint with
+          | Address address =>
+            match address with
+              | Zilliqa addr => services[id] := addr
+              | Other adrr => services_[id] := endpoint end
+          | Uri eType protocol uri => services_[id] := endpoint end
       | Remove =>
+          is_service <- exists services[id];
+          is_service_ <- exists services_[id];
+          service_exists = orb is_service is_service_;
           match service_exists with
           | True => delete services[id]; delete services_[id]
           | False => err = CodeNotValid; ThrowError err end end end end
@@ -313,59 +310,53 @@ procedure ValidateDocument(
 
 procedure HashDocument( document: Document )
   doc_hash <- did_hash;
-  match document with
+  element_hash = match document with
   | VerificationMethod action purpose key encrypted =>
       match action with
       | Add =>
-          hash = let h1 = builtin sha256hash actionAdd in
-            let h2 = builtin sha256hash purpose in
-            let h3 = builtin sha256hash key in
-            let h4 = builtin sha256hash encrypted in
-            let h1_2 = builtin concat h1 h2 in
-            let h1_3 = builtin concat h1_2 h3 in
-            builtin concat h1_3 h4;
-          doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-          did_hash := doc_hash_
+          let h1 = builtin sha256hash actionAdd in
+          let h2 = builtin sha256hash purpose in
+          let h3 = builtin sha256hash key in
+          let h4 = builtin sha256hash encrypted in
+          let h1_2 = builtin concat h1 h2 in
+          let h1_3 = builtin concat h1_2 h3 in
+          let hash = builtin concat h1_3 h4 in
+          builtin to_bystr hash
       | Remove =>
-          hash = let h1 = builtin sha256hash actionRemove in
-            let h2 = builtin sha256hash purpose in
-            builtin concat h1 h2;
-          doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-          did_hash := doc_hash_ end
+          let h1 = builtin sha256hash actionRemove in
+          let h2 = builtin sha256hash purpose in
+          let hash = builtin concat h1 h2 in
+          builtin to_bystr hash end
   | Service action id endpoint =>
       match action with
       | Add =>
+          let h1 = builtin sha256hash actionAdd in
+          let h2 = builtin sha256hash id in
           match endpoint with
           | Uri eType transfer uri =>
-              hash = let h1 = builtin sha256hash actionAdd in
-                let h2 = builtin sha256hash id in
-                let h3 = builtin sha256hash uri in
-                let h1_2 = builtin concat h1 h2 in
-                builtin concat h1_2 h3;
-              doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-              did_hash := doc_hash_
+              let h3 = builtin sha256hash uri in
+              let h1_2 = builtin concat h1 h2 in
+              let hash = builtin concat h1_2 h3 in
+              builtin to_bystr hash
           | Address address =>
-              hash = match address with
-                      | Zilliqa addr =>
-                          let h1 = builtin sha256hash actionAdd in
-                          let h2 = builtin sha256hash id in
-                          let h3 = builtin sha256hash addr in
-                          let h1_2 = builtin concat h1 h2 in
-                          builtin concat h1_2 h3
-                      | Other addr =>
-                          let h1 = builtin sha256hash actionAdd in
-                          let h2 = builtin sha256hash id in
-                          let h3 = builtin sha256hash addr in
-                          let h1_2 = builtin concat h1 h2 in
-                          builtin concat h1_2 h3 end;
-              doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-              did_hash := doc_hash_ end
+              match address with
+              | Zilliqa addr =>
+                  let h3 = builtin sha256hash addr in
+                  let h1_2 = builtin concat h1 h2 in
+                  let hash = builtin concat h1_2 h3 in
+                  builtin to_bystr hash
+              | Other addr =>
+                  let h3 = builtin sha256hash addr in
+                  let h1_2 = builtin concat h1 h2 in
+                  let hash = builtin concat h1_2 h3 in
+                  builtin to_bystr hash end end
       | Remove =>
-          hash = let h1 = builtin sha256hash actionRemove in
-            let h2 = builtin sha256hash id in
-            builtin concat h1 h2;
-          doc_hash_ = let hash_ = builtin to_bystr hash in builtin concat doc_hash hash_;
-          did_hash := doc_hash_ end end end
+          let h1 = builtin sha256hash actionRemove in
+          let h2 = builtin sha256hash id in
+          let hash = builtin concat h1 h2 in
+          builtin to_bystr hash end end;
+  new_doc_hash = builtin concat doc_hash element_hash;
+  did_hash := new_doc_hash end
 
 procedure VerifyDocument(
   operation: Operation,

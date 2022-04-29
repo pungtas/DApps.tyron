@@ -1,4 +1,4 @@
-(* v1.3.0
+(* v1.4.0
 donate.tyron: DIDxWallet for the SSI Community donations <> Donate DApp
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Pungtas and its affiliates.
@@ -137,7 +137,7 @@ contract DonateDApp(
     field dns: Map String ByStr20,
     field guardians: Map String ByStr20 with contract field verification_methods: Map String ByStr33 end end
   )
-  field version: String = "donate--1.3.0"
+  field version: String = "donate--1.4.0"
   field did: String = ""    (* the W3C decentralized identifier *)
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
@@ -769,8 +769,8 @@ transition Withdrawal( amount: Uint128 )
   Timestamp end
 
 transition XPoints( amount: Uint128 )
-  xpoints_ = "xpoints"; get_addr <-& init.dns[xpoints_]; xAddr = option_bystr20_value get_addr;
-  is_xaddr = builtin eq _sender xAddr; match is_xaddr with
+  xPointsDApp = "xpoints"; get_addr <-& init.dns[xPointsDApp]; addr = option_bystr20_value get_addr;
+  is_xPoints = builtin eq _sender addr; match is_xPoints with
   | True => | False => err = CodeWrongCaller; ThrowError err end;
-  get_xpoints <- xpoints[_origin]; x_points = option_uint128_value get_xpoints; IsSufficient x_points amount;
+  get_xPoints <- xpoints[_origin]; x_points = option_uint128_value get_xpoints; IsSufficient x_points amount;
   new_bal = builtin sub x_points amount; xpoints[_origin] := new_bal end

@@ -1,4 +1,4 @@
-(* v1.0.0
+(* v1.1.0
 xInit DApp
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -42,35 +42,42 @@ let option_value =
   | None => default end
 
 let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
+let null = ""
 
 contract XInit(
   init_username: String,
   init: ByStr20 with contract
     field implementation: ByStr20 with contract
+      field nft_username: String,
+      field paused: Bool,
       field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
-      field did: String,   (* the W3C decentralized identifier *)
+      field did: String,
       field nft_username: String,
       field controller: ByStr20,
       field version: String,
       field verification_methods: Map String ByStr33,
       field services: Map String ByStr20,
+      field social_guardians: Map ByStr32 Bool,
       field did_domain_dns: Map String ByStr20 end end
   )
   field nft_username: String = init_username
-  field pending_username: String = ""
+  field pending_username: String = null
   field dApp: ByStr20 with contract
     field implementation: ByStr20 with contract
+      field nft_username: String,
+      field paused: Bool,
       field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
-      field did: String,   (* the W3C decentralized identifier *)
+      field did: String,
       field nft_username: String,
       field controller: ByStr20,
       field version: String,
       field verification_methods: Map String ByStr33,
       field services: Map String ByStr20,
+      field social_guardians: Map ByStr32 Bool,
       field did_domain_dns: Map String ByStr20 end end = init
 
 procedure ThrowError( err: Error )
@@ -108,7 +115,7 @@ transition AcceptPendingUsername()
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
       | True => | False => err = CodeWrongCaller; ThrowError err end;
-      nft_username := current_pending end end
+      nft_username := current_pending; pending_username := null end end
 
 procedure ThrowIfSameAddr(
   a: ByStr20,
@@ -120,15 +127,18 @@ procedure ThrowIfSameAddr(
 transition UpdateDApp(
   addr: ByStr20 with contract
     field implementation: ByStr20 with contract
+      field nft_username: String,
+      field paused: Bool,
       field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
-      field did: String,   (* the W3C decentralized identifier *)
+      field did: String,
       field nft_username: String,
       field controller: ByStr20,
       field version: String,
       field verification_methods: Map String ByStr33,
       field services: Map String ByStr20,
+      field social_guardians: Map ByStr32 Bool,
       field did_domain_dns: Map String ByStr20 end end
   )
   VerifyController;
