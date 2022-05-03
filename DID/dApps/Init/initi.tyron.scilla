@@ -117,18 +117,19 @@ library InitI
   let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
 
   let zero_ = Uint32 0
+  let did = "did"
+  let null = ""
 
   type Beneficiary =
-    | NftUsername of String
+    | NftUsername of String String (* username & domain *)
     | Recipient of ByStr20
-    
+
   let true = True
   let false = False
-  let tyronId = "tyron"
+  let tyronID = "tyron"
   let tyronAddr = 0x38e7670000523e81eebac1f0912b280f968e5fb0   (* @todo *)
   
   let compare_participant = fun( addr: ByStr20 ) => fun( participant: ByStr20 ) => builtin eq addr participant
-  let null = ""
 
 contract InitI(
   init_username: String,
@@ -160,7 +161,7 @@ contract InitI(
   
   (* Services @key: ID @value: endpoint *)
   field services: Map String ByStr20 = let emp = Emp String ByStr20 in
-    builtin put emp tyronId tyronAddr
+    builtin put emp tyronID tyronAddr
   field services_: Map String Endpoint = empty_services_
 
   field social_guardians: Map ByStr32 Bool = Emp ByStr32 Bool
@@ -184,8 +185,9 @@ contract InitI(
 
   field utility: Map String Map String Uint128 =
     let emp = Emp String Map String Uint128 in let emp_ = Emp String Uint128 in
-    let txID = "BuyNftUsername" in let ten = Uint128 10000000000000 in let m = builtin put emp_ txID ten in
-    builtin put emp tyronId m
+    let buyID = "BuyNftUsername" in let ten = Uint128 10000000000000 in let m_ = builtin put emp_ buyID ten in
+    let transferID = "TransferNftUsername" in let fourteen = Uint128 14000000000000 in let m = builtin put m_ transferID fourteen in
+    builtin put emp tyronID m
   
   field minchar: Uint32 = Uint32 6
 
@@ -551,12 +553,20 @@ transition SendFunds(
   )
   IsOperational; VerifyController tyron;
   match beneficiary with
-  | NftUsername username =>
-    get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
-    msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
-  | Recipient addr =>
-    ThrowIfSameAddr _this_address addr;
-    msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg end;
+  | NftUsername username_ domain_ =>
+    is_did = builtin eq domain_ did; match is_did with
+      | True =>
+        get_addr <-& init.dns[username_]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
+        msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
+      | False =>
+        get_did <-& init.did_dns[username_]; match get_did with
+        | None => err = CodeIsNull; ThrowError err
+        | Some did_ =>
+          get_domain_addr <-& did_.did_domain_dns[domain_]; domain_addr = option_bystr20_value get_domain_addr;
+          msg = let m = { _tag: tag; _recipient: domain_addr; _amount: amount } in one_msg m; send msg end end
+  | Recipient addr_ =>
+    ThrowIfSameAddr _this_address addr_;
+    msg = let m = { _tag: tag; _recipient: addr_; _amount: amount } in one_msg m; send msg end;
   Timestamp end
 
 transition Transfer(
@@ -564,19 +574,29 @@ transition Transfer(
   beneficiary: Beneficiary,
   amount: Uint128,
   tyron: Option Uint128
-  ) 
+  )
   IsOperational; VerifyController tyron;
   get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
   match beneficiary with
-  | NftUsername username =>
-    get_addr <-& init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
+  | NftUsername username_ domain_ =>
+    is_did = builtin eq domain_ did; match is_did with
+      | True =>
+        get_addr <-& init.dns[username_]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
+        msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+          to: addr;
+          amount: amount } in one_msg m ; send msg
+      | False =>
+        get_did <-& init.did_dns[username_]; match get_did with
+          | None => err = CodeIsNull; ThrowError err
+          | Some did_ =>
+            get_domain_addr <-& did_.did_domain_dns[domain_]; domain_addr = option_bystr20_value get_domain_addr;
+            msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+              to: domain_addr;
+              amount: amount } in one_msg m ; send msg end end
+  | Recipient addr_ =>
+    ThrowIfSameAddr _this_address addr_;
     msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
-      to: addr;
-      amount: amount } in one_msg m ; send msg
-  | Recipient addr =>
-    ThrowIfSameAddr _this_address addr;
-    msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
-      to: addr;
+      to: addr_;
       amount: amount } in one_msg m ; send msg end;
   Timestamp end
 

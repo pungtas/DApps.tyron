@@ -1,5 +1,5 @@
-(* v5.2.0
-xwallet.tyron: W3C Decentralized Identifier Smart Contract Wallet (DIDxWallet)
+(* v5.4.0
+xwallet.tyron: W3C Decentralized Identifier Smart Contract Wallet <> DIDxWallet DApp
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
 www.ssiprotocol.com
@@ -20,18 +20,12 @@ import PairUtils BoolUtils ListUtils IntUtils
 
 library DIDxWallet
   type DidStatus =
-    | Deployed
     | Created
     | Recovered
-    | SociallyRecovered
     | Updated
     | Deactivated
     | Locked
 
-  type Operation =
-    | Recovery
-    | Update
-  
   type Action =
     | Add
     | Remove
@@ -52,11 +46,8 @@ library DIDxWallet
     | VerificationMethod of Action String ByStr33 String (* add/remove, key purpose, public key & encrypted private key *)
     | Service of Action String Endpoint (* add/remove, service ID & service *) 
   
-  let didRecovery = Recovery
-  let didUpdate = Update
   let update = "update"
-  let recovery = "recovery"
-  let didsr = "socialrecovery"
+  let recovery = "socialrecovery"
   let actionAdd = "add"
   let actionRemove = "remove"
   let empty_methods = Emp String ByStr33
@@ -67,34 +58,6 @@ library DIDxWallet
   let one_msg =
     fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
-
-  type Error =
-    | CodeWrongStatus
-    | CodeWrongCaller
-    | CodeIsNull
-    | CodeWrongSignature
-    | CodeUndefinedKey
-    | CodeSameKey
-    | CodeSameId
-    | CodeNotValid
-    | CodeDidLocked
-    | CodeSameAddress
-    | CodeSameUsername
- 
-  let make_error = fun( error: Error ) =>
-    let result = match error with
-      | CodeWrongStatus            => Int32 0
-      | CodeWrongCaller            => Int32 -1
-      | CodeIsNull                 => Int32 -2
-      | CodeWrongSignature         => Int32 -3
-      | CodeUndefinedKey           => Int32 -4
-      | CodeSameKey                => Int32 -5
-      | CodeSameId                 => Int32 -6
-      | CodeNotValid               => Int32 -7
-      | CodeDidLocked              => Int32 -8
-      | CodeSameAddress            => Int32 -9
-      | CodeSameUsername           => Int32 -10
-    end in { _exception: "Error"; code: result }
   
   let zero = Uint128 0
   let zeroByStr20 = 0x0000000000000000000000000000000000000000
@@ -135,19 +98,22 @@ contract DIDxWallet(
       field controller: ByStr20,
       field verification_methods: Map String ByStr33,
       field services: Map String ByStr20,
-      field did_domain_dns: Map String ByStr20 end end end
+      field did_domain_dns: Map String ByStr20 end end end,
+  did_methods: Map String ByStr33,
+  did_dkms: Map String String
   )
-  field did: String = "" (* the W3C decentralized identifier *)
+  field did: String = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address in
+    builtin concat did_prefix did_suffix   (* the W3C decentralized identifier *)
   field nft_username: String = null
   field pending_username: String = null
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
-  field did_status: DidStatus = Deployed
-  field version: String = "xwallet-5.2.0" (* @todo *)
+  field did_status: DidStatus = Created
+  field version: String = "xwallet-5.4.0" (* @todo *)
   
   (* Verification methods @key: key purpose @value: public DID key *)
-  field verification_methods: Map String ByStr33 = empty_methods
-  field dkms: Map String String = empty_dkms
+  field verification_methods: Map String ByStr33 = did_methods
+  field dkms: Map String String = did_dkms
   
   (* Services @key: ID @value: endpoint *)
   field services: Map String ByStr20 = empty_services
@@ -158,7 +124,7 @@ contract DIDxWallet(
   (* The block number when the DID Create operation occurred *)
   field did_created: BNum = BNum 0
   
-  (* The block number when the last DID CRUD operation occurred *)  
+  (* The block number when the last DID CRUD operation occurred *)
   field ledger_time: BNum = BNum 0
   
   (* A monotonically increasing number representing the amount of DID CRUD transactions that have taken place *)
@@ -178,20 +144,17 @@ procedure SupportTyron( tyron: Option Uint128 )
     get_addr <-& current_init.dns[donateDApp]; addr = option_bystr20_value get_addr;
     accept; msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: donation } in one_msg m; send msg end end
 
-procedure ThrowError( err: Error )
-  e = make_error err; throw e end
-
 procedure IsOperational()
   current_status <- did_status; match current_status with
-    | Deactivated => err = CodeWrongStatus; ThrowError err
-    | Locked => err = CodeDidLocked; ThrowError err
+    | Deactivated => e = { _exception : "DIDxWallet-WrongStatus" }; throw e
+    | Locked => e = { _exception : "DIDxWallet-DidLocked" }; throw e
     | _ => end end
 
 procedure VerifyController( tyron: Option Uint128 )
   current_controller <- controller;
   verified = builtin eq _origin current_controller; match verified with
     | True => SupportTyron tyron
-    | False => err = CodeWrongCaller; ThrowError err end end
+    | False => e = { _exception : "DIDxWallet-WrongCaller" }; throw e end end
 
 procedure Timestamp()
   current_block <- &BLOCKNUMBER; ledger_time := current_block;
@@ -203,14 +166,14 @@ procedure ThrowIfSameAddr(
   b: ByStr20
   )
   is_self = builtin eq a b; match is_self with
-    | False => | True => err = CodeSameAddress; ThrowError err end end
+    | False => | True => e = { _exception : "DIDxWallet-SameAddress" }; throw e end end
 
 procedure ThrowIfSameName(
   a: String,
   b: String
   )
   is_same = builtin eq a b; match is_same with
-    | False => | True => err = CodeSameUsername; ThrowError err end end
+    | False => | True => e = { _exception : "DIDxWallet-SameUsername" }; throw e end end
 
 transition UpdateController(
   addr: ByStr20,
@@ -224,7 +187,7 @@ transition UpdateController(
 transition AcceptPendingController()
   IsOperational; current_pending <- pending_controller;
   verified = builtin eq _origin current_pending; match verified with
-    | True => | False => err = CodeWrongCaller; ThrowError err end;
+    | True => | False => e = { _exception : "DIDxWallet-WrongCaller" }; throw e end;
   controller := current_pending; pending_controller := zeroByStr20;
   Timestamp end
 
@@ -236,7 +199,7 @@ transition UpdateUsername(
   current_username <- nft_username; ThrowIfSameName current_username username;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[username]; match get_did with
-    | None => err = CodeIsNull; ThrowError err
+    | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
     | Some did_ => pending_username := username end;
   Timestamp end
 
@@ -244,11 +207,11 @@ transition AcceptPendingUsername()
   IsOperational; current_pending <- pending_username;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[current_pending]; match get_did with
-    | None => err = CodeIsNull; ThrowError err
+    | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
     | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
-        | True => | False => err = CodeWrongCaller; ThrowError err end;
+        | True => | False => e = { _exception : "DIDxWallet-WrongCaller" }; throw e end;
       nft_username := current_pending; pending_username := null end;
   Timestamp end
 
@@ -260,113 +223,18 @@ procedure VerifySignature(
   )
   get_did_key <- verification_methods[id]; did_key = option_bystr33_value get_did_key;
   is_right_signature = builtin schnorr_verify did_key signedData signature; match is_right_signature with
-    | True => | False => err = CodeWrongSignature; ThrowError err end end
+    | True => | False => e = { _exception : "DIDxWallet-WrongSignature" }; throw e end end
 
 procedure ThrowIfNoKey( optKey: Option ByStr33 )
   match optKey with
   | Some key =>
-  | None => err = CodeUndefinedKey; ThrowError err end end
+  | None => e = { _exception : "DIDxWallet-UndefinedKey" }; throw e end end
 
-procedure ThrowIfSameKey(
-  key: ByStr33,
-  sndKey: ByStr33
-  )
-  is_same_key = builtin eq key sndKey;
-  match is_same_key with
-  | True => err = CodeSameKey; ThrowError err
-  | False => end end
-
-procedure VerifyDIDkeys(
-  operation: Operation,
-  didRecovery: ByStr33,
-  didUpdate: ByStr33
-  )
+procedure VerifyUpdateKey( didUpdate: ByStr33 )
   get_update_key <- verification_methods[update]; new_update = option_bystr33_value get_update_key;
-  ThrowIfSameKey new_update didUpdate; ThrowIfSameKey new_update didRecovery;
-  match operation with
-  | Update => | Recovery =>
-    get_recovery_key <- verification_methods[recovery]; new_recovery = option_bystr33_value get_recovery_key;
-    ThrowIfSameKey new_recovery new_update;
-    ThrowIfSameKey new_recovery didRecovery; ThrowIfSameKey new_recovery didUpdate end end
-
-procedure SaveDocument( document: Document )
-  match document with
-  | VerificationMethod action purpose key encrypted =>
-    key_exists <- exists verification_methods[purpose];
-    match action with
-    | Add =>
-      match key_exists with
-      | True => err = CodeSameId; ThrowError err
-      | False =>
-        verification_methods[purpose] := key;
-        dkms[purpose] := encrypted end
-    | Remove => err = CodeNotValid; ThrowError err end
-  | Service action id endpoint =>
-    is_service <- exists services[id];
-    is_service_ <- exists services_[id];
-    service_exists = orb is_service is_service_;
-    match action with
-    | Add =>
-      match service_exists with
-      | True => err = CodeSameId; ThrowError err
-      | False =>
-        match endpoint with
-        | Address address =>
-          match address with
-          | Zilliqa addr => services[id] := addr
-          | Other adrr => services_[id] := endpoint end
-        | Uri eType protocol uri => services_[id] := endpoint end end
-    | Remove => err = CodeNotValid; ThrowError err end end end
-
-transition DidCreate(
-  document: List Document,
-  signature: Option ByStr64,
-  tyron: Option Uint128
-  )
-  current_status <- did_status; match current_status with
-  | Deployed =>
-    VerifyController tyron;
-    new_did = let did_prefix = "did:tyron:zil:main:" in let did_suffix = builtin to_string _this_address in
-    builtin concat did_prefix did_suffix; did := new_did;
-    forall document SaveDocument;
-    get_recovery_key <- verification_methods[recovery]; ThrowIfNoKey get_recovery_key; did_recovery = option_bystr33_value get_recovery_key;
-    get_update_key <- verification_methods[update]; ThrowIfNoKey get_update_key; did_update = option_bystr33_value get_update_key;
-    ThrowIfSameKey did_recovery did_update;
-    new_status = Created; did_status := new_status;
-    current_block <- &BLOCKNUMBER; did_created := current_block
-  | _ => err = CodeWrongStatus; ThrowError err end;
-  Timestamp end
-
-procedure UpdateDocument( document: Document )
-  match document with
-  | VerificationMethod action purpose key encrypted =>
-    match action with
-    | Add =>
-      verification_methods[purpose] := key;
-      dkms[purpose] := encrypted
-    | Remove =>
-      key_exists <- exists verification_methods[purpose];
-      match key_exists with
-      | True =>
-        delete verification_methods[purpose];
-        delete dkms[purpose]
-      | False => err = CodeNotValid; ThrowError err end end
-  | Service action id endpoint =>
-    match action with
-    | Add =>
-      match endpoint with
-      | Address address =>
-        match address with
-        | Zilliqa addr => services[id] := addr
-        | Other adrr => services_[id] := endpoint end
-      | Uri eType protocol uri => services_[id] := endpoint end
-    | Remove =>
-      is_service <- exists services[id];
-      is_service_ <- exists services_[id];
-      service_exists = orb is_service is_service_;
-      match service_exists with
-      | True => delete services[id]; delete services_[id]
-      | False => err = CodeNotValid; ThrowError err end end end end
+  is_same_key = builtin eq didUpdate new_update; match is_same_key with
+  | True => e = { _exception : "DIDxWallet-SameKey" }; throw e
+  | False => end end
 
 procedure HashDocument( document: Document )
   doc_hash <- did_hash;
@@ -418,93 +286,46 @@ procedure HashDocument( document: Document )
   new_doc_hash = builtin concat doc_hash element_hash;
   did_hash := new_doc_hash end
 
-procedure ValidateDocument(
-  operation: Operation,
-  document: List Document
-  )
-  match operation with
-  | Recovery => 
-    verification_methods := empty_methods; dkms := empty_dkms; services := empty_services; services_ := empty_services_;
-    forall document SaveDocument
-  | Update => forall document UpdateDocument end end
+procedure UpdateDocument( document: Document )
+  match document with
+  | VerificationMethod action purpose key encrypted =>
+    match action with
+    | Add =>
+      verification_methods[purpose] := key;
+      dkms[purpose] := encrypted
+    | Remove =>
+      key_exists <- exists verification_methods[purpose];
+      match key_exists with
+      | True =>
+        delete verification_methods[purpose];
+        delete dkms[purpose]
+      | False => e = { _exception : "DIDxWallet-RemoveNoKey" }; throw e end end
+  | Service action id endpoint =>
+    match action with
+    | Add =>
+      match endpoint with
+      | Address address =>
+        match address with
+        | Zilliqa addr => services[id] := addr
+        | Other adrr => services_[id] := endpoint end
+      | Uri eType protocol uri => services_[id] := endpoint end
+    | Remove =>
+      is_service <- exists services[id];
+      is_service_ <- exists services_[id];
+      service_exists = orb is_service is_service_;
+      match service_exists with
+      | True => delete services[id]; delete services_[id]
+      | False => e = { _exception : "DIDxWallet-RemoveNoService" }; throw e end end end end
 
 procedure VerifyDocument(
-  operation: Operation,
   document: List Document,
   signature: Option ByStr64
   )
   did_hash := zeroByStr;
   forall document HashDocument; doc_hash <- did_hash;
   sig = option_bystr64_value signature;
-  id = match operation with
-    | Recovery => recovery
-    | Update => update end; VerifySignature id doc_hash sig;
-  ValidateDocument operation document end
-
-transition DidRecover(
-  document: List Document,
-  signature: Option ByStr64,
-  tyron: Option Uint128
-  )
-  VerifyController tyron;
-  current_status <- did_status; match current_status with
-    | Created => | Recovered => | Updated =>
-      get_recovery_key <- verification_methods[recovery]; did_recovery = option_bystr33_value get_recovery_key;
-      get_update_key <- verification_methods[update]; did_update = option_bystr33_value get_update_key;
-      VerifyDocument didRecovery document signature;
-      VerifyDIDkeys didRecovery did_recovery did_update
-    | SociallyRecovered =>
-      ValidateDocument didRecovery document;
-      get_recovery_key <- verification_methods[recovery]; ThrowIfNoKey get_recovery_key; did_recovery = option_bystr33_value get_recovery_key;
-      get_update_key <- verification_methods[update]; ThrowIfNoKey get_update_key; did_update = option_bystr33_value get_update_key;
-      ThrowIfSameKey did_recovery did_update
-    | _ => err = CodeWrongStatus; ThrowError err end;
-  new_status = Recovered; did_status := new_status;
-  Timestamp end
-
-transition DidUpdate(
-  document: List Document,
-  signature: Option ByStr64,
-  tyron: Option Uint128
-  )
-  current_status <- did_status; match current_status with
-    | Created => | Recovered => | SociallyRecovered => | Updated =>
-    | _ => err = CodeWrongStatus; ThrowError err end;
-  VerifyController tyron;
-  get_recovery_key <- verification_methods[recovery]; did_recovery = option_bystr33_value get_recovery_key;
-  get_update_key <- verification_methods[update]; did_update = option_bystr33_value get_update_key;
-  VerifyDocument didUpdate document signature;
-  VerifyDIDkeys didUpdate did_recovery did_update;
-  new_status = Updated; did_status := new_status;
-  Timestamp end
-
-transition DidDeactivate(
-  document: List Document,
-  signature: Option ByStr64,
-  tyron: Option Uint128
-  ) 
-  IsOperational; VerifyController tyron;
-  VerifyDocument didRecovery document signature;
-  verification_methods := empty_methods; services := empty_services; services_ := empty_services_;
-  new_status = Deactivated; did_status := new_status;
-  Timestamp end
-
-transition Dns(
-  addr: ByStr20,
-  domain: String,
-  didKey: ByStr33,
-  encrypted: String,
-  tyron: Option Uint128
-  )
-  current_status <- did_status; match current_status with
-    | Created => | Recovered => | SociallyRecovered => | Updated =>
-    | _ => err = CodeWrongStatus; ThrowError err end;
-  VerifyController tyron; ThrowIfSameAddr _this_address addr;
-  verification_methods[domain] := didKey; dkms[domain] := encrypted; did_domain_dns[domain] := addr; 
-  new_status = Updated; did_status := new_status;
-  Timestamp end
-
-(* Wallet backbone *)
+  VerifySignature update doc_hash sig;
+  forall document UpdateDocument end
 
 procedure ConcatGuardians( id: ByStr32 )
   ghash <- did_hash; ghash_ = let h = builtin to_bystr id in builtin concat ghash h;
@@ -512,7 +333,7 @@ procedure ConcatGuardians( id: ByStr32 )
 
 procedure SaveGuardians( id: ByStr32 )
   repeated <- exists social_guardians[id]; match repeated with
-    | True => err = CodeSameId; ThrowError err
+    | True => e = { _exception : "DIDxWallet-SameGuardianId" }; throw e
     | False => true = True; social_guardians[id] := true end end
 
 transition ConfigureSocialRecovery(
@@ -521,11 +342,11 @@ transition ConfigureSocialRecovery(
   tyron: Option Uint128
   )
   current_status <- did_status; match current_status with
-    | Created => | Recovered => | SociallyRecovered => | Updated =>
-    | _ => err = CodeWrongStatus; ThrowError err end;
+    | Created => | Recovered => | Updated =>
+    | _ => e = { _exception : "DIDxWallet-WrongStatus" }; throw e end;
   VerifyController tyron; length = let list_length = @list_length ByStr32 in list_length guardians;
   is_ok = uint32_ge length three; match is_ok with
-    | False => err = CodeNotValid; ThrowError err
+    | False => e = { _exception : "DIDxWallet-InsufficientAmount" }; throw e
     | True =>
       did_hash := zeroByStr; forall guardians ConcatGuardians;
       ghash <- did_hash; VerifySignature update ghash sig;
@@ -538,17 +359,17 @@ transition ConfigureSocialRecovery(
   Timestamp end
 
 transition Lock(
-  signature: ByStr64,
+  sig: ByStr64,
   tyron: Option Uint128
   )
   IsOperational; min <- counter;
   is_ok = uint32_ge min three; match is_ok with
-    | False => err = CodeNotValid; ThrowError err
+    | False => e = { _exception : "DIDxWallet-InsufficientAmount" }; throw e
     | True =>
       this_did <- did; hash = let h = builtin sha256hash this_did in builtin to_bystr h;
-      get_didkey <- verification_methods[didsr]; did_key = option_bystr33_value get_didkey;
-      is_right_signature = builtin schnorr_verify did_key hash signature; match is_right_signature with
-        | False => err = CodeWrongSignature; ThrowError err
+      get_didkey <- verification_methods[recovery]; did_key = option_bystr33_value get_didkey;
+      is_right_signature = builtin schnorr_verify did_key hash sig; match is_right_signature with
+        | False => e = { _exception : "DIDxWallet-WrongSignature" }; throw e
         | True => SupportTyron tyron; locked = Locked; did_status := locked end end;
   Timestamp end
 
@@ -556,17 +377,16 @@ procedure VerifySocialRecovery( proof: Pair String ByStr64 )
   guardian_name = let fst_element = @fst String ByStr64 in fst_element proof; hash = builtin sha256hash guardian_name;
   guardian_sig = let snd_element = @snd String ByStr64 in snd_element proof;
   is_valid <- exists social_guardians[hash]; match is_valid with
-    | False => err = CodeWrongCaller; ThrowError err
+    | False => e = { _exception : "DIDxWallet-WrongCaller" }; throw e
     | True =>
       current_init <-& init.dApp;
       get_did <-& current_init.did_dns[guardian_name]; match get_did with
-        | None => err = CodeNotValid; ThrowError err
+        | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
         | Some did_ =>
-          get_did_key <-& did_.verification_methods[didsr]; did_key = option_bystr33_value get_did_key; signed_data <- signed_addr;
+          get_did_key <-& did_.verification_methods[recovery]; did_key = option_bystr33_value get_did_key; signed_data <- signed_addr;
           is_right_signature = builtin schnorr_verify did_key signed_data guardian_sig; match is_right_signature with
             | False => | True => 
-              counter_ <- counter;
-              add_ = builtin add counter_ one; counter := add_ end end end end
+              counter_ <- counter; add_ = builtin add counter_ one; counter := add_ end end end end
 
 transition SocialRecovery( 
   addr: ByStr20,
@@ -574,24 +394,84 @@ transition SocialRecovery(
   tyron: Option Uint128
   )
   current_status <- did_status; match current_status with
-  | Deactivated => err = CodeWrongStatus; ThrowError err
+  | Deactivated => e = { _exception : "DIDxWallet-WrongStatus" }; throw e
   | _ => end;
   current_controller <- controller; ThrowIfSameAddr current_controller addr;
   signed_data = builtin to_bystr addr; signed_addr := signed_data;
   sig = let list_length = @list_length( Pair String ByStr64 ) in list_length signatures;
   min <- counter; is_ok = uint32_ge sig min;
   match is_ok with
-  | False => err = CodeNotValid; ThrowError err
+  | False => e = { _exception : "DIDxWallet-InsufficientAmount" }; throw e
   | True =>
     counter := zero_;
     forall signatures VerifySocialRecovery;
     counter_ <- counter; is_ok_ = uint32_ge counter_ min;
     match is_ok_ with
-    | False => err = CodeWrongSignature; ThrowError err
+    | False => e = { _exception : "DIDxWallet-WrongSignature" }; throw e
     | True =>
       SupportTyron tyron; controller := addr;
-      new_status = SociallyRecovered; did_status := new_status end end;
+      verification_methods := empty_methods; dkms := empty_dkms;
+      services := empty_services; services_ := empty_services_;
+      new_status = Recovered; did_status := new_status end end;
   Timestamp end
+
+transition DidRecover(
+  document: List Document,
+  signature: Option ByStr64,
+  tyron: Option Uint128
+  )
+  current_status <- did_status; match current_status with
+    | Recovered =>
+      VerifyController tyron;
+      forall document UpdateDocument;
+      get_did_update <- verification_methods[update]; ThrowIfNoKey get_did_update
+    | _ => e = { _exception : "DIDxWallet-WrongStatus" }; throw e end;
+  new_status = Recovered; did_status := new_status;
+  Timestamp end
+
+transition DidUpdate(
+  document: List Document,
+  signature: Option ByStr64,
+  tyron: Option Uint128
+  )
+  current_status <- did_status; match current_status with
+    | Created => | Recovered => | Updated =>
+    | _ => e = { _exception : "DIDxWallet-WrongStatus" }; throw e end;
+  VerifyController tyron;
+  get_update_key <- verification_methods[update]; did_update = option_bystr33_value get_update_key;
+  VerifyDocument document signature;
+  VerifyUpdateKey did_update;
+  new_status = Updated; did_status := new_status;
+  Timestamp end
+
+transition DidDeactivate(
+  document: List Document,
+  signature: Option ByStr64,
+  tyron: Option Uint128
+  ) 
+  IsOperational; VerifyController tyron;
+  VerifyDocument document signature;
+  verification_methods := empty_methods; dkms := empty_dkms;
+  services := empty_services; services_ := empty_services_;
+  new_status = Deactivated; did_status := new_status;
+  Timestamp end
+
+transition Dns(
+  addr: ByStr20,
+  domain: String,
+  didKey: ByStr33,
+  encrypted: String,
+  tyron: Option Uint128
+  )
+  current_status <- did_status; match current_status with
+    | Created => | Recovered => | Updated =>
+    | _ => e = { _exception : "DIDxWallet-WrongStatus" }; throw e end;
+  VerifyController tyron; ThrowIfSameAddr _this_address addr;
+  verification_methods[domain] := didKey; dkms[domain] := encrypted; did_domain_dns[domain] := addr; 
+  new_status = Updated; did_status := new_status;
+  Timestamp end
+
+(* Wallet backbone *)
 
 transition UpdateDeadline(
   val: Uint128,
@@ -603,7 +483,7 @@ transition UpdateDeadline(
 procedure FetchServiceAddr( id: String )
   current_init <-& init.dApp; initDApp = "init";
   get_did <-& current_init.did_dns[initDApp]; match get_did with
-    | None => err = CodeIsNull; ThrowError err
+    | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
     | Some did_ =>
       get_service <-& did_.services[id]; addr = option_bystr20_value get_service;
       services[id] := addr end end
@@ -733,7 +613,7 @@ transition SendFunds(
         msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
       | False =>
         get_did <-& current_init.did_dns[username_]; match get_did with
-          | None => err = CodeIsNull; ThrowError err
+          | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
           | Some did_ =>
             get_domain_addr <-& did_.did_domain_dns[domain_]; domain_addr = option_bystr20_value get_domain_addr;
             msg = let m = { _tag: tag; _recipient: domain_addr; _amount: amount } in one_msg m; send msg end end
@@ -761,7 +641,7 @@ transition Transfer(
           amount: amount } in one_msg m ; send msg
       | False =>
         get_did <-& current_init.did_dns[username_]; match get_did with
-          | None => err = CodeIsNull; ThrowError err
+          | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
           | Some did_ =>
             get_domain_addr <-& did_.did_domain_dns[domain_]; domain_addr = option_bystr20_value get_domain_addr;
             msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
@@ -807,10 +687,10 @@ transition Upgrade(
   match username with
   | None => | Some username_ =>
     match id with
-    | None => err = CodeIsNull; ThrowError err
+    | None => e = { _exception : "DIDxWallet-IdIsNull" }; throw e
     | Some id_ =>
       match dID with
-      | None => err = CodeNotValid; ThrowError err
+      | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
       | Some dID_ =>
         current_init <-& init.dApp;
         is_free = builtin eq id_ free; match is_free with
