@@ -24,16 +24,6 @@ library Donate
     fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
-  type Error =
-    | CodeWrongCaller
-    | CodeIsInsufficient
- 
-  let make_error = fun( error: Error ) =>
-    let result = match error with
-    | CodeWrongCaller            => Int32 -1
-    | CodeIsInsufficient         => Int32 -2
-    end in { _exception: "Error"; code: result }
-  
   let zero = Uint128 0
   let zeroByStr20 = 0x0000000000000000000000000000000000000000
   
@@ -57,17 +47,15 @@ library Donate
 
 contract DonateDApp(
   init: ByStr20 with contract field dApp: ByStr20 with contract
-    field dns: Map String ByStr20 end end
+    field dns: Map String ByStr20 end end,
+  xpoints_init: Map ByStr20 Uint128
   )
   field version: String = "donate--1.5.0"
-  field xpoints: Map ByStr20 Uint128 = Emp ByStr20 Uint128
+  field xpoints: Map ByStr20 Uint128 = xpoints_init
   field donations: Map String Uint128 = Emp String Uint128
   field ledger_time: BNum = BNum 0
   field tx_number: Uint128 = zero
 
-procedure ThrowError( err: Error )
-  e = make_error err; throw e end
-  
 procedure Timestamp()
   current_block <- &BLOCKNUMBER; ledger_time := current_block;
   latest_tx_number <- tx_number;
@@ -92,7 +80,7 @@ procedure IsSufficient(
   amount: Uint128
   )
   is_sufficient = uint128_ge value amount; match is_sufficient with
-  | True => | False => err = CodeIsInsufficient; ThrowError err end end
+  | True => | False => e = { _exception : "donate.tyron-InsufficientBalance" }; throw e end end
 
 transition Withdrawal( amount: Uint128 )
   current_init <-& init.dApp;
@@ -119,12 +107,12 @@ transition Withdrawal( amount: Uint128 )
         IsSufficient balance amount;
         msg = let m = { _tag: "AddFunds"; _recipient: coop_addr; _amount: amount } in one_msg m; send msg;
         new_bal = builtin sub balance amount; donations[coop] := new_bal
-      | False => err = CodeWrongCaller; ThrowError err end end end end
+      | False => e = { _exception : "donate.tyron-WrongCaller" }; throw e end end end end
 
 transition XPoints( amount: Uint128 )
   current_init <-& init.dApp;
   xPointsDApp = "xpoints"; get_addr <-& current_init.dns[xPointsDApp]; addr = option_bystr20_value get_addr;
   is_xPoints = builtin eq _sender addr; match is_xPoints with
-  | True => | False => err = CodeWrongCaller; ThrowError err end;
+  | True => | False => e = { _exception : "donate.tyron-WrongCaller" }; throw e end;
   get_xPoints <- xpoints[_origin]; x_points = option_uint128_value get_xPoints; IsSufficient x_points amount;
-  new_bal = builtin sub x_points amount; xpoints[_origin] := new_bal end
+  new_bal = builtin sub x_points amount; xpoints[_origin] := new_bal end`

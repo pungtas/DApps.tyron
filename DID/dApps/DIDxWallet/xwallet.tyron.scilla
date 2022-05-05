@@ -1,4 +1,4 @@
-(* v5.4.0
+(* v5.5.0
 xwallet.tyron: W3C Decentralized Identifier Smart Contract Wallet <> DIDxWallet DApp
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -109,7 +109,7 @@ contract DIDxWallet(
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
   field did_status: DidStatus = Created
-  field version: String = "xwallet-5.4.0" (* @todo *)
+  field version: String = "xwallet-5.5.0" (* @todo *)
   
   (* Verification methods @key: key purpose @value: public DID key *)
   field verification_methods: Map String ByStr33 = did_methods
@@ -199,8 +199,8 @@ transition UpdateUsername(
   current_username <- nft_username; ThrowIfSameName current_username username;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[username]; match get_did with
-    | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
-    | Some did_ => pending_username := username end;
+    | Some did_ => pending_username := username
+    | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e end;
   Timestamp end
 
 transition AcceptPendingUsername()
@@ -225,16 +225,102 @@ procedure VerifySignature(
   is_right_signature = builtin schnorr_verify did_key signedData signature; match is_right_signature with
     | True => | False => e = { _exception : "DIDxWallet-WrongSignature" }; throw e end end
 
+procedure ConcatGuardians( id: ByStr32 )
+  ghash <- did_hash; ghash_ = let h = builtin to_bystr id in builtin concat ghash h;
+  did_hash := ghash_ end
+
+procedure SaveGuardians( id: ByStr32 )
+  repeated <- exists social_guardians[id]; match repeated with
+    | True => e = { _exception : "DIDxWallet-SameGuardianId" }; throw e
+    | False => true = True; social_guardians[id] := true end end
+
+transition ConfigureSocialRecovery(
+  guardians: List ByStr32,
+  sig: ByStr64,
+  tyron: Option Uint128
+  )
+  current_status <- did_status; match current_status with
+    | Created => | Recovered => | Updated =>
+    | _ => e = { _exception : "DIDxWallet-WrongStatus" }; throw e end;
+  VerifyController tyron; length = let list_length = @list_length ByStr32 in list_length guardians;
+  is_ok = uint32_ge length three; match is_ok with
+    | False => e = { _exception : "DIDxWallet-InsufficientAmount" }; throw e
+    | True =>
+      forall guardians ConcatGuardians;
+      ghash <- did_hash; VerifySignature update ghash sig;
+      social_guardians := empty_guardians; forall guardians SaveGuardians;
+      is_three = builtin eq length three;
+      min = match is_three with
+        | True => three
+        | False => let div_ = builtin div length two in builtin add div_ one end;
+      counter := min; did_hash := zeroByStr end;
+  Timestamp end
+
+transition Lock(
+  sig: ByStr64,
+  tyron: Option Uint128
+  )
+  IsOperational; min <- counter;
+  is_ok = uint32_ge min three; match is_ok with
+    | False => e = { _exception : "DIDxWallet-InsufficientAmount" }; throw e
+    | True =>
+      this_did <- did; hash = let h = builtin sha256hash this_did in builtin to_bystr h;
+      get_didkey <- verification_methods[recovery]; did_key = option_bystr33_value get_didkey;
+      is_right_signature = builtin schnorr_verify did_key hash sig; match is_right_signature with
+        | False => e = { _exception : "DIDxWallet-WrongSignature" }; throw e
+        | True => SupportTyron tyron; locked = Locked; did_status := locked end end;
+  Timestamp end
+
+procedure VerifySocialRecovery( proof: Pair String ByStr64 )
+  guardian_name = let fst_element = @fst String ByStr64 in fst_element proof; hash = builtin sha256hash guardian_name;
+  guardian_sig = let snd_element = @snd String ByStr64 in snd_element proof;
+  is_valid <- exists social_guardians[hash]; match is_valid with
+    | False => e = { _exception : "DIDxWallet-WrongCaller" }; throw e
+    | True =>
+      current_init <-& init.dApp;
+      get_did <-& current_init.did_dns[guardian_name]; match get_did with
+        | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
+        | Some did_ =>
+          get_did_key <-& did_.verification_methods[recovery]; did_key = option_bystr33_value get_did_key; signed_data <- signed_addr;
+          is_right_signature = builtin schnorr_verify did_key signed_data guardian_sig; match is_right_signature with
+            | False => | True => 
+              counter_ <- counter; add_ = builtin add counter_ one; counter := add_ end end end end
+
+transition DidSocialRecovery( 
+  addr: ByStr20,
+  signatures: List( Pair String ByStr64 ),
+  tyron: Option Uint128
+  )
+  current_status <- did_status; match current_status with
+  | Deactivated => e = { _exception : "DIDxWallet-WrongStatus" }; throw e
+  | _ => end;
+  current_controller <- controller; ThrowIfSameAddr current_controller addr;
+  signed_data = builtin to_bystr addr; signed_addr := signed_data;
+  sig = let list_length = @list_length( Pair String ByStr64 ) in list_length signatures;
+  min <- counter; is_ok = uint32_ge sig min;
+  match is_ok with
+  | False => e = { _exception : "DIDxWallet-InsufficientAmount" }; throw e
+  | True =>
+    counter := zero_;
+    forall signatures VerifySocialRecovery;
+    counter_ <- counter; is_ok_ = uint32_ge counter_ min; match is_ok_ with
+      | False => e = { _exception : "DIDxWallet-WrongSignature" }; throw e
+      | True =>
+        SupportTyron tyron; controller := addr;
+        social_guardians := empty_guardians;
+        verification_methods := empty_methods; dkms := empty_dkms;
+        services := empty_services; services_ := empty_services_ end end;
+  new_status = Recovered; did_status := new_status;
+  Timestamp end
+
 procedure ThrowIfNoKey( optKey: Option ByStr33 )
   match optKey with
-  | Some key =>
-  | None => e = { _exception : "DIDxWallet-UndefinedKey" }; throw e end end
+  | Some key => | None => e = { _exception : "DIDxWallet-UndefinedKey" }; throw e end end
 
 procedure VerifyUpdateKey( didUpdate: ByStr33 )
   get_update_key <- verification_methods[update]; new_update = option_bystr33_value get_update_key;
   is_same_key = builtin eq didUpdate new_update; match is_same_key with
-  | True => e = { _exception : "DIDxWallet-SameKey" }; throw e
-  | False => end end
+    | False => | True => e = { _exception : "DIDxWallet-SameKey" }; throw e end end
 
 procedure HashDocument( document: Document )
   doc_hash <- did_hash;
@@ -321,126 +407,29 @@ procedure VerifyDocument(
   document: List Document,
   signature: Option ByStr64
   )
-  did_hash := zeroByStr;
   forall document HashDocument; doc_hash <- did_hash;
   sig = option_bystr64_value signature;
   VerifySignature update doc_hash sig;
-  forall document UpdateDocument end
-
-procedure ConcatGuardians( id: ByStr32 )
-  ghash <- did_hash; ghash_ = let h = builtin to_bystr id in builtin concat ghash h;
-  did_hash := ghash_ end
-
-procedure SaveGuardians( id: ByStr32 )
-  repeated <- exists social_guardians[id]; match repeated with
-    | True => e = { _exception : "DIDxWallet-SameGuardianId" }; throw e
-    | False => true = True; social_guardians[id] := true end end
-
-transition ConfigureSocialRecovery(
-  guardians: List ByStr32,
-  sig: ByStr64,
-  tyron: Option Uint128
-  )
-  current_status <- did_status; match current_status with
-    | Created => | Recovered => | Updated =>
-    | _ => e = { _exception : "DIDxWallet-WrongStatus" }; throw e end;
-  VerifyController tyron; length = let list_length = @list_length ByStr32 in list_length guardians;
-  is_ok = uint32_ge length three; match is_ok with
-    | False => e = { _exception : "DIDxWallet-InsufficientAmount" }; throw e
-    | True =>
-      did_hash := zeroByStr; forall guardians ConcatGuardians;
-      ghash <- did_hash; VerifySignature update ghash sig;
-      social_guardians := empty_guardians; forall guardians SaveGuardians;
-      is_three = builtin eq length three;
-      min = match is_three with
-        | True => three
-        | False => let div_ = builtin div length two in builtin add div_ one end;
-      counter := min end;
-  Timestamp end
-
-transition Lock(
-  sig: ByStr64,
-  tyron: Option Uint128
-  )
-  IsOperational; min <- counter;
-  is_ok = uint32_ge min three; match is_ok with
-    | False => e = { _exception : "DIDxWallet-InsufficientAmount" }; throw e
-    | True =>
-      this_did <- did; hash = let h = builtin sha256hash this_did in builtin to_bystr h;
-      get_didkey <- verification_methods[recovery]; did_key = option_bystr33_value get_didkey;
-      is_right_signature = builtin schnorr_verify did_key hash sig; match is_right_signature with
-        | False => e = { _exception : "DIDxWallet-WrongSignature" }; throw e
-        | True => SupportTyron tyron; locked = Locked; did_status := locked end end;
-  Timestamp end
-
-procedure VerifySocialRecovery( proof: Pair String ByStr64 )
-  guardian_name = let fst_element = @fst String ByStr64 in fst_element proof; hash = builtin sha256hash guardian_name;
-  guardian_sig = let snd_element = @snd String ByStr64 in snd_element proof;
-  is_valid <- exists social_guardians[hash]; match is_valid with
-    | False => e = { _exception : "DIDxWallet-WrongCaller" }; throw e
-    | True =>
-      current_init <-& init.dApp;
-      get_did <-& current_init.did_dns[guardian_name]; match get_did with
-        | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
-        | Some did_ =>
-          get_did_key <-& did_.verification_methods[recovery]; did_key = option_bystr33_value get_did_key; signed_data <- signed_addr;
-          is_right_signature = builtin schnorr_verify did_key signed_data guardian_sig; match is_right_signature with
-            | False => | True => 
-              counter_ <- counter; add_ = builtin add counter_ one; counter := add_ end end end end
-
-transition SocialRecovery( 
-  addr: ByStr20,
-  signatures: List( Pair String ByStr64 ),
-  tyron: Option Uint128
-  )
-  current_status <- did_status; match current_status with
-  | Deactivated => e = { _exception : "DIDxWallet-WrongStatus" }; throw e
-  | _ => end;
-  current_controller <- controller; ThrowIfSameAddr current_controller addr;
-  signed_data = builtin to_bystr addr; signed_addr := signed_data;
-  sig = let list_length = @list_length( Pair String ByStr64 ) in list_length signatures;
-  min <- counter; is_ok = uint32_ge sig min;
-  match is_ok with
-  | False => e = { _exception : "DIDxWallet-InsufficientAmount" }; throw e
-  | True =>
-    counter := zero_;
-    forall signatures VerifySocialRecovery;
-    counter_ <- counter; is_ok_ = uint32_ge counter_ min;
-    match is_ok_ with
-    | False => e = { _exception : "DIDxWallet-WrongSignature" }; throw e
-    | True =>
-      SupportTyron tyron; controller := addr;
-      verification_methods := empty_methods; dkms := empty_dkms;
-      services := empty_services; services_ := empty_services_;
-      new_status = Recovered; did_status := new_status end end;
-  Timestamp end
-
-transition DidRecover(
-  document: List Document,
-  signature: Option ByStr64,
-  tyron: Option Uint128
-  )
-  current_status <- did_status; match current_status with
-    | Recovered =>
-      VerifyController tyron;
-      forall document UpdateDocument;
-      get_did_update <- verification_methods[update]; ThrowIfNoKey get_did_update
-    | _ => e = { _exception : "DIDxWallet-WrongStatus" }; throw e end;
-  new_status = Recovered; did_status := new_status;
-  Timestamp end
+  forall document UpdateDocument;
+  did_hash := zeroByStr end
 
 transition DidUpdate(
   document: List Document,
   signature: Option ByStr64,
   tyron: Option Uint128
   )
-  current_status <- did_status; match current_status with
-    | Created => | Recovered => | Updated =>
-    | _ => e = { _exception : "DIDxWallet-WrongStatus" }; throw e end;
   VerifyController tyron;
-  get_update_key <- verification_methods[update]; did_update = option_bystr33_value get_update_key;
-  VerifyDocument document signature;
-  VerifyUpdateKey did_update;
+  current_status <- did_status; match current_status with
+    | Created =>
+      get_update_key <- verification_methods[update]; did_update = option_bystr33_value get_update_key;
+      VerifyDocument document signature; VerifyUpdateKey did_update
+    | Updated =>
+      get_update_key <- verification_methods[update]; did_update = option_bystr33_value get_update_key;
+      VerifyDocument document signature; VerifyUpdateKey did_update
+    | Recovered =>
+      forall document UpdateDocument;
+      get_did_update <- verification_methods[update]; ThrowIfNoKey get_did_update
+    | _ => e = { _exception : "DIDxWallet-WrongStatus" }; throw e end;
   new_status = Updated; did_status := new_status;
   Timestamp end
 
@@ -451,8 +440,9 @@ transition DidDeactivate(
   ) 
   IsOperational; VerifyController tyron;
   VerifyDocument document signature;
+  did := null; controller := zeroByStr20; deadline := zero;
   verification_methods := empty_methods; dkms := empty_dkms;
-  services := empty_services; services_ := empty_services_;
+  services := empty_services; services_ := empty_services_; social_guardians := empty_guardians;
   new_status = Deactivated; did_status := new_status;
   Timestamp end
 

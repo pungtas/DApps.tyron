@@ -1,4 +1,4 @@
-(* v3.4.0
+(* v3.5.0
 init.tyron: SSI Initialization & DNS DApp <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -21,20 +21,6 @@ library Init
     fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
-  type Error =
-    | CodeWrongStatus
-    | CodeWrongCaller
-    | CodeIsNull
-    | CodeSameAddress
-
-  let make_error = fun( error: Error ) =>
-    let result = match error with
-      | CodeWrongStatus            => Int32 0
-      | CodeWrongCaller            => Int32 -1
-      | CodeIsNull                 => Int32 -2
-      | CodeSameAddress            => Int32 -3
-    end in { _exception: "Error"; code: result }
-  
   type Caller =
     | Controller
     | Implementation
@@ -42,7 +28,7 @@ library Init
   let controller_ = Controller
   let implementation_ = Implementation
   let donateDApp = "donate"
-  let donateAddr = 0x38e7670000523e81eebac1f0912b280f968e5fb0
+  let donateAddr = 0xc88ab766cdbe10e5961026633ad67c57f2e4aaf1   (* @todo *)
 
 contract Init(
   name: String,
@@ -90,34 +76,31 @@ contract Init(
     field did_domain_dns: Map String ByStr20,
     field deadline: Uint128 end = let map = builtin put initDidDns name nameDid in builtin put map donateDApp nameDid
 
-  field version: String = "init----3.4.0" (* @todo *)
-
-procedure ThrowError( err: Error )
-  e = make_error err; throw e end
+  field version: String = "init----3.5.0" (* @todo *)
 
 procedure VerifyCaller( caller: Caller )
   current_impl <- implementation;
   is_paused <-& current_impl.paused; match is_paused with
-  | False => | True => err = CodeWrongStatus; ThrowError err end;
+  | False => | True => e = { _exception : "init.tyron-WrongStatus" }; throw e end;
   match caller with
   | Controller =>
       current_username <-& current_impl.nft_username;
       get_did <- did_dns[current_username]; match get_did with
-      | None => err = CodeIsNull; ThrowError err
+      | None => e = { _exception : "init.tyron-DidIsNull" }; throw e
       | Some did_ =>
           current_controller <-& did_.controller;
           verified = builtin eq _origin current_controller; match verified with
-          | True => | False => err = CodeWrongCaller; ThrowError err end end
+          | True => | False => e = { _exception : "init.tyron-WrongCaller/Controller" }; throw e end end
   | Implementation =>
       verified = builtin eq _sender current_impl; match verified with
-      | True => | False => err = CodeWrongCaller; ThrowError err end end end
+      | True => | False => e = { _exception : "init.tyron-WrongCaller/Implementation" }; throw e end end end
 
 procedure ThrowIfSameAddr(
   a: ByStr20,
   b: ByStr20
   )
   is_self = builtin eq a b; match is_self with
-  | False => | True => err = CodeSameAddress; ThrowError err end end
+  | False => | True => e = { _exception : "init.tyron-SameAddress" }; throw e end end
 
 transition UpdateImplementation(
   addr: ByStr20 with contract

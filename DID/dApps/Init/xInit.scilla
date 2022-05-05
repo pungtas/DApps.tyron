@@ -1,4 +1,4 @@
-(* v1.1.0
+(* v1.2.0
 xInit DApp
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -19,20 +19,6 @@ scilla_version 0
 library XInit
   let one_msg = fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
-
-  type Error =
-    | CodeWrongCaller
-    | CodeSameAddress
-    | CodeSameUsername
-    | CodeIsNull
-    
-  let make_error = fun( error: Error ) =>
-    let result = match error with
-    | CodeWrongCaller            => Int32 -1
-    | CodeSameAddress            => Int32 -2
-    | CodeSameUsername           => Int32 -3
-    | CodeIsNull                 => Int32 -4
-    end in { _exception: "Error"; code: result }
 
 let zeroByStr20 = 0x0000000000000000000000000000000000000000
 
@@ -80,41 +66,38 @@ contract XInit(
       field social_guardians: Map ByStr32 Bool,
       field did_domain_dns: Map String ByStr20 end end = init
 
-procedure ThrowError( err: Error )
-  e = make_error err; throw e end
-
 procedure VerifyController()
   current_username <- nft_username; current_dApp <- dApp;
   get_did <-& current_dApp.did_dns[current_username]; match get_did with
-  | None => err = CodeIsNull; ThrowError err
+  | None => e = { _exception : "xInit-DidIsNull" }; throw e
   | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
-      | True => | False => err = CodeWrongCaller; ThrowError err end end end
+      | True => | False => e = { _exception : "xInit-WrongCaller" }; throw e end end end
 
 procedure ThrowIfSameName(
   a: String,
   b: String
   )
   is_same = builtin eq a b; match is_same with
-  | False => | True => err = CodeSameUsername; ThrowError err end end
+  | False => | True => e = { _exception : "xInit-SameUsername" }; throw e end end
 
 transition UpdateUsername( username: String )
   VerifyController;
   current_username <- nft_username; ThrowIfSameName current_username username;
   current_dApp <- dApp;
   get_did <-& current_dApp.did_dns[username]; match get_did with
-  | None => err = CodeIsNull; ThrowError err
+  | None => e = { _exception : "xInit-DidIsNull" }; throw e
   | Some did_ => pending_username := username end end
 
 transition AcceptPendingUsername()
   current_pending <- pending_username; current_dApp <- dApp;
   get_did <-& current_dApp.did_dns[current_pending]; match get_did with
-  | None => err = CodeIsNull; ThrowError err
+  | None => e = { _exception : "xInit-DidIsNull" }; throw e
   | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
-      | True => | False => err = CodeWrongCaller; ThrowError err end;
+      | True => | False => e = { _exception : "xInit-WrongCaller" }; throw e end;
       nft_username := current_pending; pending_username := null end end
 
 procedure ThrowIfSameAddr(
@@ -122,7 +105,7 @@ procedure ThrowIfSameAddr(
   b: ByStr20
   )
   is_same = builtin eq a b; match is_same with
-  | False => | True => err = CodeSameAddress; ThrowError err end end
+  | False => | True => e = { _exception : "xInit-SameAddress" }; throw e end end
 
 transition UpdateDApp(
   addr: ByStr20 with contract
