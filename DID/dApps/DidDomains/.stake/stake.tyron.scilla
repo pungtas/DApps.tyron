@@ -1,0 +1,282 @@
+(* v0.5.0
+stake.tyron: Staking DID Domain DApp <> NFT Username DNS
+Self-Sovereign Identity Protocol
+Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
+tyron.network
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.*)
+
+scilla_version 0
+
+import PairUtils BoolUtils
+
+library Stake
+   let one_msg =
+    fun( msg: Message ) =>
+    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+  
+  let zero = Uint128 0
+  let zeroByStr20 = 0x0000000000000000000000000000000000000000
+  let zeroByStr64 = 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+  
+  let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
+    match input with
+    | Some v => v
+    | None => default end
+  let option_uint128_value = let f = @option_value Uint128 in f zero
+  let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
+  let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
+ 
+  let true = True
+  let false = False
+  let null = ""
+  let did = "did"
+
+  type Beneficiary =
+    | NftUsername of String String (* username & domain *)
+    | Recipient of ByStr20
+
+contract DidDomain(
+  init_usernameHash: ByStr,
+  init: ByStr20 with contract field dApp: ByStr20 with contract
+    field dns: Map String ByStr20,
+    field did_dns: Map String ByStr20 with contract
+      field controller: ByStr20,
+      field services: Map String ByStr20,
+      field deadline: Uint128,
+      field did_domain_dns: Map String ByStr20 end end end
+  )
+  field username_hash: ByStr = init_usernameHash
+  field paused: Bool = false
+
+  (* A monotonically increasing number representing the amount of transactions that have taken place *)
+  field tx_number: Uint128 = zero
+  field services: Map String ByStr20 = Emp String ByStr20
+
+procedure SupportTyron( tyron: Option Uint128 )
+  match tyron with
+  | None => | Some donation =>
+      current_init <-& init.dApp; donateDApp = "donate";
+      get_addr <-& current_init.dns[donateDApp]; addr = option_bystr20_value get_addr;
+      accept; msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: donation } in one_msg m; send msg end end
+
+procedure VerifyController(
+  username: String,
+  tyron: Option Uint128
+  )
+  usernameHash = builtin sha256hash username; usernameHash_ = builtin to_bystr usernameHash;
+  current_usernameHash <- username_hash;
+  verified_name = builtin eq usernameHash_ current_usernameHash; match verified_name with
+  | True => | False => e = { _exception : ".stake-WrongUsername" }; throw e end;
+  current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[username]; match get_did with
+  | None => e = { _exception : ".stake-DidIsNull" }; throw e
+  | Some did_ =>
+      current_controller <-& did_.controller;
+      verified = builtin eq _origin current_controller; match verified with
+      | True => | False => e = { _exception : ".stake-WrongCaller" }; throw e end end end
+
+procedure Timestamp()
+  latest_tx_number <- tx_number; new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor;
+  tx_number := new_tx_number end
+
+procedure IsNotPaused()
+  is_paused <- paused; match is_paused with
+    | False => | True => e = { _exception : ".stake-WrongStatus" }; throw e end end
+  
+procedure IsPaused()
+  is_paused <- paused; match is_paused with
+    | True => | False => e = { _exception : ".stake-WrongStatus" }; throw e end end
+  
+transition Pause(
+  username: String,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron; paused := true;
+  e = { _eventname: "DidDomainPaused";
+    pauser: _sender }; event e;
+  Timestamp end
+
+transition Unpause(
+  username: String,
+  tyron: Option Uint128
+  )
+  IsPaused; VerifyController username tyron; paused := false;
+  e = { _eventname: "DidDomainUnpaused";
+    pauser: _sender }; event e;
+  Timestamp end
+
+(* Receive $ZIL native funds *)
+transition AddFunds()
+  IsNotPaused; accept; Timestamp end
+
+(* Send $ZIL to any recipient that implements the tag, e.g. "AddFunds", "", etc. *)
+transition SendFunds(
+  username: String,
+  tag: String,
+  beneficiary: Beneficiary,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  match beneficiary with
+  | NftUsername username_ domain_ =>
+    current_init <-& init.dApp;
+    is_null = builtin eq domain_ null; match is_null with
+      | True =>
+        get_addr <-& current_init.dns[username_]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
+        msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
+      | False =>
+        get_did <-& current_init.did_dns[username_]; match get_did with
+          | None => e = { _exception : ".stake-DidIsNull" }; throw e
+          | Some did_ =>
+            is_did = builtin eq domain_ did; match is_did with
+              | True => msg = let m = { _tag: tag; _recipient: did_; _amount: amount } in one_msg m; send msg
+              | False =>
+                get_domain_addr <-& did_.did_domain_dns[domain_]; domain_addr = option_bystr20_value get_domain_addr;
+                msg = let m = { _tag: tag; _recipient: domain_addr; _amount: amount } in one_msg m; send msg end end end
+  | Recipient addr_ =>
+    ThrowIfSameAddr _this_address addr_;
+    msg = let m = { _tag: tag; _recipient: addr_; _amount: amount } in one_msg m; send msg end;
+  Timestamp end
+
+procedure FetchServiceAddr( id: String )
+  current_init <-& init.dApp; initDApp = "init";
+  get_did <-& current_init.did_dns[initDApp]; match get_did with
+    | None => e = { _exception : ".stake-DidIsNull" }; throw e
+    | Some did_ =>
+      get_service <-& did_.services[id]; addr = option_bystr20_value get_service;
+      services[id] := addr end end
+
+transition DelegateStake(
+  username: String,
+  stakeID: String,
+  ssnID: String,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
+  FetchServiceAddr ssnID; get_ssnaddr <- services[ssnID]; ssnaddr = option_bystr20_value get_ssnaddr;
+  accept; msg = let m = { _tag: "DelegateStake"; _recipient: addr; _amount: _amount;
+    ssnaddr: ssnaddr } in one_msg m; send msg end
+
+transition DelegateStakeSuccessCallBack( ssnaddr: ByStr20, amount: Uint128 ) IsNotPaused end
+
+transition WithdrawStakeRewards(
+  username: String,
+  stakeID: String,
+  ssnID: String,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
+  FetchServiceAddr ssnID; get_ssnaddr <- services[ssnID]; ssnaddr = option_bystr20_value get_ssnaddr;
+  msg = let m = { _tag: "WithdrawStakeRewards"; _recipient: addr; _amount: zero;
+    ssnaddr: ssnaddr } in one_msg m; send msg end
+
+transition WithdrawStakeRewardsSuccessCallBack( ssnaddr: ByStr20, rewards: Uint128 ) IsNotPaused end  
+
+transition WithdrawStakeAmt(
+  username: String,
+  stakeID: String,
+  ssnID: String,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
+  FetchServiceAddr ssnID; get_ssnaddr <- services[ssnID]; ssnaddr = option_bystr20_value get_ssnaddr;
+  msg = let m = { _tag: "WithdrawStakeAmt"; _recipient: addr; _amount: zero;
+    ssnaddr: ssnaddr;
+    amt: amount } in one_msg m; send msg end
+
+transition WithdrawStakeAmtSuccessCallBack( ssnaddr: ByStr20, amount: Uint128 ) IsNotPaused end
+
+transition CompleteWithdrawal(
+  username: String,
+  stakeID: String,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  order = Stake txID signature stakeID stakeID stakeID zero zeroByStr20 tyron; VerifyDelegation order;
+  FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
+  accept; msg = let m = { _tag: "CompleteWithdrawal"; _recipient: addr; _amount: zero } in one_msg m; send msg end
+
+transition CompleteWithdrawalNoUnbondedStakeCallBack( amount: Uint128 ) IsNotPaused end
+
+transition CompleteWithdrawalSuccessCallBack( amount: Uint128 ) IsNotPaused end
+
+transition ReDelegateStake(
+  username: String,
+  stakeID: String,
+  ssnID: String,
+  tossnID: String,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
+  FetchServiceAddr ssnID; get_ssnaddr <- services[ssnID]; ssnaddr = option_bystr20_value get_ssnaddr;
+  FetchServiceAddr tossnID; get_tossnaddr <- services[ssnID]; to_ssnaddr = option_bystr20_value get_tossnaddr;
+  msg = let m = { _tag: "ReDelegateStake"; _recipient: addr; _amount: zero;
+    ssnaddr: ssnaddr;
+    to_ssn: to_ssnaddr;
+    amount: amount } in one_msg m; send msg end
+
+transition ReDelegateStakeSuccessCallBack( ssnaddr: ByStr20, tossn: ByStr20, amount: Uint128 ) IsNotPaused end
+
+transition RequestDelegatorSwap(
+  username: String,
+  stakeID: String,
+  ssnID: String,
+  tossnID: String,
+  amount: Uint128,
+  address: ByStr20,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "RequestDelegatorSwap"; _recipient: addr; _amount: zero;
+    new_deleg_addr: address } in one_msg m; send msg end
+
+transition ConfirmDelegatorSwap(
+  username: String,
+  stakeID: String,
+  ssnID: String,
+  tossnID: String,
+  amount: Uint128,
+  address: ByStr20,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "ConfirmDelegatorSwap"; _recipient: addr; _amount: zero;
+    requestor: address } in one_msg m; send msg end
+
+transition RevokeDelegatorSwap(
+  username: String,
+  stakeID: String,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "RevokeDelegatorSwap"; _recipient: addr; _amount: zero } in one_msg m; send msg end
+
+transition RejectDelegatorSwap(
+  username: String,
+  stakeID: String,
+  address: ByStr20,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "RejectDelegatorSwap"; _recipient: addr; _amount: zero;
+    requestor: address } in one_msg m; send msg end

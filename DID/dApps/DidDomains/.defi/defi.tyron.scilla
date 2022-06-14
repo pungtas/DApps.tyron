@@ -1,8 +1,8 @@
-(* v0.8.0
+(* v0.9.0
 defi.tyron: Decentralized Finance DID Domain DApp - NFT Username DNS
 Self-Sovereign Identity Protocol
-Copyright (C) Tyron Pungtas and its affiliates.
-www.ssiprotocol.com
+Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
+tyron.network
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -21,43 +21,27 @@ library DidDomain
     fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
-  type Error =
-    | CodeWrongStatus
-    | CodeWrongCaller
-    | CodeIsNull
-    | CodeWrongSignature
-    | CodeNotValid
-    | CodeSameAddress
- 
-  let make_error = fun( error: Error ) =>
-    let result = match error with
-    | CodeWrongStatus            => Int32 0
-    | CodeWrongCaller            => Int32 -1
-    | CodeIsNull                 => Int32 -2
-    | CodeWrongSignature         => Int32 -3
-    | CodeNotValid               => Int32 -4
-    | CodeSameAddress            => Int32 -5
-    end in { _exception: "Error"; code: result }
-  
   let zero = Uint128 0
   let zeroByStr20 = 0x0000000000000000000000000000000000000000
-  
+
   let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
     match input with
     | Some v => v
     | None => default end
   let option_uint128_value = let f = @option_value Uint128 in f zero
   let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
-  
-  type Beneficiary =
-    | NftUsername of String
-    | Recipient of ByStr20
 
   let true = True
   let false = False
+  let null = ""
+  let did = "did"
   let community = "community"
-  let tyron_id = "tyron0"
-  let ssi_id = "$si000"
+  let tyron_id = "tyron"
+  let ssi_id = "$si"
+  
+  type Beneficiary =
+    | NftUsername of String String (* username & domain *)
+    | Recipient of ByStr20
   
 contract DidDomain(
   init_usernameHash: ByStr,
@@ -66,7 +50,8 @@ contract DidDomain(
     field did_dns: Map String ByStr20 with contract
       field controller: ByStr20,
       field services: Map String ByStr20,
-      field deadline: Uint128 end end end
+      field deadline: Uint128,
+      field did_domain_dns: Map String ByStr20 end end end
   )
   field username_hash: ByStr = init_usernameHash
   field paused: Bool = false
@@ -82,9 +67,6 @@ procedure SupportTyron( tyron: Option Uint128 )
       get_addr <-& current_init.dns[donateDApp]; addr = option_bystr20_value get_addr;
       accept; msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: donation } in one_msg m; send msg end end
 
-procedure ThrowError( err: Error )
-  e = make_error err; throw e end
-
 procedure VerifyController(
   username: String,
   tyron: Option Uint128
@@ -92,14 +74,14 @@ procedure VerifyController(
   usernameHash = builtin sha256hash username; usernameHash_ = builtin to_bystr usernameHash;
   current_usernameHash <- username_hash;
   verified_name = builtin eq usernameHash_ current_usernameHash; match verified_name with
-  | True => | False => err = CodeNotValid; ThrowError err end;
+  | True => | False => e = { _exception : ".defi-WrongUsername" }; throw e end;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[username]; match get_did with
-  | None => err = CodeIsNull; ThrowError err
+  | None => e = { _exception : ".defi-DidIsNull" }; throw e
   | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
-      | True => | False => err = CodeWrongCaller; ThrowError err end end end
+      | True => | False => e = { _exception : ".defi-WrongCaller" }; throw e end end end
 
 procedure Timestamp()
   latest_tx_number <- tx_number; new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor;
@@ -110,15 +92,15 @@ procedure ThrowIfSameAddr(
   b: ByStr20
   )
   is_self = builtin eq a b; match is_self with
-  | False => | True => err = CodeSameAddress; ThrowError err end end
+    | False => | True => e = { _exception : ".defi-SameAddress" }; throw e end end
 
 procedure IsNotPaused()
   is_paused <- paused; match is_paused with
-  | False => | True => err = CodeWrongStatus; ThrowError err end end
+    | False => | True => e = { _exception : ".defi-WrongStatus" }; throw e end end
   
 procedure IsPaused()
   is_paused <- paused; match is_paused with
-  | True => | False => err = CodeWrongStatus; ThrowError err end end
+    | True => | False => e = { _exception : ".defi-WrongStatus" }; throw e end end
   
 transition Pause(
   username: String,
@@ -152,20 +134,31 @@ transition SendFunds(
   )
   IsNotPaused; VerifyController username tyron;
   match beneficiary with
-  | NftUsername username_ =>
-      current_init <-& init.dApp;
-      get_addr <-& current_init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
-      msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
+  | NftUsername username_ domain_ =>
+    current_init <-& init.dApp;
+    is_null = builtin eq domain_ null; match is_null with
+      | True =>
+        get_addr <-& current_init.dns[username_]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
+        msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
+      | False =>
+        get_did <-& current_init.did_dns[username_]; match get_did with
+          | None => e = { _exception : ".defi-DidIsNull" }; throw e
+          | Some did_ =>
+            is_did = builtin eq domain_ did; match is_did with
+              | True => msg = let m = { _tag: tag; _recipient: did_; _amount: amount } in one_msg m; send msg
+              | False =>
+                get_domain_addr <-& did_.did_domain_dns[domain_]; domain_addr = option_bystr20_value get_domain_addr;
+                msg = let m = { _tag: tag; _recipient: domain_addr; _amount: amount } in one_msg m; send msg end end end
   | Recipient addr_ =>
-      ThrowIfSameAddr _this_address addr_;
-      msg = let m = { _tag: tag; _recipient: addr_; _amount: amount } in one_msg m; send msg end;
+    ThrowIfSameAddr _this_address addr_;
+    msg = let m = { _tag: tag; _recipient: addr_; _amount: amount } in one_msg m; send msg end;
   Timestamp end
 
 procedure FetchServiceAddr( id: String )
   current_init <-& init.dApp; initDApp = "init";
   get_did <-& current_init.did_dns[initDApp]; match get_did with
-  | None => err = CodeIsNull; ThrowError err
-  | Some did_ =>
+    | None => e = { _exception : ".defi-DidIsNull" }; throw e
+    | Some did_ =>
       get_service <-& did_.services[id]; addr = option_bystr20_value get_service;
       services[id] := addr end end
 
@@ -176,19 +169,36 @@ transition Transfer(
   amount: Uint128,
   tyron: Option Uint128
   ) 
-  IsNotPaused; VerifyController username tyron;
-  FetchServiceAddr addrName; get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
+  IsNotPaused; VerifyController username tyron; FetchServiceAddr addrName;
+  get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
   match beneficiary with
-  | NftUsername username_ =>
-      current_init <-& init.dApp;
-      get_addr <-& current_init.dns[username]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
-      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
-        to: addr;
-        amount: amount } in one_msg m ; send msg
+  | NftUsername username_ domain_ =>
+    current_init <-& init.dApp;
+    is_null = builtin eq domain_ null; match is_null with
+      | True =>
+        get_addr <-& current_init.dns[username_]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
+        msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+          to: addr;
+          amount: amount } in one_msg m ; send msg
+      | False =>
+        get_did <-& current_init.did_dns[username_]; match get_did with
+          | None => e = { _exception : ".defi-DidIsNull" }; throw e
+          | Some did_ =>
+            is_did = builtin eq domain_ did; match is_did with
+              | True =>
+                msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+                  to: did_;
+                  amount: amount } in one_msg m ; send msg
+              | False =>
+                get_domain_addr <-& did_.did_domain_dns[domain_]; domain_addr = option_bystr20_value get_domain_addr;
+                msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+                  to: domain_addr;
+                  amount: amount } in one_msg m ; send msg end end end
   | Recipient addr_ =>
-      msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
-        to: addr_;
-        amount: amount } in one_msg m ; send msg end;
+    ThrowIfSameAddr _this_address addr_;
+    msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+      to: addr_;
+      amount: amount } in one_msg m ; send msg end;
   Timestamp end
 
 transition RecipientAcceptTransfer( sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsNotPaused; Timestamp end
@@ -251,7 +261,7 @@ transition AddLiquidity(
   get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[username]; match get_did with
-  | None => err = CodeIsNull; ThrowError err
+  | None => e = { _exception : ".defi-DidIsNull" }; throw e
   | Some did_ =>
       current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
       accept; msg = let m = { _tag: "AddLiquidity"; _recipient: dApp_addr; _amount: _amount;
@@ -272,7 +282,7 @@ transition JoinTYRONCommunity(
   get_dApp <- services[community]; dApp_addr = option_bystr20_value get_dApp;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[username]; match get_did with
-  | None => err = CodeIsNull; ThrowError err
+  | None => e = { _exception : ".defi-DidIsNull" }; throw e
   | Some did_ =>
       current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
       msg = let m = { _tag: "JoinTYRONCommunity"; _recipient: dApp_addr; _amount: zero;
@@ -290,13 +300,12 @@ transition RemoveLiquidity(
   minTokenAmount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused;
-  VerifyController username tyron;
+  IsNotPaused; VerifyController username tyron;
   FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
   FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[username]; match get_did with
-  | None => err = CodeIsNull; ThrowError err
+  | None => e = { _exception : ".defi-DidIsNull" }; throw e
   | Some did_ =>
       current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
       msg = let m = { _tag: "RemoveLiquidity"; _recipient: dApp_addr; _amount: zero;
@@ -315,13 +324,12 @@ transition SwapExactZILForTokens(
   minTokenAmount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused;
-  VerifyController username tyron;
+  IsNotPaused; VerifyController username tyron;
   FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
   FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[username]; match get_did with
-  | None => err = CodeIsNull; ThrowError err
+  | None => e = { _exception : ".defi-DidIsNull" }; throw e
   | Some did_ =>
       current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
       accept; msg = let m = { _tag: "SwapExactZILForTokens"; _recipient: dApp_addr; _amount: amount;
@@ -339,14 +347,13 @@ transition SwapExactTokensForZIL(
   minZilAmount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused;
-  VerifyController username tyron;
+  IsNotPaused; VerifyController username tyron;
   IncreaseAllowanceDApp dApp addrName amount;
   get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
   get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[username]; match get_did with
-  | None => err = CodeIsNull; ThrowError err
+  | None => e = { _exception : ".defi-DidIsNull" }; throw e
   | Some did_ =>
       current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
       msg = let m = { _tag: "SwapExactTokensForZIL"; _recipient: dApp_addr; _amount: zero;
@@ -366,15 +373,14 @@ transition SwapExactTokensForTokens(
   minTokenAmount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused;
-  VerifyController username tyron;
+  IsNotPaused; VerifyController username tyron;
   IncreaseAllowanceDApp dApp addrName amount;
   get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
   get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
   FetchServiceAddr toaddrName; get_toAddr <- services[toaddrName]; toAddr = option_bystr20_value get_toAddr;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[username]; match get_did with
-  | None => err = CodeIsNull; ThrowError err
+  | None => e = { _exception : ".defi-DidIsNull" }; throw e
   | Some did_ =>
       current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
       msg = let m = { _tag: "SwapExactTokensForTokens"; _recipient: dApp_addr; _amount: zero;
