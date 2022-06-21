@@ -1,4 +1,4 @@
-(* v0.5.0
+(* v0.6.0
 stake.tyron: Staking DID Domain DApp <> NFT Username DNS
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -239,27 +239,28 @@ transition RequestDelegatorSwap(
   ssnID: String,
   tossnID: String,
   amount: Uint128,
-  address: ByStr20,
+  newDelegAddr: ByStr20,
   tyron: Option Uint128
   )
   IsNotPaused; VerifyController username tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   msg = let m = { _tag: "RequestDelegatorSwap"; _recipient: addr; _amount: zero;
-    new_deleg_addr: address } in one_msg m; send msg end
+    new_deleg_addr: newDelegAddr } in one_msg m; send msg end
 
+(* Sent by the new delegator *)
 transition ConfirmDelegatorSwap(
   username: String,
   stakeID: String,
   ssnID: String,
   tossnID: String,
   amount: Uint128,
-  address: ByStr20,
+  requestor: ByStr20, (* The previous delegator *)
   tyron: Option Uint128
   )
   IsNotPaused; VerifyController username tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   msg = let m = { _tag: "ConfirmDelegatorSwap"; _recipient: addr; _amount: zero;
-    requestor: address } in one_msg m; send msg end
+    requestor: requestor } in one_msg m; send msg end
 
 transition RevokeDelegatorSwap(
   username: String,
@@ -270,13 +271,14 @@ transition RevokeDelegatorSwap(
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   msg = let m = { _tag: "RevokeDelegatorSwap"; _recipient: addr; _amount: zero } in one_msg m; send msg end
 
+(* Sent by the new delegator *)
 transition RejectDelegatorSwap(
   username: String,
   stakeID: String,
-  address: ByStr20,
+  requestor: ByStr20, (* The previous delegator *)
   tyron: Option Uint128
   )
   IsNotPaused; VerifyController username tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   msg = let m = { _tag: "RejectDelegatorSwap"; _recipient: addr; _amount: zero;
-    requestor: address } in one_msg m; send msg end
+    requestor: requestor } in one_msg m; send msg end
