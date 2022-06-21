@@ -1,5 +1,5 @@
-(* v0.6.0
-stake.tyron: Staking DID Domain DApp <> NFT Username DNS
+(* v0.6.1
+didstake.tyron: Staking DID Domain DApp <> NFT Username DNS
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
 tyron.network
@@ -87,6 +87,13 @@ procedure VerifyController(
 procedure Timestamp()
   latest_tx_number <- tx_number; new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor;
   tx_number := new_tx_number end
+
+procedure ThrowIfSameAddr(
+  a: ByStr20,
+  b: ByStr20
+  )
+  is_self = builtin eq a b; match is_self with
+    | False => | True => e = { _exception : ".stake-SameAddress" }; throw e end end
 
 procedure IsNotPaused()
   is_paused <- paused; match is_paused with
@@ -206,7 +213,6 @@ transition CompleteWithdrawal(
   tyron: Option Uint128
   )
   IsNotPaused; VerifyController username tyron;
-  order = Stake txID signature stakeID stakeID stakeID zero zeroByStr20 tyron; VerifyDelegation order;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   accept; msg = let m = { _tag: "CompleteWithdrawal"; _recipient: addr; _amount: zero } in one_msg m; send msg end
 
@@ -225,7 +231,7 @@ transition ReDelegateStake(
   IsNotPaused; VerifyController username tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   FetchServiceAddr ssnID; get_ssnaddr <- services[ssnID]; ssnaddr = option_bystr20_value get_ssnaddr;
-  FetchServiceAddr tossnID; get_tossnaddr <- services[ssnID]; to_ssnaddr = option_bystr20_value get_tossnaddr;
+  FetchServiceAddr tossnID; get_tossnaddr <- services[tossnID]; to_ssnaddr = option_bystr20_value get_tossnaddr;
   msg = let m = { _tag: "ReDelegateStake"; _recipient: addr; _amount: zero;
     ssnaddr: ssnaddr;
     to_ssn: to_ssnaddr;
@@ -236,9 +242,6 @@ transition ReDelegateStakeSuccessCallBack( ssnaddr: ByStr20, tossn: ByStr20, amo
 transition RequestDelegatorSwap(
   username: String,
   stakeID: String,
-  ssnID: String,
-  tossnID: String,
-  amount: Uint128,
   newDelegAddr: ByStr20,
   tyron: Option Uint128
   )
@@ -251,9 +254,6 @@ transition RequestDelegatorSwap(
 transition ConfirmDelegatorSwap(
   username: String,
   stakeID: String,
-  ssnID: String,
-  tossnID: String,
-  amount: Uint128,
   requestor: ByStr20, (* The previous delegator *)
   tyron: Option Uint128
   )
