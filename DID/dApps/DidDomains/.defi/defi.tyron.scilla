@@ -1,5 +1,5 @@
 (* v0.9.0
-defi.tyron: Decentralized Finance DID Domain DApp - NFT Username DNS
+defi.tyron: Decentralized Finance DID Domain DApp <> NFT Username DNS
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
 tyron.network
@@ -59,6 +59,7 @@ contract DidDomain(
   (* A monotonically increasing number representing the amount of transactions that have taken place *)
   field tx_number: Uint128 = zero
   field services: Map String ByStr20 = Emp String ByStr20
+  field version: String = ".defi---0.9.0" (* @todo *)
   
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
@@ -81,7 +82,8 @@ procedure VerifyController(
   | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
-      | True => | False => e = { _exception : ".defi-WrongCaller" }; throw e end end end
+      | True => SupportTyron tyron
+      | False => e = { _exception : ".defi-WrongCaller" }; throw e end end end
 
 procedure Timestamp()
   latest_tx_number <- tx_number; new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor;

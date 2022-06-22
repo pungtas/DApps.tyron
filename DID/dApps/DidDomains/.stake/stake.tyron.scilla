@@ -1,4 +1,4 @@
-(* v0.6.1
+(* v0.7.0
 didstake.tyron: Staking DID Domain DApp <> NFT Username DNS
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -60,6 +60,7 @@ contract DidDomain(
   (* A monotonically increasing number representing the amount of transactions that have taken place *)
   field tx_number: Uint128 = zero
   field services: Map String ByStr20 = Emp String ByStr20
+  field version: String = ".stake--0.7.0" (* @todo *)
 
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
@@ -82,7 +83,8 @@ procedure VerifyController(
   | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
-      | True => | False => e = { _exception : ".stake-WrongCaller" }; throw e end end end
+      | True => SupportTyron tyron
+      | False => e = { _exception : ".stake-WrongCaller" }; throw e end end end
 
 procedure Timestamp()
   latest_tx_number <- tx_number; new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor;
@@ -167,12 +169,13 @@ transition DelegateStake(
   username: String,
   stakeID: String,
   ssnID: String,
+  amount: Uint128,
   tyron: Option Uint128
   )
   IsNotPaused; VerifyController username tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   FetchServiceAddr ssnID; get_ssnaddr <- services[ssnID]; ssnaddr = option_bystr20_value get_ssnaddr;
-  accept; msg = let m = { _tag: "DelegateStake"; _recipient: addr; _amount: _amount;
+  accept; msg = let m = { _tag: "DelegateStake"; _recipient: addr; _amount: amount;
     ssnaddr: ssnaddr } in one_msg m; send msg end
 
 transition DelegateStakeSuccessCallBack( ssnaddr: ByStr20, amount: Uint128 ) IsNotPaused end
