@@ -131,7 +131,7 @@ procedure ThrowIfSameAddr(
   b: ByStr20
   )
   is_self = builtin eq a b; match is_self with
-  | False => | True => err = CodeSameAddress; ThrowError err end end
+    | False => | True => err = CodeSameAddress; ThrowError err end end
 
 transition UpdateImplementation(
   addr: ByStr20 with contract

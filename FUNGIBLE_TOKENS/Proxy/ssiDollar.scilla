@@ -1,8 +1,8 @@
 (* v3.1.0
-$si.tyron: Self-Sovereign Identity Dollar DApp, Fungible Algorithmic Stablecoin <> Proxy smart contract
+ssiDollar.tyron: Self-Sovereign Identity Dollar DApp, Fungible Decentralized Stablecoin <> Proxy smart contract
 Self-Sovereign Identity Protocol
-Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
-www.ssiprotocol.com
+Copyright (C) Tyron Coop Decentralized Autonomous Organization and its affiliates.
+tyron.network
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -18,25 +18,11 @@ scilla_version 0
 
 import BoolUtils IntUtils
 
-library FungibleToken
+library SsiDollar
   let one_msg =
     fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
-  type Error =
-    | CodeWrongStatus
-    | CodeWrongCaller
-    | CodeIsNull
-    | CodeSameAddress
-
-  let make_error = fun( error: Error ) =>
-    let result = match error with
-    | CodeWrongStatus            => Int32 0
-    | CodeWrongCaller            => Int32 -1
-    | CodeIsNull                 => Int32 -2
-    | CodeSameAddress            => Int32 -3
-    end in { _exception: "Error"; code: result }
-  
   let zero = Uint128 0
   
   type Caller =
@@ -46,7 +32,7 @@ library FungibleToken
   let controller_ = Controller
   let implementation_ = Implementation
   
-contract FungibleToken(
+contract SsiDollar(
   contract_owner: ByStr20 with contract 
     field nft_username: String,
     field paused: Bool,
@@ -85,35 +71,32 @@ contract FungibleToken(
   field balances: Map ByStr20 Uint128 = init_balances
   field total_supply: Uint128 = init_supply
   field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
-  field version: String = "$si-----3.1.0" (* @todo *)
-  
-procedure ThrowError( err: Error )
-  e = make_error err; throw e end
-  
+  field version: String = "$SIprox-3.1.0" (* @todo *)
+
 procedure VerifyCaller( caller: Caller )
   current_impl <- implementation;
   is_paused <-& current_impl.paused; match is_paused with
-  | False => | True => err = CodeWrongStatus; ThrowError err end;
+    | False => | True => e = { _exception: "$SIproxy-WrongStatus" } end;
   match caller with
   | Controller =>
-      current_username <-& current_impl.nft_username;
-      init <-& current_impl.xinit; current_init <-& init.dApp;
-      get_did <-& current_init.did_dns[current_username]; match get_did with
-      | None => err = CodeIsNull; ThrowError err
+    current_username <-& current_impl.nft_username;
+    init <-& current_impl.xinit; current_init <-& init.dApp;
+    get_did <-& current_init.did_dns[current_username]; match get_did with
+      | None => e = { _exception: "$SIproxy-DidIsNull" }; throw e
       | Some did_ =>
-          current_controller <-& did_.controller;
-          verified = builtin eq _origin current_controller; match verified with
-          | True => | False => err = CodeWrongCaller; ThrowError err end end
+        current_controller <-& did_.controller;
+        verified = builtin eq _origin current_controller; match verified with
+        | True => | False => e = { _exception: "$SIproxy-WrongCaller" }; throw e end end
   | Implementation =>
-      verified = builtin eq _sender current_impl; match verified with
-      | True => | False => err = CodeWrongCaller; ThrowError err end end end
+    verified = builtin eq _sender current_impl; match verified with
+    | True => | False => e = { _exception: "$SIproxy-WrongCaller" }; throw e end end end
 
 procedure ThrowIfSameAddr(
   a: ByStr20,
   b: ByStr20
   )
   is_self = builtin eq a b; match is_self with
-  | False => | True => err = CodeSameAddress; ThrowError err end end
+    | False => | True => e = { _exception: "$SIproxy-SameAddress" }; throw e end end
 
 transition UpdateImplementation(
   addr: ByStr20 with contract
@@ -163,7 +146,7 @@ transition TransmuteCallBack(
   VerifyCaller implementation_;
   balances[beneficiary] := newBalance;
   total_supply := newSupply end
-  
+
 transition Transfer(
   to: ByStr20,
   amount: Uint128

@@ -145,15 +145,15 @@ procedure SupportTyron( tyron: Option Uint128 )
 
 procedure IsOperational()
   current_status <- did_status; match current_status with
-    | Deactivated => e = { _exception : "DIDxWallet-WrongStatus" }; throw e
-    | Locked => e = { _exception : "DIDxWallet-DidLocked" }; throw e
+    | Deactivated => e = { _exception: "DIDxWallet-WrongStatus" }; throw e
+    | Locked => e = { _exception: "DIDxWallet-DidLocked" }; throw e
     | _ => end end
 
 procedure VerifyController( tyron: Option Uint128 )
   current_controller <- controller;
   verified = builtin eq _origin current_controller; match verified with
     | True => SupportTyron tyron
-    | False => e = { _exception : "DIDxWallet-WrongCaller" }; throw e end end
+    | False => e = { _exception: "DIDxWallet-WrongCaller" }; throw e end end
 
 procedure Timestamp()
   current_block <- &BLOCKNUMBER; ledger_time := current_block;
@@ -165,14 +165,14 @@ procedure ThrowIfSameAddr(
   b: ByStr20
   )
   is_self = builtin eq a b; match is_self with
-    | False => | True => e = { _exception : "DIDxWallet-SameAddress" }; throw e end end
+    | False => | True => e = { _exception: "DIDxWallet-SameAddress" }; throw e end end
 
 procedure ThrowIfSameName(
   a: String,
   b: String
   )
   is_same = builtin eq a b; match is_same with
-    | False => | True => e = { _exception : "DIDxWallet-SameUsername" }; throw e end end
+    | False => | True => e = { _exception: "DIDxWallet-SameUsername" }; throw e end end
 
 transition UpdateController(
   addr: ByStr20,
@@ -186,7 +186,7 @@ transition UpdateController(
 transition AcceptPendingController()
   IsOperational; current_pending <- pending_controller;
   verified = builtin eq _origin current_pending; match verified with
-    | True => | False => e = { _exception : "DIDxWallet-WrongCaller" }; throw e end;
+    | True => | False => e = { _exception: "DIDxWallet-WrongCaller" }; throw e end;
   controller := current_pending; pending_controller := zeroByStr20;
   Timestamp end
 
@@ -199,18 +199,18 @@ transition UpdateUsername(
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[username]; match get_did with
     | Some did_ => pending_username := username
-    | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e end;
+    | None => e = { _exception: "DIDxWallet-DidIsNull" }; throw e end;
   Timestamp end
 
 transition AcceptPendingUsername()
   IsOperational; current_pending <- pending_username;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[current_pending]; match get_did with
-    | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
+    | None => e = { _exception: "DIDxWallet-DidIsNull" }; throw e
     | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
-        | True => | False => e = { _exception : "DIDxWallet-WrongCaller" }; throw e end;
+        | True => | False => e = { _exception: "DIDxWallet-WrongCaller" }; throw e end;
       nft_username := current_pending; pending_username := null end;
   Timestamp end
 
@@ -222,7 +222,7 @@ procedure VerifySignature(
   )
   get_did_key <- verification_methods[id]; did_key = option_bystr33_value get_did_key;
   is_right_signature = builtin schnorr_verify did_key signedData signature; match is_right_signature with
-    | True => | False => e = { _exception : "DIDxWallet-WrongSignature" }; throw e end end
+    | True => | False => e = { _exception: "DIDxWallet-WrongSignature" }; throw e end end
 
 procedure ConcatGuardians( id: ByStr32 )
   ghash <- did_hash; ghash_ = let h = builtin to_bystr id in builtin concat ghash h;
@@ -230,7 +230,7 @@ procedure ConcatGuardians( id: ByStr32 )
 
 procedure SaveGuardians( id: ByStr32 )
   repeated <- exists social_guardians[id]; match repeated with
-    | True => e = { _exception : "DIDxWallet-SameGuardianId" }; throw e
+    | True => e = { _exception: "DIDxWallet-SameGuardianId" }; throw e
     | False => true = True; social_guardians[id] := true end end
 
 transition ConfigureSocialRecovery(
@@ -240,10 +240,10 @@ transition ConfigureSocialRecovery(
   )
   current_status <- did_status; match current_status with
     | Created => | Recovered => | Updated =>
-    | _ => e = { _exception : "DIDxWallet-WrongStatus" }; throw e end;
+    | _ => e = { _exception: "DIDxWallet-WrongStatus" }; throw e end;
   VerifyController tyron; length = let list_length = @list_length ByStr32 in list_length guardians;
   is_ok = uint32_ge length three; match is_ok with
-    | False => e = { _exception : "DIDxWallet-InsufficientAmount" }; throw e
+    | False => e = { _exception: "DIDxWallet-InsufficientAmount" }; throw e
     | True =>
       forall guardians ConcatGuardians;
       ghash <- did_hash; VerifySignature update ghash sig;
@@ -261,12 +261,12 @@ transition Lock(
   )
   IsOperational; min <- counter;
   is_ok = uint32_ge min three; match is_ok with
-    | False => e = { _exception : "DIDxWallet-InsufficientAmount" }; throw e
+    | False => e = { _exception: "DIDxWallet-InsufficientAmount" }; throw e
     | True =>
       this_did <- did; hash = let h = builtin sha256hash this_did in builtin to_bystr h;
       get_didkey <- verification_methods[recovery]; did_key = option_bystr33_value get_didkey;
       is_right_signature = builtin schnorr_verify did_key hash sig; match is_right_signature with
-        | False => e = { _exception : "DIDxWallet-WrongSignature" }; throw e
+        | False => e = { _exception: "DIDxWallet-WrongSignature" }; throw e
         | True => SupportTyron tyron; locked = Locked; did_status := locked end end;
   Timestamp end
 
@@ -274,11 +274,11 @@ procedure VerifySocialRecovery( proof: Pair String ByStr64 )
   guardian_name = let fst_element = @fst String ByStr64 in fst_element proof; hash = builtin sha256hash guardian_name;
   guardian_sig = let snd_element = @snd String ByStr64 in snd_element proof;
   is_valid <- exists social_guardians[hash]; match is_valid with
-    | False => e = { _exception : "DIDxWallet-WrongCaller" }; throw e
+    | False => e = { _exception: "DIDxWallet-WrongCaller" }; throw e
     | True =>
       current_init <-& init.dApp;
       get_did <-& current_init.did_dns[guardian_name]; match get_did with
-        | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
+        | None => e = { _exception: "DIDxWallet-DidIsNull" }; throw e
         | Some did_ =>
           get_did_key <-& did_.verification_methods[recovery]; did_key = option_bystr33_value get_did_key; signed_data <- signed_addr;
           is_right_signature = builtin schnorr_verify did_key signed_data guardian_sig; match is_right_signature with
@@ -291,19 +291,19 @@ transition DidSocialRecovery(
   tyron: Option Uint128
   )
   current_status <- did_status; match current_status with
-  | Deactivated => e = { _exception : "DIDxWallet-WrongStatus" }; throw e
+  | Deactivated => e = { _exception: "DIDxWallet-WrongStatus" }; throw e
   | _ => end;
   current_controller <- controller; ThrowIfSameAddr current_controller addr;
   signed_data = builtin to_bystr addr; signed_addr := signed_data;
   sig = let list_length = @list_length( Pair String ByStr64 ) in list_length signatures;
   min <- counter; is_ok = uint32_ge sig min;
   match is_ok with
-  | False => e = { _exception : "DIDxWallet-InsufficientAmount" }; throw e
+  | False => e = { _exception: "DIDxWallet-InsufficientAmount" }; throw e
   | True =>
     counter := zero_;
     forall signatures VerifySocialRecovery;
     counter_ <- counter; is_ok_ = uint32_ge counter_ min; match is_ok_ with
-      | False => e = { _exception : "DIDxWallet-WrongSignature" }; throw e
+      | False => e = { _exception: "DIDxWallet-WrongSignature" }; throw e
       | True =>
         SupportTyron tyron; controller := addr;
         social_guardians := empty_guardians;
@@ -314,12 +314,12 @@ transition DidSocialRecovery(
 
 procedure ThrowIfNoKey( optKey: Option ByStr33 )
   match optKey with
-  | Some key => | None => e = { _exception : "DIDxWallet-UndefinedKey" }; throw e end end
+  | Some key => | None => e = { _exception: "DIDxWallet-UndefinedKey" }; throw e end end
 
 procedure VerifyUpdateKey( didUpdate: ByStr33 )
   get_update_key <- verification_methods[update]; new_update = option_bystr33_value get_update_key;
   is_same_key = builtin eq didUpdate new_update; match is_same_key with
-    | False => | True => e = { _exception : "DIDxWallet-SameKey" }; throw e end end
+    | False => | True => e = { _exception: "DIDxWallet-SameKey" }; throw e end end
 
 procedure HashDocument( document: Document )
   doc_hash <- did_hash;
@@ -384,7 +384,7 @@ procedure UpdateDocument( document: Document )
       | True =>
         delete verification_methods[purpose];
         delete dkms[purpose]
-      | False => e = { _exception : "DIDxWallet-RemoveNoKey" }; throw e end end
+      | False => e = { _exception: "DIDxWallet-RemoveNoKey" }; throw e end end
   | Service action id endpoint =>
     match action with
     | Add =>
@@ -400,7 +400,7 @@ procedure UpdateDocument( document: Document )
       service_exists = orb is_service is_service_;
       match service_exists with
       | True => delete services[id]; delete services_[id]
-      | False => e = { _exception : "DIDxWallet-RemoveNoService" }; throw e end end end end
+      | False => e = { _exception: "DIDxWallet-RemoveNoService" }; throw e end end end end
 
 procedure VerifyDocument(
   document: List Document,
@@ -428,7 +428,7 @@ transition DidUpdate(
     | Recovered =>
       forall document UpdateDocument;
       get_did_update <- verification_methods[update]; ThrowIfNoKey get_did_update
-    | _ => e = { _exception : "DIDxWallet-WrongStatus" }; throw e end;
+    | _ => e = { _exception: "DIDxWallet-WrongStatus" }; throw e end;
   new_status = Updated; did_status := new_status;
   Timestamp end
 
@@ -454,7 +454,7 @@ transition Dns(
   )
   current_status <- did_status; match current_status with
     | Created => | Recovered => | Updated =>
-    | _ => e = { _exception : "DIDxWallet-WrongStatus" }; throw e end;
+    | _ => e = { _exception: "DIDxWallet-WrongStatus" }; throw e end;
   VerifyController tyron; ThrowIfSameAddr _this_address addr;
   verification_methods[domain] := didKey; dkms[domain] := encrypted; did_domain_dns[domain] := addr; 
   new_status = Updated; did_status := new_status;
@@ -472,7 +472,7 @@ transition UpdateDeadline(
 procedure FetchServiceAddr( id: String )
   current_init <-& init.dApp; initDApp = "init";
   get_did <-& current_init.did_dns[initDApp]; match get_did with
-    | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
+    | None => e = { _exception: "DIDxWallet-DidIsNull" }; throw e
     | Some did_ =>
       get_service <-& did_.services[id]; addr = option_bystr20_value get_service;
       services[id] := addr end end
@@ -602,7 +602,7 @@ transition SendFunds(
         msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
       | False =>
         get_did <-& current_init.did_dns[username_]; match get_did with
-          | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
+          | None => e = { _exception: "DIDxWallet-DidIsNull" }; throw e
           | Some did_ =>
             is_did = builtin eq domain_ did; match is_did with
               | True => msg = let m = { _tag: tag; _recipient: did_; _amount: amount } in one_msg m; send msg
@@ -633,7 +633,7 @@ transition Transfer(
           amount: amount } in one_msg m ; send msg
       | False =>
         get_did <-& current_init.did_dns[username_]; match get_did with
-          | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
+          | None => e = { _exception: "DIDxWallet-DidIsNull" }; throw e
           | Some did_ =>
             is_did = builtin eq domain_ did; match is_did with
               | True =>
@@ -685,10 +685,10 @@ transition Upgrade(
   match username with
   | None => | Some username_ =>
     match id with
-    | None => e = { _exception : "DIDxWallet-IdIsNull" }; throw e
+    | None => e = { _exception: "DIDxWallet-IdIsNull" }; throw e
     | Some id_ =>
       match dID with
-      | None => e = { _exception : "DIDxWallet-DidIsNull" }; throw e
+      | None => e = { _exception: "DIDxWallet-DidIsNull" }; throw e
       | Some dID_ =>
         current_init <-& init.dApp;
         is_free = builtin eq id_ free; match is_free with
