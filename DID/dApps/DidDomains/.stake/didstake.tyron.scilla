@@ -1,4 +1,4 @@
-(* v0.7.0
+(* v0.7.1
 didstake.tyron: Staking DID Domain DApp <> NFT Username DNS
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -51,7 +51,6 @@ contract DidDomain(
     field did_dns: Map String ByStr20 with contract
       field controller: ByStr20,
       field services: Map String ByStr20,
-      field deadline: Uint128,
       field did_domain_dns: Map String ByStr20 end end end
   )
   field username_hash: ByStr = init_usernameHash
