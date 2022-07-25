@@ -1,5 +1,5 @@
-(* v0.7.1
-didstake.tyron: Staking DID Domain DApp <> NFT Username DNS
+(* v0.8.0
+zilstake.tyron: $ZIL Staking Wallet, DID Domain DApp <> NFT Username DNS
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
 tyron.network
@@ -18,7 +18,7 @@ scilla_version 0
 
 import PairUtils BoolUtils
 
-library Stake
+library ZilStakingWallet
    let one_msg =
     fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
@@ -45,7 +45,7 @@ library Stake
     | Recipient of ByStr20
 
 contract DidDomain(
-  init_usernameHash: ByStr,
+  init_usernameHash: ByStr32,
   init: ByStr20 with contract field dApp: ByStr20 with contract
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
@@ -53,13 +53,13 @@ contract DidDomain(
       field services: Map String ByStr20,
       field did_domain_dns: Map String ByStr20 end end end
   )
-  field username_hash: ByStr = init_usernameHash
+  field username_hash: ByStr32 = init_usernameHash
   field paused: Bool = false
 
   (* A monotonically increasing number representing the amount of transactions that have taken place *)
   field tx_number: Uint128 = zero
   field services: Map String ByStr20 = Emp String ByStr20
-  field version: String = ".stake--0.7.0" (* @todo *)
+  field version: String = "zilstake.tyron-0.8.0" (* @todo *)
 
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
@@ -72,18 +72,17 @@ procedure VerifyController(
   username: String,
   tyron: Option Uint128
   )
-  usernameHash = builtin sha256hash username; usernameHash_ = builtin to_bystr usernameHash;
-  current_usernameHash <- username_hash;
-  verified_name = builtin eq usernameHash_ current_usernameHash; match verified_name with
-  | True => | False => e = { _exception : ".stake-WrongUsername" }; throw e end;
+  usernameHash = builtin sha256hash username; current_usernameHash <- username_hash;
+  verified_name = builtin eq usernameHash current_usernameHash; match verified_name with
+  | True => | False => e = { _exception : "zilstake.tyron-WrongUsername" }; throw e end;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[username]; match get_did with
-  | None => e = { _exception : ".stake-DidIsNull" }; throw e
+  | None => e = { _exception : "zilstake.tyron-DidIsNull" }; throw e
   | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
       | True => SupportTyron tyron
-      | False => e = { _exception : ".stake-WrongCaller" }; throw e end end end
+      | False => e = { _exception : "zilstake.tyron-WrongCaller" }; throw e end end end
 
 procedure Timestamp()
   latest_tx_number <- tx_number; new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor;
@@ -94,16 +93,29 @@ procedure ThrowIfSameAddr(
   b: ByStr20
   )
   is_self = builtin eq a b; match is_self with
-    | False => | True => e = { _exception : ".stake-SameAddress" }; throw e end end
+    | False => | True => e = { _exception : "zilstake.tyron-SameAddress" }; throw e end end
 
 procedure IsNotPaused()
   is_paused <- paused; match is_paused with
-    | False => | True => e = { _exception : ".stake-WrongStatus" }; throw e end end
+    | False => | True => e = { _exception : "zilstake.tyron-WrongStatus" }; throw e end end
   
 procedure IsPaused()
   is_paused <- paused; match is_paused with
-    | True => | False => e = { _exception : ".stake-WrongStatus" }; throw e end end
-  
+    | True => | False => e = { _exception : "zilstake.tyron-WrongStatus" }; throw e end end
+
+transition UpdateUsername(
+  username: String,
+  newUsername: ByStr32,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  current_usernameHash <- username_hash;
+  verified = builtin eq current_usernameHash newUsername; match verified with
+    | True => e = { _exception : "zilstake.tyron-SameUsername" }; throw e
+    | False => SupportTyron tyron end;
+  username_hash := newUsername;
+  Timestamp end
+
 transition Pause(
   username: String,
   tyron: Option Uint128
@@ -144,7 +156,7 @@ transition SendFunds(
         msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
       | False =>
         get_did <-& current_init.did_dns[username_]; match get_did with
-          | None => e = { _exception : ".stake-DidIsNull" }; throw e
+          | None => e = { _exception : "zilstake.tyron-DidIsNull" }; throw e
           | Some did_ =>
             is_did = builtin eq domain_ did; match is_did with
               | True => msg = let m = { _tag: tag; _recipient: did_; _amount: amount } in one_msg m; send msg
@@ -159,7 +171,7 @@ transition SendFunds(
 procedure FetchServiceAddr( id: String )
   current_init <-& init.dApp; initDApp = "init";
   get_did <-& current_init.did_dns[initDApp]; match get_did with
-    | None => e = { _exception : ".stake-DidIsNull" }; throw e
+    | None => e = { _exception : "zilstake.tyron-DidIsNull" }; throw e
     | Some did_ =>
       get_service <-& did_.services[id]; addr = option_bystr20_value get_service;
       services[id] := addr end end
@@ -216,7 +228,7 @@ transition CompleteWithdrawal(
   )
   IsNotPaused; VerifyController username tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
-  accept; msg = let m = { _tag: "CompleteWithdrawal"; _recipient: addr; _amount: zero } in one_msg m; send msg end
+  msg = let m = { _tag: "CompleteWithdrawal"; _recipient: addr; _amount: zero } in one_msg m; send msg end
 
 transition CompleteWithdrawalNoUnbondedStakeCallBack( amount: Uint128 ) IsNotPaused end
 
