@@ -148,6 +148,4 @@ A wrapped PST has no Minters since every new PST is a wrap of an existing token.
 
 ## Acknowledgements
 
-We thank the Singapore dollar $XSGD stable-coin open-source software, [smart-contract code](https://github.com/Xfers/StraitsX-tokens/tree/master/Zilliqa) developed by [Xfers](https://www.xfers.com/sg?) for being the initial fork to develop the profit-sharing token smart contracts.
-
-We thank [Zillacracy](https://zillacracy.com/) as well for its financial support to develop these specifications.
+We thank the Singapore dollar stablecoin (XSGD) open-source software, [smart-contract code](https://github.com/Xfers/StraitsX-tokens/tree/master/Zilliqa) developed by [Xfers](https://www.xfers.com/sg?) for being the initial fork to develop the profit-sharing token smart contracts.

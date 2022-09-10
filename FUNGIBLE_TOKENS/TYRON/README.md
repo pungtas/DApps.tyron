@@ -2,6 +2,8 @@
 
 ## I. Abstract
 
+TYRON is the fungible token for the **TYRON Governing & Profit-Sharing Community** (TYRON Community DApp), which manages its liquidity to ensure its decentralized exchange. You can use TYRON tokens to join the TYRON Community DApp, but without entitling you as a holder of TYRON to receive payments of any kind from any person (meaning that it is not a security). 
+
 This specification is compliant with the [ZRC2-standard](https://github.com/Zilliqa/ZRC/blob/master/zrcs/zrc-2.md) for fungible tokens on Zilliqa. It is made by:
 
 - A [proxy](./token.tyron.scilla) smart contract that keeps records of the user balances and spender allowances; and

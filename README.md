@@ -8,8 +8,10 @@ Welcome to the open-source ```.tyron``` smart contracts, which are the core of t
 
         DID Domains:
 
-        - [.coop](./DID/dApps/Coop/coop.tyron.scilla): DID NFT Cooperative Project
+        - [ZILxWallet](./DID/dApps/DidDomains/ZILxWallet/zilstake.tyron.scilla): $ZIL staking xWallet
 
-- [Fungible token](./FUNGIBLE_TOKENS/README.md)
-
-- [Profit-sharing token](./PST/README.md) 
+- Fungible tokens:
+    
+    - [$TYRON](./FUNGIBLE_TOKENS/TYRON/README.md)
+    - [$SI](./FUNGIBLE_TOKENS/$SI/README.md)
+    - [Profit-sharing token](./PST/README.md) 
