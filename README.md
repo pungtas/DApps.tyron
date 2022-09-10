@@ -6,7 +6,7 @@ Welcome to the open-source ```.tyron``` smart contracts, which are the core of t
 
     - [xwallet.tyron](./DID/dApps/DIDxWallet/xwallet.tyron.scilla): W3C Decentralized Identifier Smart Contract Wallet (DIDxWallet)
 
-        DID Domains:
+        DID domains:
 
         - [ZILxWallet](./DID/dApps/DidDomains/ZILxWallet/zilstake.tyron.scilla): $ZIL staking xWallet
 
