@@ -1,18 +1,18 @@
-(* v0.8.0
+(* v0.9.0
 zilstake.tyron: $ZIL Staking Wallet, DID Domain DApp <> NFT Username DNS
 Self-Sovereign Identity Protocol
-Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
-tyron.network
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.*)
+Copyright Tyron Mapu Community Interest Company 2022. All rights reserved.
+You acknowledge and agree that Tyron Mapu Community Interest Company (“Tyron”) (or Tyron’s licensors) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the “Program”), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
+Subject to the limited license below, you may not (and you may not permit anyone else to) distribute, publish, copy, modify, merge, combine with another program, create derivative works of, reverse engineer, decompile or otherwise attempt to extract the source code of, the Program or any part thereof, except that you may contribute to this repository.
+You are granted a non-exclusive, non-transferable, non-sublicensable license to distribute, publish, copy, modify, merge, combine with another program or create derivative works of the Program (such resulting program, collectively, the “Resulting Program”) solely for Non-Commercial Use as long as you:
+1. give prominent notice (“Notice”) with each copy of the Resulting Program that the Program is used in the Resulting Program and that the Program is the copyright of Tyron; and
+2. subject the Resulting Program and any distribution, publication, copy, modification, merger therewith, combination with another program or derivative works thereof to the same Notice requirement and Non-Commercial Use restriction set forth herein.
+“Non-Commercial Use” means each use as described in clauses (1)-(3) below, as reasonably determined by Tyron in its sole discretion:
+1. personal use for research, personal study, private entertainment, hobby projects or amateur pursuits, in each case without any anticipated commercial application;
+2. use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization or government institution; or
+3. the number of monthly active users of the Resulting Program across all versions thereof and platforms globally do not exceed 10,000 at any time.
+You will not use any trade mark, service mark, trade name, logo of Tyron or any other company or organization in a way that is likely or intended to cause confusion about the owner or authorized user of such marks, names or logos.
+If you have any questions, comments or interest in pursuing any other use cases, please reach out to us at mapu@ssiprotocol.com.*)
 
 scilla_version 0
 
@@ -44,8 +44,8 @@ library ZilStakingWallet
     | NftUsername of String String (* username & domain *)
     | Recipient of ByStr20
 
-contract DidDomain(
-  init_usernameHash: ByStr32,
+contract ZilStakingWallet(
+  init_username: String,
   init: ByStr20 with contract field dApp: ByStr20 with contract
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
@@ -53,13 +53,14 @@ contract DidDomain(
       field services: Map String ByStr20,
       field did_domain_dns: Map String ByStr20 end end end
   )
-  field username_hash: ByStr32 = init_usernameHash
+  field nft_username: String = init_username
+  field pending_username: String = null
   field paused: Bool = false
 
   (* A monotonically increasing number representing the amount of transactions that have taken place *)
   field tx_number: Uint128 = zero
   field services: Map String ByStr20 = Emp String ByStr20
-  field version: String = "zilstake.tyron-0.8.0" (* @todo *)
+  field version: String = "zilstake.tyron-0.9.0" (* @todo *)
 
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
@@ -68,15 +69,9 @@ procedure SupportTyron( tyron: Option Uint128 )
       get_addr <-& current_init.dns[donateDApp]; addr = option_bystr20_value get_addr;
       accept; msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: donation } in one_msg m; send msg end end
 
-procedure VerifyController(
-  username: String,
-  tyron: Option Uint128
-  )
-  usernameHash = builtin sha256hash username; current_usernameHash <- username_hash;
-  verified_name = builtin eq usernameHash current_usernameHash; match verified_name with
-  | True => | False => e = { _exception : "zilstake.tyron-WrongUsername" }; throw e end;
-  current_init <-& init.dApp;
-  get_did <-& current_init.did_dns[username]; match get_did with
+procedure VerifyController( tyron: Option Uint128 )
+  current_username <- nft_username; current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[current_username]; match get_did with
   | None => e = { _exception : "zilstake.tyron-DidIsNull" }; throw e
   | Some did_ =>
       current_controller <-& did_.controller;
@@ -95,6 +90,13 @@ procedure ThrowIfSameAddr(
   is_self = builtin eq a b; match is_self with
     | False => | True => e = { _exception : "zilstake.tyron-SameAddress" }; throw e end end
 
+procedure ThrowIfSameName(
+  a: String,
+  b: String
+  )
+  is_same = builtin eq a b; match is_same with
+    | False => | True => e = { _exception: "zilstake.tyron-SameUsername" }; throw e end end
+
 procedure IsNotPaused()
   is_paused <- paused; match is_paused with
     | False => | True => e = { _exception : "zilstake.tyron-WrongStatus" }; throw e end end
@@ -105,31 +107,37 @@ procedure IsPaused()
 
 transition UpdateUsername(
   username: String,
-  newUsername: ByStr32,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController username tyron;
-  current_usernameHash <- username_hash;
-  verified = builtin eq current_usernameHash newUsername; match verified with
-    | True => e = { _exception : "zilstake.tyron-SameUsername" }; throw e
-    | False => SupportTyron tyron end;
-  username_hash := newUsername;
+  IsNotPaused; VerifyController tyron;
+  current_username <- nft_username; ThrowIfSameName current_username username;
+  current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[username]; match get_did with
+    | Some did_ => SupportTyron tyron; pending_username := username
+    | None => e = { _exception: "zilstake.tyron-DidIsNull" }; throw e end;
   Timestamp end
 
+transition AcceptPendingUsername()
+  IsNotPaused; current_pending <- pending_username;
+  current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[current_pending]; match get_did with
+    | None => e = { _exception: "zilstake.tyron-DidIsNull" }; throw e
+    | Some did_ =>
+      current_controller <-& did_.controller;
+      verified = builtin eq _origin current_controller; match verified with
+        | True => | False => e = { _exception: "zilstake.tyron-WrongCaller" }; throw e end;
+      nft_username := current_pending; pending_username := null end;
+  Timestamp end
+  
 transition Pause(
-  username: String,
-  tyron: Option Uint128
-  )
-  IsNotPaused; VerifyController username tyron; paused := true;
+  tyron: Option Uint128 )
+  IsNotPaused; VerifyController tyron; paused := true;
   e = { _eventname: "DidDomainPaused";
     pauser: _sender }; event e;
   Timestamp end
 
-transition Unpause(
-  username: String,
-  tyron: Option Uint128
-  )
-  IsPaused; VerifyController username tyron; paused := false;
+transition Unpause( tyron: Option Uint128 )
+  IsPaused; VerifyController tyron; paused := false;
   e = { _eventname: "DidDomainUnpaused";
     pauser: _sender }; event e;
   Timestamp end
@@ -140,13 +148,12 @@ transition AddFunds()
 
 (* Send $ZIL to any recipient that implements the tag, e.g. "AddFunds", "", etc. *)
 transition SendFunds(
-  username: String,
   tag: String,
   beneficiary: Beneficiary,
   amount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController username tyron;
+  IsNotPaused; VerifyController tyron;
   match beneficiary with
   | NftUsername username_ domain_ =>
     current_init <-& init.dApp;
@@ -159,9 +166,9 @@ transition SendFunds(
           | None => e = { _exception : "zilstake.tyron-DidIsNull" }; throw e
           | Some did_ =>
             is_did = builtin eq domain_ did; match is_did with
-              | True => msg = let m = { _tag: tag; _recipient: did_; _amount: amount } in one_msg m; send msg
+              | True => ThrowIfSameAddr _this_address did_; msg = let m = { _tag: tag; _recipient: did_; _amount: amount } in one_msg m; send msg
               | False =>
-                get_domain_addr <-& did_.did_domain_dns[domain_]; domain_addr = option_bystr20_value get_domain_addr;
+                get_domain_addr <-& did_.did_domain_dns[domain_]; domain_addr = option_bystr20_value get_domain_addr; ThrowIfSameAddr _this_address domain_addr;
                 msg = let m = { _tag: tag; _recipient: domain_addr; _amount: amount } in one_msg m; send msg end end end
   | Recipient addr_ =>
     ThrowIfSameAddr _this_address addr_;
@@ -177,13 +184,12 @@ procedure FetchServiceAddr( id: String )
       services[id] := addr end end
 
 transition DelegateStake(
-  username: String,
   stakeID: String,
   ssnID: String,
   amount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController username tyron;
+  IsNotPaused; VerifyController tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   FetchServiceAddr ssnID; get_ssnaddr <- services[ssnID]; ssnaddr = option_bystr20_value get_ssnaddr;
   accept; msg = let m = { _tag: "DelegateStake"; _recipient: addr; _amount: amount;
@@ -192,12 +198,11 @@ transition DelegateStake(
 transition DelegateStakeSuccessCallBack( ssnaddr: ByStr20, amount: Uint128 ) IsNotPaused end
 
 transition WithdrawStakeRewards(
-  username: String,
   stakeID: String,
   ssnID: String,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController username tyron;
+  IsNotPaused; VerifyController tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   FetchServiceAddr ssnID; get_ssnaddr <- services[ssnID]; ssnaddr = option_bystr20_value get_ssnaddr;
   msg = let m = { _tag: "WithdrawStakeRewards"; _recipient: addr; _amount: zero;
@@ -206,13 +211,12 @@ transition WithdrawStakeRewards(
 transition WithdrawStakeRewardsSuccessCallBack( ssnaddr: ByStr20, rewards: Uint128 ) IsNotPaused end  
 
 transition WithdrawStakeAmt(
-  username: String,
   stakeID: String,
   ssnID: String,
   amount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController username tyron;
+  IsNotPaused; VerifyController tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   FetchServiceAddr ssnID; get_ssnaddr <- services[ssnID]; ssnaddr = option_bystr20_value get_ssnaddr;
   msg = let m = { _tag: "WithdrawStakeAmt"; _recipient: addr; _amount: zero;
@@ -222,11 +226,10 @@ transition WithdrawStakeAmt(
 transition WithdrawStakeAmtSuccessCallBack( ssnaddr: ByStr20, amount: Uint128 ) IsNotPaused end
 
 transition CompleteWithdrawal(
-  username: String,
   stakeID: String,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController username tyron;
+  IsNotPaused; VerifyController tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   msg = let m = { _tag: "CompleteWithdrawal"; _recipient: addr; _amount: zero } in one_msg m; send msg end
 
@@ -235,14 +238,13 @@ transition CompleteWithdrawalNoUnbondedStakeCallBack( amount: Uint128 ) IsNotPau
 transition CompleteWithdrawalSuccessCallBack( amount: Uint128 ) IsNotPaused end
 
 transition ReDelegateStake(
-  username: String,
   stakeID: String,
   ssnID: String,
   tossnID: String,
   amount: Uint128,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController username tyron;
+  IsNotPaused; VerifyController tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   FetchServiceAddr ssnID; get_ssnaddr <- services[ssnID]; ssnaddr = option_bystr20_value get_ssnaddr;
   FetchServiceAddr tossnID; get_tossnaddr <- services[tossnID]; to_ssnaddr = option_bystr20_value get_tossnaddr;
@@ -254,45 +256,41 @@ transition ReDelegateStake(
 transition ReDelegateStakeSuccessCallBack( ssnaddr: ByStr20, tossn: ByStr20, amount: Uint128 ) IsNotPaused end
 
 transition RequestDelegatorSwap(
-  username: String,
   stakeID: String,
   newDelegAddr: ByStr20,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController username tyron;
+  IsNotPaused; VerifyController tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   msg = let m = { _tag: "RequestDelegatorSwap"; _recipient: addr; _amount: zero;
     new_deleg_addr: newDelegAddr } in one_msg m; send msg end
 
 (* Sent by the new delegator *)
 transition ConfirmDelegatorSwap(
-  username: String,
   stakeID: String,
   requestor: ByStr20, (* The previous delegator *)
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController username tyron;
+  IsNotPaused; VerifyController tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   msg = let m = { _tag: "ConfirmDelegatorSwap"; _recipient: addr; _amount: zero;
     requestor: requestor } in one_msg m; send msg end
 
 transition RevokeDelegatorSwap(
-  username: String,
   stakeID: String,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController username tyron;
+  IsNotPaused; VerifyController tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   msg = let m = { _tag: "RevokeDelegatorSwap"; _recipient: addr; _amount: zero } in one_msg m; send msg end
 
 (* Sent by the new delegator *)
 transition RejectDelegatorSwap(
-  username: String,
   stakeID: String,
   requestor: ByStr20, (* The previous delegator *)
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController username tyron;
+  IsNotPaused; VerifyController tyron;
   FetchServiceAddr stakeID; get_addr <- services[stakeID]; addr = option_bystr20_value get_addr;
   msg = let m = { _tag: "RejectDelegatorSwap"; _recipient: addr; _amount: zero;
     requestor: requestor } in one_msg m; send msg end

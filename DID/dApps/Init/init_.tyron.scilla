@@ -1,6 +1,6 @@
 (*
-Self-Sovereign Identity Protocol
-Copyright Tyron Mapu Community Interest Company 2022. All rights reserved.
+Self-Sovereign Identity Protocol.
+Copyright Tyron Mapu Community Interest Company 2022. All rights reserved
 You acknowledge and agree that Tyron Mapu Community Interest Company (“Tyron”) (or Tyron’s licensors) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the “Program”), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
 Subject to the limited license below, you may not (and you may not permit anyone else to) distribute, publish, copy, modify, merge, combine with another program, create derivative works of, reverse engineer, decompile or otherwise attempt to extract the source code of, the Program or any part thereof, except that you may contribute to this repository.
 You are granted a non-exclusive, non-transferable, non-sublicensable license to distribute, publish, copy, modify, merge, combine with another program or create derivative works of the Program (such resulting program, collectively, the “Resulting Program”) solely for Non-Commercial Use as long as you:
@@ -13,40 +13,9 @@ You are granted a non-exclusive, non-transferable, non-sublicensable license to 
 You will not use any trade mark, service mark, trade name, logo of Tyron or any other company or organization in a way that is likely or intended to cause confusion about the owner or authorized user of such marks, names or logos.
 If you have any questions, comments or interest in pursuing any other use cases, please reach out to us at mapu@ssiprotocol.com.*)
 
-
 scilla_version 0
 
-contract ContractOwner(
-  name: String
-  (*
-  ,xInit: ByStr20 with contract field dApp: ByStr20 with contract
-    field implementation: ByStr20 with contract
-      field utility: Map String Map String Uint128 end,
-    field dns: Map String ByStr20,
-    field did_dns: Map String ByStr20 with contract
-      field did: String,
-      field nft_username: String,
-      field controller: ByStr20,
-      field version: String,
-      field verification_methods: Map String ByStr33,
-      field services: Map String ByStr20,
-      field did_domain_dns: Map String ByStr20 end end end
-  *)
-  )
-  field nft_username: String = name
+contract Init_( init_username: String )
+  field nft_username: String = init_username
   field paused: Bool = False
   field utility: Map String Map String Uint128 = Emp String Map String Uint128
-  (*
-  field xinit: ByStr20 with contract field dApp: ByStr20 with contract
-    field implementation: ByStr20 with contract
-      field utility: Map String Map String Uint128 end,
-    field dns: Map String ByStr20,
-    field did_dns: Map String ByStr20 with contract
-      field did: String,
-      field nft_username: String,
-      field controller: ByStr20,
-      field version: String,
-      field verification_methods: Map String ByStr33,
-      field services: Map String ByStr20,
-      field did_domain_dns: Map String ByStr20 end end end = xInit
-  *)

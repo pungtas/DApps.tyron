@@ -1,22 +1,22 @@
-(* v0.12.0
-ssiDollarImpl.tyron: Self-Sovereign Identity Dollar DApp, Fungible Decentralized Stablecoin <> Implementation smart contract
+(* v0.13.0
+Self-Sovereign Identity Dollar DApp, Fungible Decentralized Stablecoin <> Implementation smart contract
 Self-Sovereign Identity Protocol
-Copyright (C) Tyron Coop Decentralized Autonomous Organization and its affiliates.
-tyron.network
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.*)
+Copyright Tyron Mapu Community Interest Company 2022. All rights reserved.
+You acknowledge and agree that Tyron Mapu Community Interest Company (“Tyron”) (or Tyron’s licensors) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the “Program”), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
+Subject to the limited license below, you may not (and you may not permit anyone else to) distribute, publish, copy, modify, merge, combine with another program, create derivative works of, reverse engineer, decompile or otherwise attempt to extract the source code of, the Program or any part thereof, except that you may contribute to this repository.
+You are granted a non-exclusive, non-transferable, non-sublicensable license to distribute, publish, copy, modify, merge, combine with another program or create derivative works of the Program (such resulting program, collectively, the “Resulting Program”) solely for Non-Commercial Use as long as you:
+1. give prominent notice (“Notice”) with each copy of the Resulting Program that the Program is used in the Resulting Program and that the Program is the copyright of Tyron; and
+2. subject the Resulting Program and any distribution, publication, copy, modification, merger therewith, combination with another program or derivative works thereof to the same Notice requirement and Non-Commercial Use restriction set forth herein.
+“Non-Commercial Use” means each use as described in clauses (1)-(3) below, as reasonably determined by Tyron in its sole discretion:
+1. personal use for research, personal study, private entertainment, hobby projects or amateur pursuits, in each case without any anticipated commercial application;
+2. use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization or government institution; or
+3. the number of monthly active users of the Resulting Program across all versions thereof and platforms globally do not exceed 10,000 at any time.
+You will not use any trade mark, service mark, trade name, logo of Tyron or any other company or organization in a way that is likely or intended to cause confusion about the owner or authorized user of such marks, names or logos.
+If you have any questions, comments or interest in pursuing any other use cases, please reach out to us at mapu@ssiprotocol.com.*)
 
 scilla_version 0
 
-import IntUtils
+import IntUtils PairUtils
 
 library SsiDollar
   let one_msg =
@@ -73,42 +73,50 @@ library SsiDollar
     end
     
   type Direction =
-    | TokenToSsi
-    | SsiToToken
+    | IntoSsi
+    | FromSsi
   
-  let tokenToSsi = TokenToSsi
-  let ssiToToken = SsiToToken
+  let intoSsi = IntoSsi
+  let fromSsi = FromSsi
   
-  let transmute: Direction -> Uint128 -> Uint128 -> Uint128 -> Option Uint128 =
+  let compute: Direction -> Uint128 -> Uint128 -> Uint128 -> Option Uint128 =
     fun( d: Direction ) => fun( a: Uint128 ) => fun( r: Uint128 ) => fun( f: Uint128) =>
     let big_a = grow a in let big_r = grow r in let big_f = grow f in
     let result = match d with
-    | TokenToSsi =>
+    | IntoSsi =>
       let a_times_r = builtin mul big_a big_r in
       builtin div a_times_r big_f
-    | SsiToToken =>
+    | FromSsi =>
       let a_div_r = builtin div big_a big_r in
       builtin mul a_div_r big_f end in
     builtin to_uint128 result
+  
+  let zil = "zil"
+  let zusdt = "zusdt"
+  let xsgd = "xsgd"
 
 contract SsiDollar(
   init_username: String,
-  init_controller: ByStr20,
   proxy: ByStr20 with contract 
     field balances: Map ByStr20 Uint128,
     field total_supply: Uint128,
     field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) end,
-  init_token: ByStr20,
-  init_community: ByStr20 with contract
-    field rate: Uint128,
-    field factor: Uint128 end,
   init: ByStr20 with contract field dApp: ByStr20 with contract
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
-      field controller: ByStr20 end end end
+      field controller: ByStr20,
+      field services: Map String ByStr20 end end end,
+  init_factor: Uint128, (*1e6*)
+  init_zildex: ByStr20 with contract
+    field pools: Map ByStr20 (Pair Uint128 Uint128) end
   )
   field nft_username: String = init_username
   field pending_username: String = ""
+  field xinit: ByStr20 with contract field dApp: ByStr20 with contract
+    field dns: Map String ByStr20,
+    field did_dns: Map String ByStr20 with contract
+      field controller: ByStr20,
+      field services: Map String ByStr20 end end end = init
 
   field pauser: String = init_username
   field paused: Bool = False
@@ -116,9 +124,12 @@ contract SsiDollar(
   field lister: String = init_username
   field blocked: Map ByStr20 Bool = Emp ByStr20 Bool
   
-  field insurance: ByStr20 = init_controller
-  field token: ByStr20 = init_token
-  field community: ByStr20 with contract field rate: Uint128, field factor: Uint128 end = init_community
+  field services: Map String ByStr20 = Emp String ByStr20
+  field zilSsiRate: Uint128 = zero
+  field factor: Uint128 = init_factor
+  field zil_dex: ByStr20 with contract
+    field pools: Map ByStr20 (Pair Uint128 Uint128) end = init_zildex (* token address -> Pair{zil_reserve, token_reserve} *)
+  field accounts: Map ByStr20 (Pair Uint128 Uint128) = Emp ByStr20 (Pair Uint128 Uint128) (* Pair{ZIL, $SI loan} per user *)
   field version: String = "$SIimpl-0.12.0" (* @todo *)
 
 procedure SupportTyron( tyron: Option Uint128 )
@@ -227,6 +238,15 @@ transition AcceptPendingUsername()
         | True => | False => e = { _exception: "$SIimpl-WrongCaller" }; throw e end;
       nft_username := current_pending end end
 
+transition UpdateFactor(
+  val: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController tyron; AmountIsNotNull val;
+  factor := val;
+  e = { _eventname: "FactorUpdated";
+    newFactor: val }; event e end
+
 transition UpdatePauser(
   username: String,
   tyron: Option Uint128
@@ -272,84 +292,169 @@ transition Unblock( addr: ByStr20 )
   e = { _eventname: "AddressUnblocked";
     address: addr;
     lister: _origin }; event e end
-    
-transition UpdateInsurance(
-  addr: ByStr20,
-  tyron: Option Uint128
-  )
-  IsNotPaused; VerifyController tyron; IsNotBlocked addr;
-  current_insurance <- insurance; ThrowIfSameAddr current_insurance addr;
-  insurance := addr;
-  e = { _eventname: "InsuranceAddressUpdated";
-    newInsurance: addr }; event e end
-
-transition UpdateToken(
-  addr: ByStr20,
-  tyron: Option Uint128
-  )
-  IsNotPaused; VerifyController tyron; IsNotBlocked addr;
-  current_addr <- token; ThrowIfSameAddr current_addr addr; token := addr;
-  e = { _eventname: "TokenAddressUpdated";
-    new_addr: addr }; event e end
-
-transition UpdateCommunity(
-  addr: ByStr20 with contract
-    field rate: Uint128,
-    field factor: Uint128 end,
-  tyron: Option Uint128
-  )
-  IsNotPaused; VerifyController tyron; IsNotBlocked addr;
-  current_addr <- community; ThrowIfSameAddr current_addr addr; community := addr;
-  e = { _eventname: "CommunityAddressUpdated";
-    new_addr: addr }; event e end
 
 procedure IsValidToSelf( addr: ByStr20 )
   verified = builtin eq addr _this_address; match verified with
     | True => | False => e = { _exception: "$SIimpl-WrongCaller" }; throw e end end
 
-transition Mint(
-  originator: ByStr20,
-  beneficiary: ByStr20,
-  amount: Uint128
+procedure FetchServiceAddr( id: String )
+  current_init <-& init.dApp; initDApp = "init";
+  get_did <-& current_init.did_dns[initDApp]; match get_did with
+    | None => e = { _exception : "$SIimpl-DidIsNull" }; throw e
+    | Some did_ =>
+      get_service <-& did_.services[id]; addr = option_bystr20_value get_service;
+      services[id] := addr end end
+
+transition UpdateZilDex(
+  addr: ByStr20 with contract
+    field pools: Map ByStr20 (Pair Uint128 Uint128) end,
+  tyron: Option Uint128
   )
-  IsNotPaused; ThrowIfNotProxy; AmountIsNotNull amount;
-  IsNotBlocked originator; IsNotBlocked beneficiary;
-  current_token <- token;
-  msg = let m = { _tag: "Burn"; _recipient: current_token; _amount: zero;
-    beneficiary: originator;
-    amount: amount
-  } in one_msg m; send msg;
-  msg_to_minter = let m = { _tag: "MintSuccessCallBack"; _recipient: originator; _amount: zero;
-    minter: originator;
-    beneficiary: originator;
-    amount: amount
-  } in one_msg m; send msg_to_minter end
-  
-transition BurnSuccessCallBack(
-  minter: ByStr20,
-  beneficiary: ByStr20,
-  amount: Uint128
-  )
-  IsValidToSelf minter;
-  current_community <- community; current_rate <-& current_community.rate; current_factor <-& current_community.factor;
-  get_dollars = transmute tokenToSsi amount current_rate current_factor; ssi_dollars = option_uint128_value get_dollars;
+  IsNotPaused; VerifyController tyron;
+  current_zildex <- zil_dex; ThrowIfSameAddr current_zildex addr;
+  zil_dex:= addr;
+  e = { _eventname: "ZilDexUpdated";
+    newZilDex: addr }; event e end
+
+procedure fetchSsiZilRate()
+  current_zildex <- zil_dex;
+  FetchServiceAddr zusdt; get_addr <- services[zusdt]; addr = option_bystr20_value get_addr;
+  current_pool <-& current_zildex.pools[addr]; match current_pool with
+    | Some pool =>
+      zil_reserve = let fst_element = @fst Uint128 Uint128 in fst_element pool;
+      usd_reserve = let snd_element = @snd Uint128 Uint128 in snd_element pool;
+        (* @todo this is for mainnet
+        let zusdt_r = snd_element pool in
+        let multiplier = Uint128 1000000 in builtin mul zusdt_r multiplier; *)
+      current_factor <- factor;
+      rate = let usdr_times_f = let num = builtin mul usd_reserve current_factor in grow num in
+        let zil_r = grow zil_reserve in let zil_in = grow _amount in
+        let divisor = builtin add zil_r zil_in in let result = builtin div usdr_times_f divisor in
+        let get_result = builtin to_uint128 result in option_uint128_value get_result;
+      zilSsiRate := rate
+    | None => e = { _exception : "$SIimpl-UnsupportedPool" }; throw e end end
+
+procedure LockZIL( originator: ByStr20 )
+  fetchSsiZilRate; current_rate <- zilSsiRate; current_factor <- factor;
+  accept; get_dollars = compute intoSsi _amount current_rate current_factor;
+  ssi_dollars = let result = option_uint128_value get_dollars in let two = Uint128 2 in builtin div result two;
+  get_account <- accounts[originator]; match get_account with
+    | Some account =>
+      zil_bal = let bal = let fst_element = @fst Uint128 Uint128 in fst_element account in builtin add bal _amount;
+      ssi_bal = let bal = let snd_element = @snd Uint128 Uint128 in snd_element account in builtin add bal ssi_dollars;
+      new_account = Pair{ Uint128 Uint128 } zil_bal ssi_bal;
+      accounts[originator] := new_account
+    | None =>
+      account = Pair{ Uint128 Uint128 } _amount ssi_dollars;
+      accounts[originator] := account end;
+  get_bal <-& proxy.balances[originator]; bal = option_uint128_value get_bal; new_bal = builtin add bal ssi_dollars;
   current_supply <-& proxy.total_supply; new_supply = builtin add current_supply ssi_dollars;
-  get_bal <-& proxy.balances[beneficiary]; bal = option_uint128_value get_bal; new_bal = builtin add bal ssi_dollars;
-  msg_to_proxy = { _tag: "TransmuteCallBack"; _recipient: proxy; _amount: zero;
-    beneficiary: beneficiary;
-    new_balance: new_bal;
-    new_supply: new_supply
+  msg_proxy = let m = { _tag: "ComputeCallBack"; _recipient: proxy; _amount: zero;
+    originator: originator;
+    newBalance: new_bal;
+    newSupply: new_supply } in one_msg m; send msg_proxy end
+
+transition AddFunds()
+  IsNotPaused;
+  get_account <- accounts[_sender]; match get_account with
+    | Some account =>
+      accept;
+      zil_bal = let bal = let fst_element = @fst Uint128 Uint128 in fst_element account in builtin add bal _amount;
+      ssi_bal = let snd_element = @snd Uint128 Uint128 in snd_element account;
+      new_account = Pair{ Uint128 Uint128 } zil_bal ssi_bal;
+      accounts[_sender] := new_account
+    | None => e = { _exception : "$SIimpl-AccountNotRegistered" }; throw e end end
+
+transition Mint(
+  addrName: String,
+  originator: ByStr20,
+  amount: Uint128
+  )
+  IsNotPaused; ThrowIfNotProxy; IsNotBlocked originator; AmountIsNotNull amount;
+  is_zil = builtin eq addrName zil; match is_zil with
+    | True => LockZIL originator
+    | False =>
+      is_zusdt = builtin eq addrName zusdt; match is_zusdt with
+        | True =>
+          FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+          msg_token = let m = { _tag: "TransferFrom"; _recipient: addr; _amount: zero;
+            from: originator;
+            to: _this_address;
+            amount: amount } in one_msg m; send msg_token;
+          ssi_dollars = amount;
+            (* @todo this is for mainnet
+            let multiplier = Uint128 1000000 in builtin mul amount multiplier;*)
+          get_bal <-& proxy.balances[originator]; bal = option_uint128_value get_bal; new_bal = builtin add bal ssi_dollars;
+          current_supply <-& proxy.total_supply; new_supply = builtin add current_supply ssi_dollars;
+          msg_proxy = let m = { _tag: "ComputeCallBack"; _recipient: proxy; _amount: zero;
+              originator: originator;
+              newBalance: new_bal;
+              newSupply: new_supply } in one_msg m; send msg_proxy
+        | False => e = { _exception : "$SIimpl-UnsupportedToken" }; throw e
+      end end end
+
+transition RecipientAcceptTransferFrom( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsNotPaused end
+transition TransferFromSuccessCallBack( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsNotPaused end
+
+procedure ReleaseZIL(
+  originator: ByStr20,
+  amount: Uint128
+  )
+  get_account <- accounts[originator]; match get_account with
+    | Some account =>
+      zil_bal = let fst_element = @fst Uint128 Uint128 in fst_element account;
+      ssi_bal = let snd_element = @snd Uint128 Uint128 in snd_element account;
+      IsSufficient amount ssi_bal;
+      delete accounts[originator];
+      msg = let m = { _tag: "AddFunds"; _recipient: originator; _amount: zil_bal } in one_msg m; send msg;
+      is_refund = let amount_ = builtin sub amount ssi_bal in uint128_gt amount_ zero; match is_refund with
+        | True =>
+          get_bal <-& proxy.balances[originator]; bal = option_uint128_value get_bal; new_bal = builtin sub bal ssi_bal;
+          current_supply <-& proxy.total_supply; new_supply = builtin sub current_supply ssi_bal;
+          msg_proxy = let m = { _tag: "ComputeCallBack"; _recipient: proxy; _amount: zero;
+            originator: originator;
+            newBalance: new_bal;
+            newSupply: new_supply
+          } in one_msg m; send msg_proxy
+        | False => end
+    | None => e = { _exception : "$SIimpl-AccountNotRegistered" }; throw e end end
+
+transition Burn(
+  addrName: String,
+  originator: ByStr20,
+  amount: Uint128
+  )
+  IsNotPaused; ThrowIfNotProxy; IsNotBlocked originator; AmountIsNotNull amount;
+  get_bal <-& proxy.balances[originator]; bal = option_uint128_value get_bal; IsSufficient bal amount; new_bal = builtin sub bal amount;
+  current_supply <-& proxy.total_supply; new_supply = builtin sub current_supply amount;
+  msg_to_proxy = { _tag: "ComputeCallBack"; _recipient: proxy; _amount: zero;
+    originator: originator;
+    newBalance: new_bal;
+    newSupply: new_supply
   };
-  msg_to_beneficiary = { _tag: "RecipientAcceptMint"; _recipient: beneficiary; _amount: zero;
-    minter: beneficiary;
-    beneficiary: beneficiary;
-    amount: ssi_dollars
-  }; msgs = two_msgs msg_to_proxy msg_to_beneficiary; send msgs;
-  e = { _eventname: "Minted";
-    beneficiary: beneficiary;
-    amount: ssi_dollars
+  msg_to_burner = { _tag: "BurnSuccessCallBack"; _recipient: originator; _amount: zero;
+    burner: originator;
+    amount: amount
+  };
+  msgs = two_msgs msg_to_proxy msg_to_burner; send msgs;
+  is_zil = builtin eq addrName zil; match is_zil with
+    | True => ReleaseZIL originator amount
+    | False =>
+      is_zusdt = builtin eq addrName zusdt; match is_zusdt with
+        | True =>
+            FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+            zusdt_dollars = amount;
+            (* @todo this is for mainnet
+            let divisor = Uint128 1000000 in builtin div amount divisor;*)
+            msg_token = let m = { _tag: "Transfer"; _recipient: addr; _amount: zero;
+              to: originator;
+              amount: zusdt_dollars } in one_msg m; send msg_token
+        | False => e = { _exception : "$SIimpl-UnsupportedToken" }; throw e end end;
+  e = { _eventname: "$SIburnt";
+    burner: originator;
+    amount: amount
   }; event e end
-  
+
 transition Transfer(
   originator: ByStr20,
   beneficiary: ByStr20,
@@ -368,8 +473,8 @@ transition Transfer(
   msg_to_proxy = { _tag: "TransferCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     beneficiary: beneficiary;
-    new_originator_bal: new_originator_bal;
-    new_beneficiary_bal: new_beneficiary_bal
+    originatorBal: new_originator_bal;
+    beneficiaryBal: new_beneficiary_bal
   };
   msg_to_originator = { _tag: "TransferSuccessCallBack"; _recipient: originator; _amount: zero;
     sender: originator;
@@ -398,7 +503,7 @@ transition IncreaseAllowance(
   msg = let m = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     spender: spender;
-    new_allowance: new_allowance
+    newAllowance: new_allowance
   } in one_msg m; send msg end
 
 transition DecreaseAllowance(
@@ -417,55 +522,8 @@ transition DecreaseAllowance(
   msg = let m = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     spender: spender;
-    new_allowance: new_allowance
+    newAllowance: new_allowance
   } in one_msg m; send msg end
-
-transition Burn(
-  originator: ByStr20,
-  beneficiary: ByStr20,
-  amount: Uint128
-  )
-  IsNotPaused; ThrowIfNotProxy; AmountIsNotNull amount;
-  none = None{ Uint128 }; VerifyController none; (* Only the Controller can origin the burn of $SI to mint the token *)
-  IsNotBlocked originator;
-  get_bal <-& proxy.balances[originator]; bal = option_uint128_value get_bal; IsSufficient bal amount;
-  current_token <- token;
-  current_community <- community; current_rate <-& current_community.rate; current_factor <-& current_community.factor;
-  get_tokens = transmute ssiToToken amount current_rate current_factor; token_amount = option_uint128_value get_tokens;
-  msg = let m = { _tag: "Mint"; _recipient: current_token; _amount: zero;
-    beneficiary: originator;
-    amount: token_amount
-  } in one_msg m; send msg;
-  current_supply <-& proxy.total_supply; new_supply = builtin sub current_supply amount;
-  new_bal = builtin sub bal amount;
-  msg_to_proxy = { _tag: "TransmuteCallBack"; _recipient: proxy; _amount: zero;
-    beneficiary: originator;
-    new_balance: new_bal;
-    new_supply: new_supply
-  };
-  msg_to_minter = { _tag: "BurnSuccessCallBack"; _recipient: originator; _amount: zero;
-    minter: originator;
-    beneficiary: originator;
-    amount: amount
-  };
-  msg_to_beneficiary = { _tag: "RecipientAcceptBurn"; _recipient: originator; _amount: zero;
-    minter: originator;
-    beneficiary: originator;
-    amount: amount
-  }; 
-  msgs = three_msgs msg_to_proxy msg_to_minter msg_to_beneficiary; send msgs;
-  e = { _eventname: "Burnt";
-    burner: originator;
-    beneficiary: originator;
-    amount: amount
-  }; event e end
-
-transition MintSuccessCallBack(
-  minter: ByStr20,
-  beneficiary: ByStr20,
-  amount: Uint128
-  )
-  IsValidToSelf minter end
 
 transition TransferFrom(
   originator: ByStr20,
@@ -489,13 +547,13 @@ transition TransferFrom(
   msg_to_proxy_balances = { _tag: "TransferCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     beneficiary: beneficiary;
-    new_originator_bal: new_originator_bal;
-    new_beneficiary_bal: new_beneficiary_bal
+    originatorBal: new_originator_bal;
+    beneficiaryBal: new_beneficiary_bal
   };
   msg_to_proxy_allowance = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
     originator: originator;
     spender: spender;
-    new_allowance: new_allowance
+    newAllowance: new_allowance
   };
   msg_to_spender = { _tag: "TransferFromSuccessCallBack"; _recipient: spender; _amount: zero;
     initiator: spender;
@@ -509,16 +567,3 @@ transition TransferFrom(
     recipient: beneficiary;
     amount: amount
   }; msgs = four_msgs msg_to_proxy_balances msg_to_proxy_allowance msg_to_spender msg_to_beneficiary; send msgs end
-
-transition Recalibrate(
-  val: Uint128,
-  tyron: Option Uint128
-  )
-  IsNotPaused; VerifyController tyron; current_insurance <- insurance;
-  get_insurance_bal <-& proxy.balances[current_insurance]; insurance_bal = option_uint128_value get_insurance_bal;
-  new_insurance_bal = builtin sub insurance_bal val;
-  msg = let m = { _tag: "TransferCallBack"; _recipient: proxy; _amount: zero;
-    originator: current_insurance;
-    beneficiary: current_insurance;
-    originatorBal: new_insurance_bal;
-    beneficiaryBal: new_insurance_bal } in one_msg m; send msg end
