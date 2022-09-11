@@ -1,6 +1,6 @@
 # TYRON fungible token
 
-## I. Abstract
+## I. Summary
 
 TYRON is the fungible token for the **TYRON Governing & Profit-Sharing Community** (TYRON Community DApp), which manages its liquidity to ensure its decentralized exchange. You can use TYRON tokens to join the TYRON Community DApp, but without entitling you as a holder of TYRON to receive payments of any kind from any person (meaning that it is not a security). 
 

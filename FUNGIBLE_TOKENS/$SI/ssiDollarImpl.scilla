@@ -293,7 +293,7 @@ transition Unblock( addr: ByStr20 )
     address: addr;
     lister: _origin }; event e end
 
-procedure IsValidToSelf( addr: ByStr20 )
+procedure IsValidToSelf( addr: ByStr20 ) (**@todo**)
   verified = builtin eq addr _this_address; match verified with
     | True => | False => e = { _exception: "$SIimpl-WrongCaller" }; throw e end end
 
@@ -316,7 +316,7 @@ transition UpdateZilDex(
   e = { _eventname: "ZilDexUpdated";
     newZilDex: addr }; event e end
 
-procedure fetchSsiZilRate()
+procedure FetchSsiZilRate()
   current_zildex <- zil_dex;
   FetchServiceAddr zusdt; get_addr <- services[zusdt]; addr = option_bystr20_value get_addr;
   current_pool <-& current_zildex.pools[addr]; match current_pool with
@@ -335,7 +335,7 @@ procedure fetchSsiZilRate()
     | None => e = { _exception : "$SIimpl-UnsupportedPool" }; throw e end end
 
 procedure LockZIL( originator: ByStr20 )
-  fetchSsiZilRate; current_rate <- zilSsiRate; current_factor <- factor;
+  FetchSsiZilRate; current_rate <- zilSsiRate; current_factor <- factor;
   accept; get_dollars = compute intoSsi _amount current_rate current_factor;
   ssi_dollars = let result = option_uint128_value get_dollars in let two = Uint128 2 in builtin div result two;
   get_account <- accounts[originator]; match get_account with

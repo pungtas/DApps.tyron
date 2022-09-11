@@ -1,5 +1,5 @@
-(* v3.0.0
-token.tyron: Fungible Token DApp <> Proxy smart contract
+(* v3.0.9
+TYRON Fungible Token DApp <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2022. All rights reserved.
 You acknowledge and agree that Tyron Mapu Community Interest Company (“Tyron”) (or Tyron’s licensors) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the “Program”), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
@@ -22,20 +22,6 @@ library FungibleToken
   let one_msg =
     fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
-
-  type Error =
-    | CodeWrongStatus
-    | CodeWrongCaller
-    | CodeIsNull
-    | CodeSameAddress
-
-  let make_error = fun( error: Error ) =>
-    let result = match error with
-    | CodeWrongStatus            => Int32 0
-    | CodeWrongCaller            => Int32 -1
-    | CodeIsNull                 => Int32 -2
-    | CodeSameAddress            => Int32 -3
-    end in { _exception: "Error"; code: result }
   
   let zero = Uint128 0
   
@@ -104,34 +90,31 @@ contract FungibleToken(
   field total_supply: Uint128 = init_supply
   field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
   field version: String = "token---3.0.0" (* @todo update *)
-  
-procedure ThrowError( err: Error )
-  e = make_error err; throw e end
-  
+
 procedure VerifyCaller( caller: Caller )
   current_impl <- implementation;
   is_paused <-& current_impl.paused; match is_paused with
-  | False => | True => err = CodeWrongStatus; ThrowError err end;
+  | False => | True => e = { _exception: "TYRONproxy-WrongStatus" }; throw e end;
   match caller with
   | Controller =>
       current_username <-& current_impl.nft_username;
       init <-& current_impl.xinit; current_init <-& init.dApp;
       get_did <-& current_init.did_dns[current_username]; match get_did with
-      | None => err = CodeIsNull; ThrowError err
+      | None => e = { _exception: "TYRONproxy-DidIsNull" }; throw e
       | Some did_ =>
           current_controller <-& did_.controller;
           verified = builtin eq _origin current_controller; match verified with
-          | True => | False => err = CodeWrongCaller; ThrowError err end end
+          | True => | False => e = { _exception: "TYRONproxy-WrongCaller" }; throw e end end
   | Implementation =>
       verified = builtin eq _sender current_impl; match verified with
-      | True => | False => err = CodeWrongCaller; ThrowError err end end end
+      | True => | False => e = { _exception: "TYRONproxy-WrongCaller" }; throw e end end end
 
 procedure ThrowIfSameAddr(
   a: ByStr20,
   b: ByStr20
   )
   is_self = builtin eq a b; match is_self with
-    | False => | True => err = CodeSameAddress; ThrowError err end end
+    | False => | True => e = { _exception: "$SIproxy-SameAddress" }; throw e end end
 
 transition UpdateImplementation(
   addr: ByStr20 with contract

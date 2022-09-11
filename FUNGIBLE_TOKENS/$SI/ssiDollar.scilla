@@ -1,5 +1,5 @@
-(* v3.1.0
-ssiDollar.tyron: Self-Sovereign Identity Dollar DApp, Fungible Decentralized Stablecoin <> Proxy smart contract
+(* v3.1.1
+Self-Sovereign Identity Dollar DApp, Fungible Decentralized Stablecoin <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2022. All rights reserved.
 You acknowledge and agree that Tyron Mapu Community Interest Company (“Tyron”) (or Tyron’s licensors) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the “Program”), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
@@ -76,7 +76,7 @@ contract SsiDollar(
 procedure VerifyCaller( caller: Caller )
   current_impl <- implementation;
   is_paused <-& current_impl.paused; match is_paused with
-    | False => | True => e = { _exception: "$SIproxy-WrongStatus" } end;
+    | False => | True => e = { _exception: "$SIproxy-WrongStatus" }; throw e end;
   match caller with
   | Controller =>
     current_username <-& current_impl.nft_username;
