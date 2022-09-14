@@ -1,5 +1,5 @@
 (* v0.9.0
-zilstake.tyron: $ZIL Staking Wallet, DID Domain DApp <> NFT Username DNS
+ZILxWallet: $ZIL Staking Smart Contract Wallet <> NFT Domain Name System
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2022. All rights reserved.
 You acknowledge and agree that Tyron Mapu Community Interest Company (“Tyron”) (or Tyron’s licensors) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the “Program”), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
@@ -19,7 +19,7 @@ scilla_version 0
 import PairUtils BoolUtils
 
 library ZilStakingWallet
-   let one_msg =
+  let one_msg =
     fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
   
@@ -129,8 +129,7 @@ transition AcceptPendingUsername()
       nft_username := current_pending; pending_username := null end;
   Timestamp end
   
-transition Pause(
-  tyron: Option Uint128 )
+transition Pause( tyron: Option Uint128 )
   IsNotPaused; VerifyController tyron; paused := true;
   e = { _eventname: "DidDomainPaused";
     pauser: _sender }; event e;

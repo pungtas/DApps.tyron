@@ -78,7 +78,13 @@ library SsiDollar
   
   let intoSsi = IntoSsi
   let fromSsi = FromSsi
-  
+
+  type Token =
+    | Zil
+    | Stablecoin of String
+    | Tyron
+    | ZRC2 of String
+
   let compute: Direction -> Uint128 -> Uint128 -> Uint128 -> Option Uint128 =
     fun( d: Direction ) => fun( a: Uint128 ) => fun( r: Uint128 ) => fun( f: Uint128) =>
     let big_a = grow a in let big_r = grow r in let big_f = grow f in
@@ -91,6 +97,7 @@ library SsiDollar
       builtin mul a_div_r big_f end in
     builtin to_uint128 result
   
+  let tyron = "tyron"
   let zil = "zil"
   let zusdt = "zusdt"
   let xsgd = "xsgd"
@@ -107,6 +114,8 @@ contract SsiDollar(
       field controller: ByStr20,
       field services: Map String ByStr20 end end end,
   init_factor: Uint128, (*1e6*)
+  init_community: ByStr20 with contract
+    field rate: Uint128 end,
   init_zildex: ByStr20 with contract
     field pools: Map ByStr20 (Pair Uint128 Uint128) end
   )
@@ -127,10 +136,12 @@ contract SsiDollar(
   field services: Map String ByStr20 = Emp String ByStr20
   field zilSsiRate: Uint128 = zero
   field factor: Uint128 = init_factor
+  field tyron_community: ByStr20 with contract
+    field rate: Uint128 end = init_community
   field zil_dex: ByStr20 with contract
     field pools: Map ByStr20 (Pair Uint128 Uint128) end = init_zildex (* token address -> Pair{zil_reserve, token_reserve} *)
   field accounts: Map ByStr20 (Pair Uint128 Uint128) = Emp ByStr20 (Pair Uint128 Uint128) (* Pair{ZIL, $SI loan} per user *)
-  field version: String = "$SIimpl-0.12.0" (* @todo *)
+  field version: String = "$SIimpl-0.13.0" (* @todo *)
 
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
@@ -305,6 +316,17 @@ procedure FetchServiceAddr( id: String )
       get_service <-& did_.services[id]; addr = option_bystr20_value get_service;
       services[id] := addr end end
 
+transition UpdateCommunity(
+  addr: ByStr20 with contract
+    field rate: Uint128 end,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController tyron;
+  current_community <- tyron_community; ThrowIfSameAddr current_community addr;
+  tyron_community := addr;
+  e = { _eventname: "CommunityUpdated";
+    newCommunity: addr }; event e end
+
 transition UpdateZilDex(
   addr: ByStr20 with contract
     field pools: Map ByStr20 (Pair Uint128 Uint128) end,
@@ -366,17 +388,17 @@ transition AddFunds()
     | None => e = { _exception : "$SIimpl-AccountNotRegistered" }; throw e end end
 
 transition Mint(
-  addrName: String,
+  addrName: Token,
   originator: ByStr20,
   amount: Uint128
   )
   IsNotPaused; ThrowIfNotProxy; IsNotBlocked originator; AmountIsNotNull amount;
-  is_zil = builtin eq addrName zil; match is_zil with
-    | True => LockZIL originator
-    | False =>
-      is_zusdt = builtin eq addrName zusdt; match is_zusdt with
+  match addrName with
+  | Zil => LockZIL originator
+  | Stablecoin coin =>
+      is_zusdt = builtin eq coin zusdt; match is_zusdt with
         | True =>
-          FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+          FetchServiceAddr coin; get_addr <- services[coin]; addr = option_bystr20_value get_addr;
           msg_token = let m = { _tag: "TransferFrom"; _recipient: addr; _amount: zero;
             from: originator;
             to: _this_address;
@@ -390,8 +412,45 @@ transition Mint(
               originator: originator;
               newBalance: new_bal;
               newSupply: new_supply } in one_msg m; send msg_proxy
-        | False => e = { _exception : "$SIimpl-UnsupportedToken" }; throw e
-      end end end
+        | False => e = { _exception : "$SIimpl-UnsupportedStablecoin" }; throw e end
+  | Tyron =>
+      FetchServiceAddr tyron; get_addr <- services[tyron]; addr = option_bystr20_value get_addr;
+      msg = let m = { _tag: "Burn"; _recipient: addr; _amount: zero;
+        beneficiary: originator;
+        amount: amount
+      } in one_msg m; send msg;
+      msg_to_minter = let m = { _tag: "MintSuccessCallBack"; _recipient: originator; _amount: zero;
+        minter: originator;
+        beneficiary: originator;
+        amount: amount
+      } in one_msg m; send msg_to_minter
+  | ZRC2 coin =>
+  end end
+
+transition BurnSuccessCallBack(
+  minter: ByStr20,
+  beneficiary: ByStr20,
+  amount: Uint128
+  )
+  IsValidToSelf minter;
+  current_community <- tyron_community; current_rate <-& current_community.rate; current_factor <- factor;
+  get_dollars = compute intoSsi amount current_rate current_factor; ssi_dollars = option_uint128_value get_dollars;
+  current_supply <-& proxy.total_supply; new_supply = builtin add current_supply ssi_dollars;
+  get_bal <-& proxy.balances[beneficiary]; bal = option_uint128_value get_bal; new_bal = builtin add bal ssi_dollars;
+  msg_to_proxy = { _tag: "ComputeCallBack"; _recipient: proxy; _amount: zero;
+    originator: beneficiary;
+    new_balance: new_bal;
+    new_supply: new_supply
+  };
+  msg_to_beneficiary = { _tag: "RecipientAcceptMint"; _recipient: beneficiary; _amount: zero;
+    minter: beneficiary;
+    beneficiary: beneficiary;
+    amount: ssi_dollars
+  }; msgs = two_msgs msg_to_proxy msg_to_beneficiary; send msgs;
+  e = { _eventname: "Minted";
+    beneficiary: beneficiary;
+    amount: ssi_dollars
+  }; event e end
 
 transition RecipientAcceptTransferFrom( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsNotPaused end
 transition TransferFromSuccessCallBack( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsNotPaused end
@@ -420,7 +479,7 @@ procedure ReleaseZIL(
     | None => e = { _exception : "$SIimpl-AccountNotRegistered" }; throw e end end
 
 transition Burn(
-  addrName: String,
+  addrName: Token,
   originator: ByStr20,
   amount: Uint128
   )
@@ -437,19 +496,28 @@ transition Burn(
     amount: amount
   };
   msgs = two_msgs msg_to_proxy msg_to_burner; send msgs;
-  is_zil = builtin eq addrName zil; match is_zil with
-    | True => ReleaseZIL originator amount
-    | False =>
-      is_zusdt = builtin eq addrName zusdt; match is_zusdt with
+  match addrName with
+  | Zil => ReleaseZIL originator amount
+  | Stablecoin coin =>
+      is_zusdt = builtin eq coin zusdt; match is_zusdt with
         | True =>
-            FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+            FetchServiceAddr coin; get_addr <- services[coin]; addr = option_bystr20_value get_addr;
             zusdt_dollars = amount;
             (* @todo this is for mainnet
             let divisor = Uint128 1000000 in builtin div amount divisor;*)
             msg_token = let m = { _tag: "Transfer"; _recipient: addr; _amount: zero;
               to: originator;
               amount: zusdt_dollars } in one_msg m; send msg_token
-        | False => e = { _exception : "$SIimpl-UnsupportedToken" }; throw e end end;
+        | False => e = { _exception : "$SIimpl-UnsupportedStablecoin" }; throw e end
+  | Tyron =>
+      current_community <- tyron_community; current_rate <-& current_community.rate; current_factor <- factor;
+      get_tyron = compute fromSsi amount current_rate current_factor; tyron_amount = option_uint128_value get_tyron;
+      FetchServiceAddr tyron; get_addr <- services[tyron]; addr = option_bystr20_value get_addr;
+      msg = let m = { _tag: "Mint"; _recipient: addr; _amount: zero;
+        beneficiary: originator;
+        amount: amount
+      } in one_msg m; send msg
+  | ZRC2 coin => end;
   e = { _eventname: "$SIburnt";
     burner: originator;
     amount: amount

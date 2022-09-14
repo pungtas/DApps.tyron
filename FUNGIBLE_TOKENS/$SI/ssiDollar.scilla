@@ -1,4 +1,4 @@
-(* v3.1.1
+(* v1.0.0
 Self-Sovereign Identity Dollar DApp, Fungible Decentralized Stablecoin <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2022. All rights reserved.
@@ -113,20 +113,17 @@ transition UpdateImplementation(
 
 transition Mint(
   addrName: String,
-  beneficiary: ByStr20,
   amount: Uint128
   )
   current_impl <- implementation;
-  msg = let m = { _tag: "Mint"; _recipient: current_impl; _amount: zero;
+  accept; msg = let m = { _tag: "Mint"; _recipient: current_impl; _amount: _amount;
     addrName: addrName;
     originator: _sender;
-    beneficiary: beneficiary;
     amount: amount
   } in one_msg m; send msg end
 
 transition Burn(
   addrName: String,
-  beneficiary: Uint128, 
   amount: Uint128
   )
   current_impl <- implementation;
@@ -134,17 +131,16 @@ transition Burn(
     _tag: "Burn"; _recipient: current_impl; _amount: zero;
     addrName: addrName;
     originator: _sender;
-    beneficiary: beneficiary;
     amount: amount
   } in one_msg m; send msg end
 
-transition TransmuteCallBack(
-  beneficiary: ByStr20,
+transition ComputeCallBack(
+  originator: ByStr20,
   newBalance: Uint128,
   newSupply: Uint128
   )
   VerifyCaller implementation_;
-  balances[beneficiary] := newBalance;
+  balances[originator] := newBalance;
   total_supply := newSupply end
 
 transition Transfer(
