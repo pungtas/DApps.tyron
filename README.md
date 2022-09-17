@@ -1,6 +1,6 @@
 Welcome to the open-source ```.tyron``` smart contracts, which are the core of the [Self-Sovereign Identity Protocol](https://www.ssiprotocol.com). They are in active development, and you can find them in their corresponding folders:
 
-- [did.tyron](./DID/did.tyron.scilla): W3C tyronZIL Decentralized Identifier DApp
+- [tyronZIL](./DID/tyronZIL.scilla): TYRON Decentralized Identifier (DID) based on the [tyronZIL W3C DID Method](https://tyronzil.com)
 
 - xWallets (DID dApps):
 
