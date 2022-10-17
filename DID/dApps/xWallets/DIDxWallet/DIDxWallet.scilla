@@ -1,4 +1,4 @@
-(* v5.7.0
+(* v5.8.0
 DIDxWallet: W3C Decentralized Identifier Smart Contract Wallet
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2022. All rights reserved.
@@ -108,7 +108,7 @@ contract DIDxWallet(
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
   field did_status: DidStatus = Created
-  field version: String = "DIDxWALLET_5.7.0" (* @todo *)
+  field version: String = "DIDxWALLET_5.8.0" (* @todo *)
   
   (* Verification methods @key: key purpose @value: public DID key *)
   field verification_methods: Map String ByStr33 = did_methods
@@ -224,10 +224,6 @@ procedure VerifySignature(
   is_right_signature = builtin schnorr_verify did_key signedData signature; match is_right_signature with
     | True => | False => e = { _exception: "DIDxWallet-WrongSignature" }; throw e end end
 
-procedure ConcatGuardians( id: ByStr32 )
-  ghash <- did_hash; ghash_ = let h = builtin to_bystr id in builtin concat ghash h;
-  did_hash := ghash_ end
-
 procedure SaveGuardians( id: ByStr32 )
   repeated <- exists social_guardians[id]; match repeated with
     | True => e = { _exception: "DIDxWallet-SameGuardianId" }; throw e
@@ -235,24 +231,32 @@ procedure SaveGuardians( id: ByStr32 )
 
 transition ConfigureSocialRecovery(
   guardians: List ByStr32,
-  sig: ByStr64,
   tyron: Option Uint128
   )
-  current_status <- did_status; match current_status with
-    | Created => | Recovered => | Updated =>
-    | _ => e = { _exception: "DIDxWallet-WrongStatus" }; throw e end;
-  VerifyController tyron; length = let list_length = @list_length ByStr32 in list_length guardians;
+  IsOperational; VerifyController tyron;
+  length = let list_length = @list_length ByStr32 in list_length guardians;
   is_ok = uint32_ge length three; match is_ok with
     | False => e = { _exception: "DIDxWallet-InsufficientAmount" }; throw e
     | True =>
-      forall guardians ConcatGuardians;
-      ghash <- did_hash; VerifySignature update ghash sig;
-      social_guardians := empty_guardians; forall guardians SaveGuardians;
+      forall guardians SaveGuardians;
       is_three = builtin eq length three;
       min = match is_three with
         | True => three
         | False => let div_ = builtin div length two in builtin add div_ one end;
-      counter := min; did_hash := zeroByStr end;
+      counter := min end;
+  Timestamp end
+
+procedure RemoveGuardian( id: ByStr32 )
+  is_guardian <- exists social_guardians[id]; match is_guardian with
+    | True => delete social_guardians[id]
+    | False => e = { _exception: "DIDxWallet-RemoveNoGuardian" }; throw e end end
+
+transition RemoveGuardians(
+  guardians: List ByStr32,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyController tyron;
+  forall guardians RemoveGuardian;
   Timestamp end
 
 transition Lock(
@@ -406,8 +410,9 @@ procedure VerifyDocument(
   document: List Document,
   signature: Option ByStr64
   )
-  get_update_key <- verification_methods[update]; match get_update_key with
-  | None => | Some key => 
+  get_update_key <- verification_methods[update]; update_key = option_bystr33_value get_update_key;
+  is_null = builtin eq update_key zeroByStr33; match is_null with
+  | True => | False => 
     forall document HashDocument; doc_hash <- did_hash;
     sig = option_bystr64_value signature;
     VerifySignature update doc_hash sig end;
