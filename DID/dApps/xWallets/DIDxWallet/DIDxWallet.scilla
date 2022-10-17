@@ -1,4 +1,4 @@
-(* v5.8.0
+(* v5.9.0
 DIDxWallet: W3C Decentralized Identifier Smart Contract Wallet
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2022. All rights reserved.
@@ -87,13 +87,18 @@ library DIDxWallet
     | NftUsername of String String (* username & domain *)
     | Recipient of ByStr20
 
-contract DIDxWallet(
+contract DIDxWALLET(
   init_controller: ByStr20,
   init: ByStr20 with contract field dApp: ByStr20 with contract
     field implementation: ByStr20 with contract
       field utility: Map String Map String Uint128 end,
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
+      field controller: ByStr20,
+      field verification_methods: Map String ByStr33,
+      field services: Map String ByStr20,
+      field did_domain_dns: Map String ByStr20 end,
+    field did_records: Map ByStr32 ByStr20 with contract
       field controller: ByStr20,
       field verification_methods: Map String ByStr33,
       field services: Map String ByStr20,
@@ -108,7 +113,7 @@ contract DIDxWallet(
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
   field did_status: DidStatus = Created
-  field version: String = "DIDxWALLET_5.8.0" (* @todo *)
+  field version: String = "DIDxWALLET_5.9.0" (* @todo *)
   
   (* Verification methods @key: key purpose @value: public DID key *)
   field verification_methods: Map String ByStr33 = did_methods
@@ -229,7 +234,7 @@ procedure SaveGuardians( id: ByStr32 )
     | True => e = { _exception: "DIDxWallet-SameGuardianId" }; throw e
     | False => true = True; social_guardians[id] := true end end
 
-transition ConfigureSocialRecovery(
+transition AddGuardians(
   guardians: List ByStr32,
   tyron: Option Uint128
   )
@@ -274,24 +279,23 @@ transition Lock(
         | True => SupportTyron tyron; locked = Locked; did_status := locked end end;
   Timestamp end
 
-procedure VerifySocialRecovery( proof: Pair String ByStr64 )
-  guardian_name = let fst_element = @fst String ByStr64 in fst_element proof; hash = builtin sha256hash guardian_name;
-  guardian_sig = let snd_element = @snd String ByStr64 in snd_element proof;
-  is_valid <- exists social_guardians[hash]; match is_valid with
+procedure VerifySocialRecovery( proof: Pair ByStr32 ByStr64 )
+  guardian = let fst_element = @fst ByStr32 ByStr64 in fst_element proof;
+  guardian_sig = let snd_element = @snd ByStr32 ByStr64 in snd_element proof;
+  is_valid <- exists social_guardians[guardian]; match is_valid with
     | False => e = { _exception: "DIDxWallet-WrongCaller" }; throw e
     | True =>
       current_init <-& init.dApp;
-      get_did <-& current_init.did_dns[guardian_name]; match get_did with
+      get_did <-& current_init.did_records[guardian]; match get_did with
         | None => e = { _exception: "DIDxWallet-DidIsNull" }; throw e
         | Some did_ =>
           get_did_key <-& did_.verification_methods[recovery]; did_key = option_bystr33_value get_did_key; signed_data <- signed_addr;
           is_right_signature = builtin schnorr_verify did_key signed_data guardian_sig; match is_right_signature with
-            | False => | True => 
-              counter_ <- counter; add_ = builtin add counter_ one; counter := add_ end end end end
+            | False => | True => counter_ <- counter; add_ = builtin add counter_ one; counter := add_ end end end end
 
 transition DidSocialRecovery( 
   addr: ByStr20,
-  signatures: List( Pair String ByStr64 ),
+  signatures: List( Pair ByStr32 ByStr64 ),
   tyron: Option Uint128
   )
   current_status <- did_status; match current_status with
@@ -299,13 +303,12 @@ transition DidSocialRecovery(
   | _ => end;
   current_controller <- controller; ThrowIfSameAddr current_controller addr;
   signed_data = builtin to_bystr addr; signed_addr := signed_data;
-  sig = let list_length = @list_length( Pair String ByStr64 ) in list_length signatures;
+  sig = let list_length = @list_length( Pair ByStr32 ByStr64 ) in list_length signatures;
   min <- counter; is_ok = uint32_ge sig min;
   match is_ok with
   | False => e = { _exception: "DIDxWallet-InsufficientAmount" }; throw e
   | True =>
-    counter := zero_;
-    forall signatures VerifySocialRecovery;
+    counter := zero_; forall signatures VerifySocialRecovery;
     counter_ <- counter; is_ok_ = uint32_ge counter_ min; match is_ok_ with
       | False => e = { _exception: "DIDxWallet-WrongSignature" }; throw e
       | True =>
