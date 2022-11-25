@@ -1,4 +1,4 @@
-(* v3.5.0
+(* v3.6.0
 INIT DAPP: SSI Initialization & DNS <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2022. All rights reserved.
@@ -18,8 +18,8 @@ scilla_version 0
 
 library Init
   let one_msg =
-    fun( msg: Message ) =>
-    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+  fun( msg: Message ) =>
+  let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
   type Caller =
     | Controller
@@ -27,12 +27,12 @@ library Init
   
   let controller_ = Controller
   let implementation_ = Implementation
-  let donateDApp = "donate"
-  let donateAddr = 0xc88ab766cdbe10e5961026633ad67c57f2e4aaf1   (* @todo *)
+  let donateId = "donate"
+  let donateAddr = 0xc88ab766cdbe10e5961026633ad67c57f2e4aaf1   (* @xalkan *)
 
 contract Init(
-  name: String,
-  nameDid: ByStr20 with contract
+  initial_contract_owner: String,
+  initialContractOwnerDid: ByStr20 with contract
     field did: String,
     field nft_username: String,
     field controller: ByStr20,
@@ -64,7 +64,7 @@ contract Init(
     field utility: Map String Map String Uint128 end = init_
 
   (* DNS records @key: NFT Username @value: address *)
-  field dns: Map String ByStr20 = let map = builtin put initDns name nameDid in builtin put map donateDApp donateAddr
+  field dns: Map String ByStr20 = builtin put initDns donateId donateAddr
   field did_dns: Map String ByStr20 with contract
     field did: String,
     field nft_username: String,
@@ -74,33 +74,32 @@ contract Init(
     field services: Map String ByStr20,
     field social_guardians: Map ByStr32 Bool,
     field did_domain_dns: Map String ByStr20,
-    field deadline: Uint128 end = let map = builtin put initDidDns name nameDid in builtin put map donateDApp nameDid
-
-  field version: String = "init----3.5.0" (* @todo *)
+    field deadline: Uint128 end = builtin put initDidDns donateId initialContractOwnerDid
+  field version: String = "INITDApp_v3.6.0" (* @xalkan *)
 
 procedure VerifyCaller( caller: Caller )
   current_impl <- implementation;
   is_paused <-& current_impl.paused; match is_paused with
-  | False => | True => e = { _exception : "init.tyron-WrongStatus" }; throw e end;
+    | False => | True => e = { _exception : "INITDApp-WrongStatus" }; throw e end;
   match caller with
   | Controller =>
-      current_username <-& current_impl.nft_username;
-      get_did <- did_dns[current_username]; match get_did with
-      | None => e = { _exception : "init.tyron-DidIsNull" }; throw e
-      | Some did_ =>
-          current_controller <-& did_.controller;
-          verified = builtin eq _origin current_controller; match verified with
-          | True => | False => e = { _exception : "init.tyron-WrongCaller/Controller" }; throw e end end
+    current_username <-& current_impl.nft_username;
+    get_did <- did_dns[current_username]; match get_did with
+    | None => e = { _exception : "INITDApp-DidIsNull" }; throw e
+    | Some did_ =>
+      current_controller <-& did_.controller;
+      verified = builtin eq _origin current_controller; match verified with
+        | True => | False => e = { _exception : "INITDApp-WrongCaller/Controller" }; throw e end end
   | Implementation =>
-      verified = builtin eq _sender current_impl; match verified with
-      | True => | False => e = { _exception : "init.tyron-WrongCaller/Implementation" }; throw e end end end
+    verified = builtin eq _sender current_impl; match verified with
+      | True => | False => e = { _exception : "INITDApp-WrongCaller/Implementation" }; throw e end end end
 
 procedure ThrowIfSameAddr(
   a: ByStr20,
   b: ByStr20
   )
   is_self = builtin eq a b; match is_self with
-  | False => | True => e = { _exception : "init.tyron-SameAddress" }; throw e end end
+    | False => | True => e = { _exception : "INITDApp-SameAddress" }; throw e end end
 
 transition UpdateImplementation(
   addr: ByStr20 with contract
@@ -117,9 +116,10 @@ transition UpdateImplementation(
     field deadline: Uint128 end
   )
   VerifyCaller controller_; current_impl <- implementation; ThrowIfSameAddr current_impl addr;
-  implementation := addr; initDApp = "init"; dns[initDApp] := addr; did_dns[initDApp] := addr;
+  implementation := addr; initId = "init"; dns[initId] := addr; did_dns[initId] := addr;
+  initHash = let hash = builtin sha256hash initId in builtin to_string hash; dns[initHash] := addr; did_dns[initHash] := addr;
   e = { _eventname: "ImplementationUpdated";
-    newImplementation: addr }; event e end
+  newImplementation: addr }; event e end
 
 transition NftUsernameCallBack(
   username: String,

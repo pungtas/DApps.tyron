@@ -1,4 +1,4 @@
-(* v0.10.0
+(* v0.10.1
 ZILxWALLET: $ZIL Staking Smart Contract Wallet <> NFT Domain Name System
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2022. All rights reserved.
@@ -60,7 +60,7 @@ contract ZILxWallet(
   (* A monotonically increasing number representing the amount of transactions that have taken place *)
   field tx_number: Uint128 = zero
   field services: Map String ByStr20 = Emp String ByStr20
-  field version: String = "ZILxWALLET_0.10.0" (* @todo *)
+  field version: String = "ZILxWALLET_0.10.1" (* @todo *)
 
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
@@ -72,12 +72,12 @@ procedure SupportTyron( tyron: Option Uint128 )
 procedure VerifyController( tyron: Option Uint128 )
   current_username <- nft_username; current_init <-& init.dApp;
   get_did <-& current_init.did_dns[current_username]; match get_did with
-  | None => e = { _exception : "zilstake.tyron-DidIsNull" }; throw e
+  | None => e = { _exception : "ZILxWallet-DidIsNull" }; throw e
   | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
       | True => SupportTyron tyron
-      | False => e = { _exception : "zilstake.tyron-WrongCaller" }; throw e end end end
+      | False => e = { _exception : "ZILxWallet-WrongCaller" }; throw e end end end
 
 procedure Timestamp()
   latest_tx_number <- tx_number; new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor;
@@ -88,22 +88,22 @@ procedure ThrowIfSameAddr(
   b: ByStr20
   )
   is_self = builtin eq a b; match is_self with
-    | False => | True => e = { _exception : "zilstake.tyron-SameAddress" }; throw e end end
+    | False => | True => e = { _exception : "ZILxWallet-SameAddress" }; throw e end end
 
 procedure ThrowIfSameName(
   a: String,
   b: String
   )
   is_same = builtin eq a b; match is_same with
-    | False => | True => e = { _exception: "zilstake.tyron-SameUsername" }; throw e end end
+    | False => | True => e = { _exception: "ZILxWallet-SameUsername" }; throw e end end
 
 procedure IsNotPaused()
   is_paused <- paused; match is_paused with
-    | False => | True => e = { _exception : "zilstake.tyron-WrongStatus" }; throw e end end
+    | False => | True => e = { _exception : "ZILxWallet-WrongStatus" }; throw e end end
   
 procedure IsPaused()
   is_paused <- paused; match is_paused with
-    | True => | False => e = { _exception : "zilstake.tyron-WrongStatus" }; throw e end end
+    | True => | False => e = { _exception : "ZILxWallet-WrongStatus" }; throw e end end
 
 transition UpdateUsername(
   username: String,
@@ -113,19 +113,19 @@ transition UpdateUsername(
   current_username <- nft_username; ThrowIfSameName current_username username;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[username]; match get_did with
-    | Some did_ => SupportTyron tyron; pending_username := username
-    | None => e = { _exception: "zilstake.tyron-DidIsNull" }; throw e end;
+    | Some did_ => pending_username := username
+    | None => e = { _exception: "ZILxWallet-DidIsNull" }; throw e end;
   Timestamp end
 
 transition AcceptPendingUsername()
   IsNotPaused; current_pending <- pending_username;
   current_init <-& init.dApp;
   get_did <-& current_init.did_dns[current_pending]; match get_did with
-    | None => e = { _exception: "zilstake.tyron-DidIsNull" }; throw e
+    | None => e = { _exception: "ZILxWallet-DidIsNull" }; throw e
     | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
-        | True => | False => e = { _exception: "zilstake.tyron-WrongCaller" }; throw e end;
+        | True => | False => e = { _exception: "ZILxWallet-WrongCaller" }; throw e end;
       nft_username := current_pending; pending_username := null end;
   Timestamp end
   
@@ -162,7 +162,7 @@ transition SendFunds(
         msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
       | False =>
         get_did <-& current_init.did_dns[username_]; match get_did with
-          | None => e = { _exception : "zilstake.tyron-DidIsNull" }; throw e
+          | None => e = { _exception : "ZILxWallet-DidIsNull" }; throw e
           | Some did_ =>
             is_did = builtin eq domain_ did; match is_did with
               | True => ThrowIfSameAddr _this_address did_; msg = let m = { _tag: tag; _recipient: did_; _amount: amount } in one_msg m; send msg
@@ -177,7 +177,7 @@ transition SendFunds(
 procedure FetchServiceAddr( id: String )
   current_init <-& init.dApp; initDApp = "init";
   get_did <-& current_init.did_dns[initDApp]; match get_did with
-    | None => e = { _exception : "zilstake.tyron-DidIsNull" }; throw e
+    | None => e = { _exception : "ZILxWallet-DidIsNull" }; throw e
     | Some did_ =>
       get_service <-& did_.services[id]; addr = option_bystr20_value get_service;
       services[id] := addr end end
