@@ -29,4 +29,4 @@ The [INIT DApp](./DID/dApps/Init/v3/INITDApp_v3.6.scilla) is the SSI Initializat
 
 # DAO
 
-Besides the self-sovereign identities (SSIs), the Tyron Decentralized Autonomous Organisation has developed the [xPoints DApp](xPOINTS/xpoints.tyron.scilla).
+Besides the self-sovereign identities (SSIs), the Tyron Decentralized Autonomous Organisation has developed the [xPoints](DAO/xpoints.tyron.scilla) & [Donate](DAO/donate.tyron.scilla) dApp.
