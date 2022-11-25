@@ -1,4 +1,4 @@
-Welcome to the TYRON open-source smart contracts, which are the core of the [Self-Sovereign Identity Protocol](https://tyron.network/ssiprotocol). They are in active development, and you can find them in their corresponding folders:
+Welcome to the TYRON decentralized applications made of open-source smart contracts that build the [Self-Sovereign Identity Protocol](https://tyron.network/ssiprotocol). They are in active development, and you can find them in their corresponding sections:
 
 # tyronZIL
 

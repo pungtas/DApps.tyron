@@ -18,9 +18,9 @@ You can also swap from other stablecoins, such as zUSDT, to $SI.
 
 SSI dollars can also come into existence through the transmutation of TYRON, which decreases the token supply. In this case, whenever you mint $SI, TYRON with the same value is burned.
 
-The exchange rate to transmute TYRON into $SI gets read in real-time from the TYRON/$SI liquidity pair in the TYRON Governing & Profit-Sharing Community (TYRON Community DApp).
+The exchange rate to transmute TYRON into $SI gets read in real-time from the TYRON/$SI liquidity pair of Governing & Profit-Sharing Community (Community DApp).
 
-Rewards to the TYRON Community DApp get distributed to its participants by depositing them into the TYRON and $SI liquidity pools. Community participants can accrue their earnings by removing liquidity.
+Rewards to the Community DApp get distributed to its participants by depositing them into the TYRON and $SI liquidity pools. Community participants can accrue their earnings by removing liquidity.
  
 The SSI Dollar decentralized application allows $SI to be managed, tracked, owned, and traded peer-to-peer via wallets or exchanges, thanks to the ZRC-2 interface.
 
