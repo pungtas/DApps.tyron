@@ -1,32 +1,37 @@
-Welcome to the TYRON decentralized applications made of open-source smart contracts that build the [Self-Sovereign Identity Protocol](https://tyron.network/ssiprotocol). They are in active development, and you can find them in their corresponding sections:
+Welcome to the TYRON decentralised applications made of open-source smart contracts that build the [Self-Sovereign Identity Protocol](https://tyron.network/ssiprotocol). They are in active development, and you can find them in their corresponding sections:
 
 # tyronZIL
 
-[tyronZIL](./DID/tyronZIL.scilla) is the TYRON Decentralized Identifier (DID), which implements the [tyronZIL W3C DID Method](https://tyronzil.com).
+[tyronZIL](./DID) is the TYRON Decentralized Identifier (DID), which implements the [tyronZIL W3C DID Method](https://tyronzil.com).
 
-# xWALLETS
+# xWALLET dapps
 
-xWallets are decentralized applications that integrate the tyronZIL DID method.
+An xWALLET is a decentralised application that integrates the tyronZIL DID method. Thus they all come with Social Recovery from the get-go.
 
-- [DIDx](./DID/dApps/xWallets/DIDxWallet/v6/DIDxWALLET_v6.1.scilla): W3C Decentralized Identifier Smart Contract Wallet
+- [DIDx](./DID/dApps/xWallets/DIDxWallet): This is the main digital wallet of your SSI account. Its open-source code goes by the name W3C Decentralized Identifier Smart Contract Wallet.
 
-- [ZILx](./DID/dApps/xWallets/ZILxWallet/ZILxWallet.scilla): $ZIL staking xWallet
+- [ZILx](./DID/dApps/xWallets/ZILxWallet): The ZIL staking wallet of your SSI account.
 
-- [SBTx](./DID/dApps/xWallets/SBTxWallet/SBTxWallet.scilla): Soulbound tokens xWallet
+- [SBTx](./DID/dApps/xWallets/SBTxWallet): The Soulbound tokens wallet of your SSI account.
 
 # Fungible tokens:
 
-- [TYRON](./FUNGIBLE_TOKENS/TYRON/README.md)
-- [$SI](./FUNGIBLE_TOKENS/$SI/README.md)
-- [Profit-sharing token](./PST/README.md) 
+- [TYRON](./FUNGIBLE_TOKENS/TYRON)
+- [$SI](./FUNGIBLE_TOKENS/$SI)
+- [Profit-sharing token](./PST) 
 
 # Non-fungible tokens (NFTs)
-- [TYRON DNS](./NON_FUNGIBLE_TOKENS/TYRON_ZRC6.scilla): TYRON Domain Name System that integrates the Zilliqa-Reference-Contract #6 standard
 
-# INIT
+All the following decentralised applications expand the Zilliqa-Reference-Contract #6 standard.
 
-The [INIT DApp](./DID/dApps/Init/v3/INITDApp_v3.6.scilla) is the SSI Initialization & Domain Name System decentralized application. It manages the .ssi & .did NFT domain names. All profits are managed by the Governing & Profit-Sharing Community DApp.
+- [SSI DNS](./NON_FUNGIBLE_TOKENS/SSIDNS): The Self-Sovereign Identity Domain Name System is growing with the .gzil NFT domain names.
+
+- [LEXICA SSI](./LEXICA_SSI): These free NFTs are helpful to personalise your SSI account by using text-to-image AI provided & hosted by [Lexica.art](https://lexica.art).
+
+# SSI INIT
+
+The [SSI INIT](./DID/dApps/Init) dapp is the Self-Sovereign Identity Initialization & Domain Name System decentralised application. It manages the .ssi & .did NFT domain names. All profits are managed by the Governing & Profit-Sharing Community with the community.ssi account.
 
 # DAO
 
-Besides the self-sovereign identities (SSIs), the Tyron Decentralized Autonomous Organisation has developed the [xPoints](DAO/xpoints.tyron.scilla) & [Donate](DAO/donate.tyron.scilla) dApp.
+Besides self-sovereign identity (SSI) accounts, the Tyron Decentralised Autonomous Organisation has developed the [xPoints](DAO/xpoints.tyron.scilla) & [Donate](DAO/donate.tyron.scilla) dApp.

@@ -63,10 +63,7 @@ type Error =
   | InvalidFeeBPSError
   | ZeroAddressDestinationError
   | ThisAddressDestinationError
-  | DomainNotValidError
-  | DomainTakenError
-  | DomainNotFoundError
-  | DomainNotOwnerError
+  | UriTakenError
 
 let make_error =
   fun (result: Error) =>
@@ -90,10 +87,7 @@ let make_error =
       | ZeroAddressDestinationError        => Int32 -16
       | ThisAddressDestinationError        => Int32 -17
       | NotContractOwnershipRecipientError => Int32 -18
-      | DomainNotValidError                => Int32 -19
-      | DomainTakenError                   => Int32 -20
-      | DomainNotFoundError                => Int32 -21
-      | DomainNotOwnerError                => Int32 -22
+      | UriTakenError                      => Int32 -19
       end
     in
     { _exception: "Error"; code: result_code }
@@ -108,8 +102,7 @@ contract NonfungibleToken
   (* Initial Base URI. e.g. `https://creatures-api.zilliqa.com/api/creature/` *)
   initial_base_uri: String,
   name: String,
-  symbol: String,
-  init_nft_dns: Map ByStr32 ByStr20
+  symbol: String
 )
 
 (* Contract constraints *)
@@ -166,11 +159,10 @@ field base_uri: String = initial_base_uri
 
 (* Token URIs *)
 field token_uris: Map Uint256 String = Emp Uint256 String
+field uris: Map String Bool = Emp String Bool
 
 (* Mapping from token ID to its owner *)
 field token_owners: Map Uint256 ByStr20 = Emp Uint256 ByStr20
-field nft_domain_names: Map ByStr32 Uint256 = Emp ByStr32 Uint256
-field nft_tyron_dns: Map ByStr32 ByStr20 = init_nft_dns
 
 (* The total number of tokens minted *)
 field token_id_count: Uint256 = Uint256 0
@@ -208,26 +200,6 @@ procedure RequireNotPaused()
   | True =>
     (* Contract is paused *)
     error = PausedError;
-    Throw error
-  end
-end
-
-procedure RequireNotTaken(domain_id: ByStr32)
-  is_empty = 
-    let null = 0x0000000000000000000000000000000000000000000000000000000000000000 in 
-    builtin eq domain_id null;
-  match is_empty with 
-  | True => 
-    error = DomainNotValidError;
-    Throw error
-  | False =>
-  end;
-  maybe_token_id <- nft_domain_names[domain_id];
-  match maybe_token_id with
-  | None =>
-  | Some id =>
-    (* The NFT Domain Name has an owner *)
-    error = DomainTakenError;
     Throw error
   end
 end
@@ -305,6 +277,7 @@ procedure IsMinter(address: ByStr20)
   end
 end
 
+(*
 procedure RequireTokenOwner(token_id: Uint256, address: ByStr20)
   maybe_token_owner <- token_owners[token_id];
   match maybe_token_owner with
@@ -321,6 +294,7 @@ procedure RequireTokenOwner(token_id: Uint256, address: ByStr20)
     end
   end
 end
+*)
 
 procedure RequireOwnerOrOperator(address: ByStr20)
   is_owner = builtin eq _sender address;
@@ -408,23 +382,19 @@ end
 procedure SetTokenURI(token_id: Uint256, token_uri: String)
   is_empty_string = builtin eq token_uri empty_string;
   match is_empty_string with 
-  | True => 
-    (* noop *)
+  | True => (* noop *)
   | False =>
-    token_uris[token_id] := token_uri
+    token_uris[token_id] := token_uri;
+    uris[token_uri] := true
   end
 end
 
 procedure HandleMint(info: Pair ByStr20 String)
   match info with
   | Pair to token_uri =>
-    domain_id = builtin sha256hash token_uri;
-    RequireNotTaken domain_id;
     MintToken to;
     token_id <- token_id_count;
-    SetTokenURI token_id token_uri;
-    nft_domain_names[domain_id] := token_id;
-    nft_tyron_dns[domain_id] := _sender
+    SetTokenURI token_id token_uri
   end
 end
 
@@ -442,8 +412,14 @@ procedure BurnToken(token_id: Uint256)
     RequireOwnerOrOperator token_owner;
     (* Destroy existing token *)
     delete token_owners[token_id];
-    delete token_uris[token_id];
     delete spenders[token_id];
+    maybe_token_uri <- token_uris[token_id];
+    match maybe_token_uri with
+    | None =>
+    | Some uri =>
+      delete token_uris[token_id];
+      delete uris[uri]
+    end;
 
     (* subtract one from the balance *)
     UpdateBalance sub_operation token_owner;
@@ -634,6 +610,22 @@ transition SetBaseURI(uri: String)
   send msgs  
 end
 
+procedure RequireNotTaken(token_uri: String)
+  is_empty = builtin eq token_uri empty_string;
+  match is_empty with 
+  | True =>
+  | False =>
+    is_taken <- exists uris[token_uri];
+    match is_taken with
+    | False =>
+    | True =>
+      (* The URI got registered already *)
+      error = UriTakenError;
+      Throw error
+    end
+  end
+end
+
 (* Mints a token with a specific `token_uri` and transfers it to `to`. *)
 (* Pass empty string to `token_uri` to use the concatenated token URI. i.e. `<base_uri><token_id>`. *)
 (* @param: to - Address of the token recipient *)
@@ -642,13 +634,10 @@ end
 (* - The contract must not be paused. Otherwise, it must throw `PausedError` *)
 transition Mint(to: ByStr20, token_uri: String)
   RequireNotPaused;
-  domain_id = builtin sha256hash token_uri;
-  RequireNotTaken domain_id;
+  RequireNotTaken token_uri;
   MintToken to;
   token_id <- token_id_count;
   SetTokenURI token_id token_uri;
-  nft_domain_names[domain_id] := token_id;
-  nft_tyron_dns[domain_id] := _sender;
 
   e = {
     _eventname: "Mint";
@@ -1034,86 +1023,5 @@ transition AcceptContractOwnership()
     };
     msgs = one_msg msg_to_sender;
     send msgs
-  end
-end
-
-(* TYRON ZRC6 DNS v0.1.0
-TYRON Domain Name System that integrates the Zilliqa-Reference-Contract #6 standard
-Self-Sovereign Identity Protocol
-Copyright Tyron Mapu Community Interest Company 2022. All rights reserved.
-You acknowledge and agree that Tyron Mapu Community Interest Company (Tyron) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the Program), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
-Subject to the limited license below, you may not (and you may not permit anyone else to) distribute, publish, copy, modify, merge, combine with another program, create derivative works of, reverse engineer, decompile or otherwise attempt to extract the source code of, the Program or any part thereof, except that you may contribute to this repository.
-You are granted a non-exclusive, non-transferable, non-sublicensable license to distribute, publish, copy, modify, merge, combine with another program or create derivative works of the Program (such resulting program, collectively, the Resulting Program) solely for Non-Commercial Use as long as you:
-1. give prominent notice (Notice) with each copy of the Resulting Program that the Program is used in the Resulting Program and that the Program is the copyright of Tyron; and
-2. subject the Resulting Program and any distribution, publication, copy, modification, merger therewith, combination with another program or derivative works thereof to the same Notice requirement and Non-Commercial Use restriction set forth herein.
-Non-Commercial Use means each use as described in clauses (1)-(3) below, as reasonably determined by Tyron in its sole discretion:
-1. personal use for research, personal study, private entertainment, hobby projects or amateur pursuits, in each case without any anticipated commercial application;
-2. use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization or government institution; or
-3. the number of monthly active users of the Resulting Program across all versions thereof and platforms globally do not exceed 10,000 at any time.
-You will not use any trade mark, service mark, trade name, logo of Tyron or any other company or organization in a way that is likely or intended to cause confusion about the owner or authorized user of such marks, names or logos.
-If you have any questions, comments or interest in pursuing any other use cases, please reach out to us at tyron@ssiprotocol.com.*)
-
-(* Shall change the current permalink for a new one. *)
-transition UpdateTokenURI(token_id: Uint256, token_uri: String)
-  RequireNotPaused;
-  (* Check if token exists *)
-  maybe_token_owner <- token_owners[token_id];
-  match maybe_token_owner with
-  | None =>
-    error = TokenNotFoundError;
-    Throw error
-  | Some token_owner =>
-      RequireOwnerOrOperator token_owner;
-      SetTokenURI token_id token_uri;
-      msg_to_sender = {
-        _tag: "TYRON_ZRC6_UpdateTokenURICallback";
-        _recipient: _sender;
-        _amount: Uint128 0;
-        token_owner: token_owner;
-        token_id: token_id
-      };
-      msgs = one_msg msg_to_sender;
-      send msgs
-  end
-end
-
-procedure UpdateDomainAddr(token_id: Uint256, domain_id: ByStr32, new_addr: ByStr20)
-  maybe_token_id <- nft_domain_names[domain_id];
-  match maybe_token_id with
-  | None =>
-    error = DomainNotFoundError;
-    Throw error
-  | Some id =>
-    is_valid = builtin eq token_id id;
-    match is_valid with 
-    | True => nft_tyron_dns[domain_id] := new_addr
-    | False =>
-      error = DomainNotOwnerError;
-      Throw error
-    end
-  end
-end
-
-(* Sets the domain address for a certain token. *)
-transition UpdateDomainAddress(token_id: Uint256, domain_id: ByStr32, new_addr: ByStr20)
-  RequireNotPaused;
-  (* Check if token exists *)
-  maybe_token_owner <- token_owners[token_id];
-  match maybe_token_owner with
-  | None =>
-    error = TokenNotFoundError;
-    Throw error
-  | Some token_owner =>
-      RequireOwnerOrOperator token_owner;
-      UpdateDomainAddr token_id domain_id new_addr;
-      msg_to_sender = {
-        _tag: "TYRON_ZRC6_UpdateDomainAddressCallback";
-        _recipient: _sender;
-        _amount: Uint128 0;
-        token_owner: token_owner;
-        token_id: token_id
-      };
-      msgs = one_msg msg_to_sender;
-      send msgs
   end
 end
