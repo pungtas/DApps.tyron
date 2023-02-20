@@ -114,7 +114,7 @@ contract DIDxWALLET(
   field controller: ByStr20 = init_controller
   field pending_controller: ByStr20 = zeroByStr20
   field did_status: DidStatus = Created
-  field version: String = "DIDxWALLET_6.2.0" (* @xalkan *)
+  field version: String = "DIDxWALLET_6.3.0" (* @xalkan *)
   
   (* Verification methods @key: key purpose @value: public DID key *)
   field verification_methods: Map String ByStr33 = did_methods
@@ -580,21 +580,26 @@ transition UpdateNftDid(
     field services: Map String ByStr20 end,
   tyron: Option Uint128
   )
-  IsOperational; VerifyController tyron; current_init <-& init.dApp;
-  is_free = builtin eq id free; match is_free with
-    | True => | False =>
-        txID = "UpdateNftDid";
-        init_did <-& current_init.implementation;
-        get_fee <-& init_did.utility[id][txID]; fee = option_uint128_value get_fee;
-        FetchServiceAddr id; get_addr <- services[id]; coin_addr = option_bystr20_value get_addr;
-        IncreaseAllowance coin_addr init_did fee end;
-  msg = let m = { _tag: "UpdateNftDid"; _recipient: current_init; _amount: zero;
+  IsOperational; VerifyController tyron; ThrowIfNullString id; ThrowIfNullString username;
+  txID = "UpdateNftDid";
+  current_init <-& init.dApp; init_did <-& current_init.implementation;
+  get_fee <-& init_did.utility[id][txID]; fee = option_uint128_value get_fee;
+  is_zil = builtin eq id zil; match is_zil with
+    | True => accept
+    | False =>
+        is_free = builtin eq id free; match is_free with
+          | True => | False =>
+              FetchServiceAddr id; get_addr <- services[id]; coin_addr = option_bystr20_value get_addr;
+              IncreaseAllowance coin_addr init_did fee end end;
+  zil_amount = match is_zil with
+    | True => fee
+    | False => zero end;
+  msg = let m = { _tag: txID; _recipient: current_init; _amount: zil_amount;
     id: id;
     username: username;
     dID: dID } in one_msg m; send msg;
   Timestamp end
 
-(* @xalkan add zil *)
 transition TransferNftUsername(
   id: String,
   username: String,
@@ -605,15 +610,21 @@ transition TransferNftUsername(
     field services: Map String ByStr20 end,
   tyron: Option Uint128
   )
-  IsOperational; VerifyController tyron; current_init <-& init.dApp;
-  is_free = builtin eq id free; match is_free with
-    | True => | False =>
-        txID = "TransferNftUsername";
-        init_did <-& current_init.implementation;
-        get_fee <-& init_did.utility[id][txID]; fee = option_uint128_value get_fee;
-        FetchServiceAddr id; get_addr <- services[id]; coin_addr = option_bystr20_value get_addr;
-        IncreaseAllowance coin_addr init_did fee end;
-  msg = let m = { _tag: "TransferNftUsername"; _recipient: current_init; _amount: zero;
+  IsOperational; VerifyController tyron; ThrowIfNullString id; ThrowIfNullString username;
+  txID = "TransferNftUsername";
+  current_init <-& init.dApp; init_did <-& current_init.implementation;
+  get_fee <-& init_did.utility[id][txID]; fee = option_uint128_value get_fee;
+  is_zil = builtin eq id zil; match is_zil with
+    | True => accept
+    | False =>
+        is_free = builtin eq id free; match is_free with
+          | True => | False =>
+              FetchServiceAddr id; get_addr <- services[id]; coin_addr = option_bystr20_value get_addr;
+              IncreaseAllowance coin_addr init_did fee end end;
+  zil_amount = match is_zil with
+    | True => fee
+    | False => zero end;
+  msg = let m = { _tag: txID; _recipient: current_init; _amount: zil_amount;
     id: id;
     username: username;
     addr: addr;
