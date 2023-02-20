@@ -1,5 +1,5 @@
 (* v0.2.0
-AIRxWALLET: $TYRON Airdrop Social-Recovery Wallet
+AIRxWALLET: TYRON Airdrop DID Social-Recovery Wallet
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2023. All rights reserved.
 You acknowledge and agree that Tyron Mapu Community Interest Company (Tyron) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the Program), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
@@ -37,7 +37,7 @@ library AIRxWALLET
   let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
   let compare_participant = fun( addr: ByStr20 ) => fun( participant: ByStr20 ) => builtin eq addr participant
 
-contract Airdrop(
+contract AIRxWALLET(
   init_username: String,
   init_controller: ByStr20,
   init: ByStr20 with contract field dApp: ByStr20 with contract
@@ -167,7 +167,7 @@ transition RecipientAcceptTransferFrom(
   is_valid = builtin eq recipient _this_address; match is_valid with
     | True => | False => e = { _exception: "AIRxWALLET_WrongRecipientForAcceptTransferFrom" }; throw e end end
 
-transition Aidrop()
+transition Airdrop()
   RequireNotPaused;
   list_part = @list_mem ByStr20; list <- airdrop_list;
   is_participant = list_part compare_participant _sender list;
