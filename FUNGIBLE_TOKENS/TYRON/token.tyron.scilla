@@ -114,7 +114,7 @@ procedure ThrowIfSameAddr(
   b: ByStr20
   )
   is_self = builtin eq a b; match is_self with
-    | False => | True => e = { _exception: "$SIproxy-SameAddress" }; throw e end end
+    | False => | True => e = { _exception: "TYRONproxy-SameAddress" }; throw e end end
 
 transition UpdateImplementation(
   addr: ByStr20 with contract

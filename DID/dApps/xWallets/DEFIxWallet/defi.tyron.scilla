@@ -37,7 +37,7 @@ library DidDomain
   let did = "did"
   let community = "community"
   let tyron_id = "tyron"
-  let ssi_id = "$si"
+  let ssi_id = "s$i"
   
   type Beneficiary =
     | NftUsername of String String (* username & domain *)

@@ -17,7 +17,7 @@ An xWALLET is a decentralised application that integrates the tyronZIL DID metho
 # Fungible tokens:
 
 - [TYRON](./FUNGIBLE_TOKENS/TYRON)
-- [$SI](./FUNGIBLE_TOKENS/$SI)
+- [S$I](./FUNGIBLE_TOKENS/SSIDOLLAR)
 - [Profit-sharing token](./PST) 
 
 # Non-fungible tokens (NFTs)

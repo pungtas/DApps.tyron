@@ -140,8 +140,8 @@ contract SsiDollar(
     field rate: Uint128 end = init_community
   field zil_dex: ByStr20 with contract
     field pools: Map ByStr20 (Pair Uint128 Uint128) end = init_zildex (* token address -> Pair{zil_reserve, token_reserve} *)
-  field accounts: Map ByStr20 (Pair Uint128 Uint128) = Emp ByStr20 (Pair Uint128 Uint128) (* Pair{ZIL, $SI loan} per user *)
-  field version: String = "$SIimpl-0.13.0" (* @todo *)
+  field accounts: Map ByStr20 (Pair Uint128 Uint128) = Emp ByStr20 (Pair Uint128 Uint128) (* Pair{ZIL, S$I loan} per user *)
+  field version: String = "S$Iimpl-0.13.0" (* @todo *)
 
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
@@ -152,81 +152,81 @@ procedure SupportTyron( tyron: Option Uint128 )
 
 procedure ThrowIfNotProxy()
   verified = builtin eq proxy _sender; match verified with
-    | True => | False => e = { _exception: "$SIimpl-NotProxy" }; throw e end end
+    | True => | False => e = { _exception: "S$Iimpl-NotProxy" }; throw e end end
 
 procedure VerifyController( tyron: Option Uint128 )
   current_username <- nft_username; current_init <-& init.dApp;
   get_did <-& current_init.did_dns[current_username]; match get_did with
-    | None => e = { _exception: "$SIimpl-DidIsNull" }; throw e
+    | None => e = { _exception: "S$Iimpl-DidIsNull" }; throw e
     | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
-        | True => | False => e = { _exception: "$SIimpl-WrongCaller" }; throw e end;
+        | True => | False => e = { _exception: "S$Iimpl-WrongCaller" }; throw e end;
       SupportTyron tyron end end
 
 procedure IsPauser()
   current_pauser <- pauser; current_init <-& init.dApp;
   get_did <-& current_init.did_dns[current_pauser]; match get_did with
-    | None => e = { _exception: "$SIimpl-DidIsNull" }; throw e
+    | None => e = { _exception: "S$Iimpl-DidIsNull" }; throw e
     | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
-        | True => | False => e = { _exception: "$SIimpl-WrongCaller" }; throw e end end end
+        | True => | False => e = { _exception: "S$Iimpl-WrongCaller" }; throw e end end end
 
 procedure IsPaused()
   is_paused <- paused; match is_paused with
-    | True => | False => e = { _exception: "$SIimpl-NotPaused" }; throw e end end
+    | True => | False => e = { _exception: "S$Iimpl-NotPaused" }; throw e end end
 
 procedure IsNotPaused()
   is_paused <- paused; match is_paused with
-    | False => | True => e = { _exception: "$SIimpl-Paused" }; throw e end end
+    | False => | True => e = { _exception: "S$Iimpl-Paused" }; throw e end end
 
 procedure IsLister()
   current_lister <- lister; current_init <-& init.dApp;
   get_did <-& current_init.did_dns[current_lister]; match get_did with
-    | None => e = { _exception: "$SIimpl-DidIsNull" }; throw e
+    | None => e = { _exception: "S$Iimpl-DidIsNull" }; throw e
     | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
-        | True => | False => e = { _exception: "$SIimpl-WrongCaller" }; throw e end end end
+        | True => | False => e = { _exception: "S$Iimpl-WrongCaller" }; throw e end end end
 
 procedure AmountIsNotNull( amount: Uint128 )
   is_null = builtin eq zero amount; match is_null with
-    | False => | True => e = { _exception: "$SIimpl-AmountIsNull" }; throw e end end
+    | False => | True => e = { _exception: "S$Iimpl-AmountIsNull" }; throw e end end
 
 procedure AddrIsNotNull( addr: ByStr20 )
   is_null = builtin eq zeroByStr20 addr; match is_null with
-    | False => | True => e = { _exception: "$SIimpl-AddressIsNull" }; throw e end end
+    | False => | True => e = { _exception: "S$Iimpl-AddressIsNull" }; throw e end end
 
 procedure IsBlocked( addr: ByStr20 )
   is_blocked <- exists blocked[addr]; match is_blocked with
-    | True => | False => e = { _exception: "$SIimpl-AddressIsNotBlocked" }; throw e end end
+    | True => | False => e = { _exception: "S$Iimpl-AddressIsNotBlocked" }; throw e end end
 
 procedure IsNotBlocked( addr: ByStr20 )
   AddrIsNotNull addr;
   is_blocked <- exists blocked[addr]; match is_blocked with
-    | False => | True => e = { _exception: "$SIimpl-AddressIsBlocked" }; throw e end end
+    | False => | True => e = { _exception: "S$Iimpl-AddressIsBlocked" }; throw e end end
 
 procedure ThrowIfSameAddr(
   a: ByStr20,
   b: ByStr20
   )
   is_self = builtin eq a b; match is_self with
-    | False => | True => e = { _exception: "$SIimpl-SameAddress" }; throw e end end
+    | False => | True => e = { _exception: "S$Iimpl-SameAddress" }; throw e end end
 
 procedure IsSufficient(
   value: Uint128,
   amount: Uint128
   )
   is_sufficient = uint128_ge value amount; match is_sufficient with
-    | True => | False => e = { _exception: "$SIimpl-BalanceIsInsufficient" }; throw e end end
+    | True => | False => e = { _exception: "S$Iimpl-BalanceIsInsufficient" }; throw e end end
 
 procedure ThrowIfSameName(
   a: String,
   b: String
   )
   is_same = builtin eq a b; match is_same with
-    | False => | True => e = { _exception: "$SIimpl-SameUsername" }; throw e end end
+    | False => | True => e = { _exception: "S$Iimpl-SameUsername" }; throw e end end
 
 transition UpdateUsername(
   username: String,
@@ -235,18 +235,18 @@ transition UpdateUsername(
   IsNotPaused; VerifyController tyron;
   current_username <- nft_username; ThrowIfSameName current_username username;
   current_init <-& init.dApp; get_did <-& current_init.did_dns[username]; match get_did with
-    | None => e = { _exception: "$SIimpl-DidIsNull" }; throw e
+    | None => e = { _exception: "S$Iimpl-DidIsNull" }; throw e
     | Some did_ => pending_username := username end end
 
 transition AcceptPendingUsername()
   IsNotPaused;
   current_pending <- pending_username; current_init <-& init.dApp;
   get_did <-& current_init.did_dns[current_pending]; match get_did with
-    | None => e = { _exception: "$SIimpl-DidIsNull" }; throw e
+    | None => e = { _exception: "S$Iimpl-DidIsNull" }; throw e
     | Some did_ =>
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
-        | True => | False => e = { _exception: "$SIimpl-WrongCaller" }; throw e end;
+        | True => | False => e = { _exception: "S$Iimpl-WrongCaller" }; throw e end;
       nft_username := current_pending end end
 
 transition UpdateFactor(
@@ -306,12 +306,12 @@ transition Unblock( addr: ByStr20 )
 
 procedure IsValidToSelf( addr: ByStr20 ) (**@todo**)
   verified = builtin eq addr _this_address; match verified with
-    | True => | False => e = { _exception: "$SIimpl-WrongCaller" }; throw e end end
+    | True => | False => e = { _exception: "S$Iimpl-WrongCaller" }; throw e end end
 
 procedure FetchServiceAddr( id: String )
   current_init <-& init.dApp; initDApp = "init";
   get_did <-& current_init.did_dns[initDApp]; match get_did with
-    | None => e = { _exception : "$SIimpl-DidIsNull" }; throw e
+    | None => e = { _exception : "S$Iimpl-DidIsNull" }; throw e
     | Some did_ =>
       get_service <-& did_.services[id]; addr = option_bystr20_value get_service;
       services[id] := addr end end
@@ -354,7 +354,7 @@ procedure FetchSsiZilRate()
         let divisor = builtin add zil_r zil_in in let result = builtin div usdr_times_f divisor in
         let get_result = builtin to_uint128 result in option_uint128_value get_result;
       zilSsiRate := rate
-    | None => e = { _exception : "$SIimpl-UnsupportedPool" }; throw e end end
+    | None => e = { _exception : "S$Iimpl-UnsupportedPool" }; throw e end end
 
 procedure LockZIL( originator: ByStr20 )
   FetchSsiZilRate; current_rate <- zilSsiRate; current_factor <- factor;
@@ -385,7 +385,7 @@ transition AddFunds()
       ssi_bal = let snd_element = @snd Uint128 Uint128 in snd_element account;
       new_account = Pair{ Uint128 Uint128 } zil_bal ssi_bal;
       accounts[_sender] := new_account
-    | None => e = { _exception : "$SIimpl-AccountNotRegistered" }; throw e end end
+    | None => e = { _exception : "S$Iimpl-AccountNotRegistered" }; throw e end end
 
 transition Mint(
   addrName: Token,
@@ -412,7 +412,7 @@ transition Mint(
               originator: originator;
               newBalance: new_bal;
               newSupply: new_supply } in one_msg m; send msg_proxy
-        | False => e = { _exception : "$SIimpl-UnsupportedStablecoin" }; throw e end
+        | False => e = { _exception : "S$Iimpl-UnsupportedStablecoin" }; throw e end
   | Tyron =>
       FetchServiceAddr tyron; get_addr <- services[tyron]; addr = option_bystr20_value get_addr;
       msg = let m = { _tag: "Burn"; _recipient: addr; _amount: zero;
@@ -476,7 +476,7 @@ procedure ReleaseZIL(
             newSupply: new_supply
           } in one_msg m; send msg_proxy
         | False => end
-    | None => e = { _exception : "$SIimpl-AccountNotRegistered" }; throw e end end
+    | None => e = { _exception : "S$Iimpl-AccountNotRegistered" }; throw e end end
 
 transition Burn(
   addrName: Token,
@@ -508,7 +508,7 @@ transition Burn(
             msg_token = let m = { _tag: "Transfer"; _recipient: addr; _amount: zero;
               to: originator;
               amount: zusdt_dollars } in one_msg m; send msg_token
-        | False => e = { _exception : "$SIimpl-UnsupportedStablecoin" }; throw e end
+        | False => e = { _exception : "S$Iimpl-UnsupportedStablecoin" }; throw e end
   | Tyron =>
       current_community <- tyron_community; current_rate <-& current_community.rate; current_factor <- factor;
       get_tyron = compute fromSsi amount current_rate current_factor; tyron_amount = option_uint128_value get_tyron;
@@ -518,7 +518,7 @@ transition Burn(
         amount: amount
       } in one_msg m; send msg
   | ZRC2 coin => end;
-  e = { _eventname: "$SIburnt";
+  e = { _eventname: "S$Iburnt";
     burner: originator;
     amount: amount
   }; event e end

@@ -1,28 +1,26 @@
-# Self-Sovereign Identity Dollar
+# Self-Sovereign Identity Dollar (S$I)
 
 ## I. Summary
 
-The Self-Sovereign Identity Dollar (SSI Dollar, $SI) is a stablecoin, 100% decentralized and compatible with the Zilliqa fungible token standard (ZRC2), which is equivalent to one US dollar (USD). On the Zilliqa platform, such parity is represented as follows: 
+The Self-Sovereign Identity Dollar (S$I, SSI Dollar) is a multichain stablecoin that is 100% decentralised and compatible with fungible token standards such as ZRC2. It is equivalent to one Singapore dollar (S$, SGD). On the Zilliqa blockchain, this parity is represented as follows:
 
 ```
-1.0 $SI = 1.0 zUSDT
+1.0 S$I = 1.0 X$GD
 ```
 
-You can get an $SI loan by locking your assets (over-collateralization) while keeping ownership of them.
+The [StraitsX Singapore Dollar (XSGD)](https://www.straitsx.com/xsgd) is a multichain token that is regulated by the Monetary Authority of Singapore.
 
-Supported collaterals are:
+You can get an S$I loan by locking your assets (over-collateralization) while keeping ownership of them.
 
-- ZIL
+You can also swap from other stablecoins, or lock them in vaults.
 
-You can also swap from other stablecoins, such as zUSDT, to $SI.
+SSI dollars can also come into existence through the transmutation of $TYRON, which decreases the token supply. In this case, whenever you mint S$I, $TYRON tokens with the same value are burned.
 
-SSI dollars can also come into existence through the transmutation of TYRON, which decreases the token supply. In this case, whenever you mint $SI, TYRON with the same value is burned.
+The exchange rate to transmute $TYRON into S$I gets read in real-time from the $TYRON S$I liquidity pair of the Governing & Profit-Sharing Community (Community.ssi).
 
-The exchange rate to transmute TYRON into $SI gets read in real-time from the TYRON/$SI liquidity pair of Governing & Profit-Sharing Community (Community DApp).
-
-Rewards to the Community DApp get distributed to its participants by depositing them into the TYRON and $SI liquidity pools. Community participants can accrue their earnings by removing liquidity.
+Rewards to Community.ssi get distributed to its participants by depositing them into community xWALLETS.
  
-The SSI Dollar decentralized application allows $SI to be managed, tracked, owned, and traded peer-to-peer via wallets or exchanges, thanks to the ZRC-2 interface.
+The SSI Dollar decentralized application allows S$I to be managed, tracked, owned, and traded peer-to-peer via wallets or exchanges, thanks to the ZRC-2 interface.
 
 ## II. Motivation
 
@@ -30,11 +28,11 @@ We are going through a period of humanitarian and economic crises, where many co
 
 In response to these crises, which so far show no signs of slowing down or remedying, this project presents a proposal for the creation of a 100% decentralized currency, which among its benefits, can offer conditions of stability and equal opportunities for the entire population, regardless of their identity conditions.
 
-Creating this stable and decentralized coin has several functionalities that we consider very useful to counteract the economic situation we are currently facing. On the one hand, it is beneficial for creating conditions of stability in emerging markets. On the other hand, the way it gets made allows the user to maintain ownership of their assets and, simultaneously, get a loan in Self-Sovereign Identity Dollars. Then the user can use their $SI to provide liquidity in decentralized exchanges, join the TYRON Governing & Profit-Sharing Community and other DeFi applications, and make decentralized exchanges to other fiat currencies and peer-to-peer transfers.
+Creating this stable and decentralized coin has several functionalities that we consider very useful to counteract the economic situation we are currently facing. On the one hand, it is beneficial for creating conditions of stability in emerging markets. On the other hand, the way it gets made allows the user to maintain ownership of their assets and, simultaneously, get a loan in Self-Sovereign Identity Dollars. Then the user can use their S$I to provide liquidity in decentralized exchanges, join the TYRON Governing & Profit-Sharing Community and other DeFi applications, and make decentralized exchanges to other fiat currencies and peer-to-peer transfers.
 
 ## III. Specification
 
-The Self-Sovereign Identity Dollar ($SI) consists of a stable and fully decentralized coin, which can be created by over-collateralising assets or swapping from other stablecoins. The $SI DApp is a Decentralized Finance (DeFi) application made of two smart contracts:
+The Self-Sovereign Identity Dollar (S$I) consists of a stable and fully decentralized coin, which can be created by over-collateralising assets or swapping from other stablecoins. The S$I DApp is a Decentralized Finance (DeFi) application made of two smart contracts:
 
 - [Proxy](./ssiDollar.scilla)
 
@@ -50,7 +48,7 @@ The **```Library```** contains purely mathematical functions and constants, incl
 
 - ```contract_owner```: the implementation address
 - ```name```: Self-Sovereign Identity Dollar
-- ```symbol```: $SI
+- ```symbol```: S$I
 - ```decimals```: 12
 - ```init_suppy```: 0
 - ```init_balances```: empty
@@ -83,7 +81,7 @@ The **```Library```** contains purely mathematical functions and constants, incl
 - ```lister```: the address that can block and unblock users
 - ```blocked```: the blocked addresses
 - ```services```: the DID Services
-- ```zilSsiRate```: the ZIL$SI exchange rate times the factor
+- ```zilSsiRate```: the ZILS$I exchange rate times the factor
 - ```factor```: 1000000
 - ```zil_dex```: the DragonDex address
 - ```accounts```: the user accounts
@@ -112,7 +110,7 @@ The **```Library```** contains purely mathematical functions and constants, incl
 - ```ThrowIfSameName```: throws an error if both given usernames are the same
 - ```IsValidToSelf```: throws an error if the given address is not the implementation
 - ```FetchServiceAddr```: gets the address of a DID Service
-- ```FetchSsiZilRate```: updates the ZIL$SI exchange rate
+- ```FetchSsiZilRate```: updates the ZILS$I exchange rate
 - ```LockZIL```: increases the ZIL locked in the user account
 - ```ReleaseZIL```:  unlocks ZIL and sends them back to the owner
 
@@ -121,14 +119,14 @@ The **```Library```** contains purely mathematical functions and constants, incl
 #### Proxy
 
 - ```UpdateImplementation```: to update the implementation address
-- ```Mint```: to create $SI
-- ```Burn```: to destroy $SI
+- ```Mint```: to create S$I
+- ```Burn```: to destroy S$I
 - ```TransmuteCallBack```: balance callback from the implementation
-- ```Transfer```: to send $SI from the originator to the beneficiary
+- ```Transfer```: to send S$I from the originator to the beneficiary
 - ```TransferCallBack```: updates the balances of the originator and the beneficiary
-- ```IncreaseAllowance``` & ```DecreaseAllowance```: to modify the amount of $SI that a spender can transfer
+- ```IncreaseAllowance``` & ```DecreaseAllowance```: to modify the amount of S$I that a spender can transfer
 - ```AllowanceCallBack```: updates the allowance of a given spender
-- ```TransferFrom```: for a spender to send $SI from the originator to the beneficiary
+- ```TransferFrom```: for a spender to send S$I from the originator to the beneficiary
 
 #### Implementation
 
@@ -141,10 +139,10 @@ The **```Library```** contains purely mathematical functions and constants, incl
 - ```Block``` & ```Unblock```: to change the status of a user address
 - ```UpdateZilDex```: updates the address of DragonDex
 - ```AddFunds```: to increase the amount of ZIL locked in a user account
-- ```Mint```: creates $SI
+- ```Mint```: creates S$I
 - ```RecipientAcceptTransferFrom```: receives tokens
 - ```TransferFromSuccessCallBack```: confirms the release of tokens
-- ```Burn```: destroys $SI and unlocks ZIL by calling the **ReleaseZIL** procedure
-- ```Transfer```: sends $SI from the originator to the beneficiary
-- ```IncreaseAllowance``` & ```DecreaseAllowance```: to modify the amount of $SI that a spender can transfer
-- ```TransferFrom```: a spender sends $SI from the originator to the beneficiary
+- ```Burn```: destroys S$I and unlocks ZIL by calling the **ReleaseZIL** procedure
+- ```Transfer```: sends S$I from the originator to the beneficiary
+- ```IncreaseAllowance``` & ```DecreaseAllowance```: to modify the amount of S$I that a spender can transfer
+- ```TransferFrom```: a spender sends S$I from the originator to the beneficiary

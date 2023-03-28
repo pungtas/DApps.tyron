@@ -71,32 +71,32 @@ contract SsiDollar(
   field balances: Map ByStr20 Uint128 = init_balances
   field total_supply: Uint128 = init_supply
   field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) = Emp ByStr20 ( Map ByStr20 Uint128 )
-  field version: String = "$SIprox-3.1.0" (* @todo *)
+  field version: String = "S$Iprox-3.1.0" (* @todo *)
 
 procedure VerifyCaller( caller: Caller )
   current_impl <- implementation;
   is_paused <-& current_impl.paused; match is_paused with
-    | False => | True => e = { _exception: "$SIproxy-WrongStatus" }; throw e end;
+    | False => | True => e = { _exception: "S$Iproxy-WrongStatus" }; throw e end;
   match caller with
   | Controller =>
     current_username <-& current_impl.nft_username;
     init <-& current_impl.xinit; current_init <-& init.dApp;
     get_did <-& current_init.did_dns[current_username]; match get_did with
-      | None => e = { _exception: "$SIproxy-DidIsNull" }; throw e
+      | None => e = { _exception: "S$Iproxy-DidIsNull" }; throw e
       | Some did_ =>
         current_controller <-& did_.controller;
         verified = builtin eq _origin current_controller; match verified with
-        | True => | False => e = { _exception: "$SIproxy-WrongCaller" }; throw e end end
+        | True => | False => e = { _exception: "S$Iproxy-WrongCaller" }; throw e end end
   | Implementation =>
     verified = builtin eq _sender current_impl; match verified with
-    | True => | False => e = { _exception: "$SIproxy-WrongCaller" }; throw e end end end
+    | True => | False => e = { _exception: "S$Iproxy-WrongCaller" }; throw e end end end
 
 procedure ThrowIfSameAddr(
   a: ByStr20,
   b: ByStr20
   )
   is_self = builtin eq a b; match is_self with
-    | False => | True => e = { _exception: "$SIproxy-SameAddress" }; throw e end end
+    | False => | True => e = { _exception: "S$Iproxy-SameAddress" }; throw e end end
 
 transition UpdateImplementation(
   addr: ByStr20 with contract

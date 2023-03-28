@@ -1,4 +1,4 @@
-(* v0.2.0
+(* v0.2.1
 AIRxWALLET: TYRON Airdrop DID Social-Recovery Wallet
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2023. All rights reserved.
@@ -39,7 +39,6 @@ library AIRxWALLET
 
 contract AIRxWALLET(
   init_username: String,
-  init_controller: ByStr20,
   init: ByStr20 with contract field dApp: ByStr20 with contract
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
@@ -49,10 +48,6 @@ contract AIRxWALLET(
   airdrop_amount: Uint128,
   init_list: List ByStr20
   )
-    with
-    let is_invalid = builtin eq token_name null in
-    negb is_invalid
-  =>
   field nft_username: String = init_username
   field pending_username: String = ""
   field is_paused: Bool = false
@@ -63,7 +58,7 @@ contract AIRxWALLET(
   field ledger_time: BNum = BNum 0
   (* A monotonically increasing number representing the amount of DID CRUD transactions that have taken place *)
   field tx_number: Uint128 = zero
-  field version: String = "AIRxWALLET_0.2.0" (* @xalkan *)
+  field version: String = "AIRxWALLET_0.2.1" (* @xalkan *)
 
 procedure RequireNotPaused()
   (* Reference: *)
