@@ -1,4 +1,4 @@
-(* SSI DNS v0.4.2
+(* SSI DNS v0.6
 SSI Domain Name System that integrates the Zilliqa-Reference-Contract #6 standard (which has an SPDX-License-Identifier: MIT)
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2022. All rights reserved.
@@ -69,10 +69,7 @@ type Error =
   | NotContractOwnerError
   | NotContractOwnershipRecipientError
   | NotTokenOwnerError
-(*| NotMinterError *)
   | NotOwnerOrOperatorError
-(*| MinterNotFoundError
-  | MinterFoundError *)
   | SpenderFoundError
   | OperatorNotFoundError
   | OperatorFoundError
@@ -93,10 +90,7 @@ let make_error =
       | SelfError                          => Int32 -3
       | NotContractOwnerError              => Int32 -4
       | NotTokenOwnerError                 => Int32 -5
-  (*  | NotMinterError                     => Int32 -6 *)
       | NotOwnerOrOperatorError            => Int32 -7
-  (*  | MinterNotFoundError                => Int32 -8
-      | MinterFoundError                   => Int32 -9 *)
       | SpenderFoundError                  => Int32 -10
       | OperatorNotFoundError              => Int32 -11
       | OperatorFoundError                 => Int32 -12
@@ -223,7 +217,7 @@ field spenders: Map Uint256 ByStr20 = Emp Uint256 ByStr20
 (* Mapping from token owner to operators authorized by the token owner *)
 field operators: Map ByStr20 (Map ByStr20 Bool) = Emp ByStr20 (Map ByStr20 Bool)
 
-field version: String = "SSIDNS_0.4.2" (* @xalkan *)
+field version: String = "SSIDNS_0.6.0" (* @xalkan *)
 
 (* Emit Errors *)
 procedure Throw(error: Error)
@@ -292,13 +286,6 @@ procedure RequireContractOwner()
   end
 end
 
-(* @xalkan assess
-procedure VerifyController()
-  current_init <-& init.dApp; current_impl <-& current_init.implementation; current_controller <-& current_impl.controller;
-  verified = builtin eq _origin current_controller; match verified with
-    | True => | False => e = { _exception : "SSIDNS-WrongCaller" }; throw e end end
-*)
-
 procedure RequireNotSelf(address_a: ByStr20, address_b: ByStr20)
   is_self = builtin eq address_a address_b;
   match is_self with
@@ -337,37 +324,6 @@ procedure RequireValidDestination(to: ByStr20)
     Throw error
   end
 end
-
-(*
-procedure IsMinter(address: ByStr20)
-  has_minter <- exists minters[address];
-  match has_minter with
-  | True =>
-  | False =>
-    error = NotMinterError;
-    Throw error
-  end
-end
-*)
-
-(*
-procedure RequireTokenOwner(token_id: Uint256, address: ByStr20)
-  maybe_token_owner <- token_owners[token_id];
-  match maybe_token_owner with
-  | None =>
-    error = TokenNotFoundError;
-    Throw error
-  | Some addr => 
-    is_token_owner = builtin eq addr address;
-    match is_token_owner with
-    | True =>
-    | False =>
-      error = NotTokenOwnerError;
-      Throw error
-    end
-  end
-end
-*)
 
 procedure RequireOwnerOrOperator(address: ByStr20)
   is_owner = builtin eq _sender address;
@@ -1206,28 +1162,6 @@ end
 (* - The contract must not be paused. Otherwise, it must throw 'PausedError' *)
 transition BatchTransferFrom(to_token_id_pair_list: List (Pair ByStr20 Uint256))
   RequireNotPaused;
-  txID = "TransferNftUsername";
-  counter = let list_length = @list_length (Pair ByStr20 Uint256) in list_length to_token_id_pair_list;
-  HandleBatchPayment zilID txID counter;
-  forall to_token_id_pair_list HandleTransfer;
-  msg_to_sender = {
-    _tag: "ZRC6_BatchTransferFromCallback";
-    _recipient: _sender;
-    _amount: Uint128 0
-  };
-  msgs = one_msg msg_to_sender;
-  send msgs
-end
-
-(* Transfers multiple 'token_id' to multiple 'to'. *)
-(* @param: to_token_id_pair_list - List of Pair (to, token_id). *)
-(* @Requirements: *)
-(* - The contract must not be paused. Otherwise, it must throw 'PausedError' *)
-transition BatchTransferFromTyron(to_token_id_pair_list: List (Pair ByStr20 Uint256), id: String)
-  RequireNotPaused;
-  txID = "TransferNftUsername";
-  counter = let list_length = @list_length (Pair ByStr20 Uint256) in list_length to_token_id_pair_list;
-  HandleBatchPayment id txID counter;
   forall to_token_id_pair_list HandleTransfer;
   msg_to_sender = {
     _tag: "ZRC6_BatchTransferFromCallback";
@@ -1317,7 +1251,11 @@ transition UpdateTokenURI(token_id: Uint256, token_uri: String)
         token_id: token_id
       };
       msgs = one_msg msg_to_sender;
-      send msgs
+      send msgs;
+      e = {
+        _eventname: "TokenURIUpdated";
+        token_id: token_id
+      }
   end
 end
 
@@ -1342,6 +1280,10 @@ transition UpdateDomainAddress(token_id: Uint256, new_addr: ByStr20)
         token_id: token_id
       };
       msgs = one_msg msg_to_sender;
-      send msgs
+      send msgs;
+      e = {
+        _eventname: "DomainAddressUpdated";
+        token_id: token_id
+      }
   end
 end

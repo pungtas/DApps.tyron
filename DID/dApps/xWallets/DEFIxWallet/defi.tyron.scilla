@@ -211,6 +211,13 @@ transition TransferSuccessCallBack( sender: ByStr20, recipient: ByStr20, amount 
 
 transition TransferFromSuccessCallBack( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsNotPaused end
 
+transition UpdateDeadline(
+  val: Uint128,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyController tyron; deadline := val;
+  Timestamp end
+
 procedure IncreaseAllowanceDApp(
   dApp: String,
   addrName: String,
@@ -221,6 +228,21 @@ procedure IncreaseAllowanceDApp(
   msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
     spender: dApp_addr;
     amount: amount } in one_msg m ; send msg end
+
+(* @todo review to replace Increase & Decrease Allowance transition
+transition UpdateAllowance(
+  action: Action,
+  addrName: String,
+  spender: ByStr20,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyController tyron; FetchServiceAddr addrName;
+  get_addr <- services[addrName]; coin_addr = option_bystr20_value get_addr;
+  match action with
+    | Add => IncreaseAllowance coin_addr spender amount
+    | Remove => DecreaseAllowance coin_addr spender amount end; Timestamp end
+*)
 
 transition IncreaseAllowance(
   username: String,
