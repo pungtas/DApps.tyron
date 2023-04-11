@@ -85,7 +85,7 @@ library DIDxWALLET
   let option_bystr64_value = let f = @option_value ByStr64 in f zeroByStr64
 
   type Beneficiary =
-    | NftUsername of String String (* Domain Name & Subdomain *)
+    | NftUsername of String String (* NFT Domain Name & Subdomain *)
     | Recipient of ByStr20
 
 contract DIDxWALLET(

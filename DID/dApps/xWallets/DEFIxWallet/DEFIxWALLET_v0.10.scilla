@@ -1,0 +1,458 @@
+(* v0.10
+DEFIxWALLET: Decentralised Finance Smart Contract Wallet <> SSI DNS
+Self-Sovereign Identity Protocol
+Copyright Tyron Mapu Community Interest Company 2023. All rights reserved.
+You acknowledge and agree that Tyron Mapu Community Interest Company (Tyron) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the Program), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
+Subject to the limited license below, you may not (and you may not permit anyone else to) distribute, publish, copy, modify, merge, combine with another program, create derivative works of, reverse engineer, decompile or otherwise attempt to extract the source code of, the Program or any part thereof, except that you may contribute to this repository.
+You are granted a non-exclusive, non-transferable, non-sublicensable license to distribute, publish, copy, modify, merge, combine with another program or create derivative works of the Program (such resulting program, collectively, the Resulting Program) solely for Non-Commercial Use as long as you:
+1. give prominent notice (Notice) with each copy of the Resulting Program that the Program is used in the Resulting Program and that the Program is the copyright of Tyron; and
+2. subject the Resulting Program and any distribution, publication, copy, modification, merger therewith, combination with another program or derivative works thereof to the same Notice requirement and Non-Commercial Use restriction set forth herein.
+Non-Commercial Use means each use as described in clauses (1)-(3) below, as reasonably determined by Tyron in its sole discretion:
+1. personal use for research, personal study, private entertainment, hobby projects or amateur pursuits, in each case without any anticipated commercial application;
+2. use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization or government institution; or
+3. the number of monthly active users of the Resulting Program across all versions thereof and platforms globally do not exceed 10,000 at any time.
+You will not use any trade mark, service mark, trade name, logo of Tyron or any other company or organization in a way that is likely or intended to cause confusion about the owner or authorized user of such marks, names or logos.
+If you have any questions, comments or interest in pursuing any other use cases, please reach out to us at mapu@ssiprotocol.com.*)
+
+scilla_version 0
+
+library DEFIxWALLET
+  let one_msg =
+    fun( msg: Message ) =>
+    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+
+  let zero = Uint128 0
+  let zeroByStr20 = 0x0000000000000000000000000000000000000000
+
+  let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
+    match input with
+    | Some v => v
+    | None => default end
+  let option_uint128_value = let f = @option_value Uint128 in f zero
+  let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
+
+  let true = True
+  let false = False
+  let empty_string = ""
+  let did = "did"
+  let community = "community"
+  let tyron_id = "tyron"
+  let ssi_id = "s$i"
+  
+  type Beneficiary =
+    | NftUsername of String String (* NFT Domain Name & Subdomain *)
+    | Recipient of ByStr20
+  
+contract DEFIxWALLET(
+  init_nft: ByStr32,
+  init: ByStr20 with contract field dApp: ByStr20 with contract
+    field dns: Map String ByStr20,
+    field did_dns: Map String ByStr20 with contract
+      field controller: ByStr20,
+      field services: Map String ByStr20,
+      field deadline: Uint128,
+      field did_domain_dns: Map String ByStr20 end end end
+  )
+  field nft_domain: ByStr32 = init_nft
+  field pending_domain: String = empty_string
+  field paused: Bool = false
+
+  (* The block number when the last transaction occurred @todo add to all txn *)
+  field ledger_time: BNum = BNum 0
+  
+  (* A monotonically increasing number representing the amount of transactions that have taken place *)
+  field tx_number: Uint128 = zero
+  
+  field services: Map String ByStr20 = Emp String ByStr20
+  field version: String = "DEFIxWALLET_0.10.0" (* @xalkan *)
+  
+procedure SupportTyron( tyron: Option Uint128 )
+  match tyron with
+  | None => | Some donation =>
+    current_init <-& init.dApp;
+    donateDomain = "donate"; get_addr <-& current_init.dns[donateDomain]; addr = option_bystr20_value get_addr;
+    accept; msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: donation } in one_msg m; send msg end end
+
+procedure VerifyController( tyron: Option Uint128 )
+  id <- nft_domain; current_init <-& init.dApp;
+  domain = builtin to_string id;
+  get_did <-& current_init.did_dns[domain]; match get_did with
+  | None => e = { _exception : "DEFIxWALLET-DidIsNull" }; throw e
+  | Some did_ =>
+      current_controller <-& did_.controller;
+      verified = builtin eq _origin current_controller; match verified with
+      | True => SupportTyron tyron
+      | False => e = { _exception : "DEFIxWALLET-WrongCaller" }; throw e end end end
+
+procedure Timestamp()
+  current_block <- &BLOCKNUMBER; ledger_time := current_block;
+  latest_tx_number <- tx_number; new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor;
+  tx_number := new_tx_number end
+
+procedure ThrowIfSameAddr(
+  a: ByStr20,
+  b: ByStr20
+  )
+  is_self = builtin eq a b; match is_self with
+    | False => | True => e = { _exception : ".defi-SameAddress" }; throw e end end
+
+procedure IsNotPaused()
+  is_paused <- paused; match is_paused with
+    | False => | True => e = { _exception : ".defi-WrongStatus" }; throw e end end
+  
+procedure IsPaused()
+  is_paused <- paused; match is_paused with
+    | True => | False => e = { _exception : ".defi-WrongStatus" }; throw e end end
+  
+transition Pause(
+  username: String,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron; paused := true;
+  e = { _eventname: "DidDomainPaused";
+    pauser: _sender }; event e;
+  Timestamp end
+
+transition Unpause(
+  username: String,
+  tyron: Option Uint128
+  )
+  IsPaused; VerifyController username tyron; paused := false;
+  e = { _eventname: "DidDomainUnpaused";
+    pauser: _sender }; event e;
+  Timestamp end
+
+(* Receive $ZIL native funds *)
+transition AddFunds()
+  IsNotPaused; accept; Timestamp end
+
+(* Send $ZIL to any recipient that implements the tag, e.g. "AddFunds", "", etc. *)
+transition SendFunds(
+  username: String,
+  tag: String,
+  beneficiary: Beneficiary,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  match beneficiary with
+  | NftUsername username_ domain_ =>
+    current_init <-& init.dApp;
+    is_null = builtin eq domain_ null; match is_null with
+      | True =>
+        get_addr <-& current_init.dns[username_]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
+        msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
+      | False =>
+        get_did <-& current_init.did_dns[username_]; match get_did with
+          | None => e = { _exception : ".defi-DidIsNull" }; throw e
+          | Some did_ =>
+            is_did = builtin eq domain_ did; match is_did with
+              | True => msg = let m = { _tag: tag; _recipient: did_; _amount: amount } in one_msg m; send msg
+              | False =>
+                get_domain_addr <-& did_.did_domain_dns[domain_]; domain_addr = option_bystr20_value get_domain_addr;
+                msg = let m = { _tag: tag; _recipient: domain_addr; _amount: amount } in one_msg m; send msg end end end
+  | Recipient addr_ =>
+    ThrowIfSameAddr _this_address addr_;
+    msg = let m = { _tag: tag; _recipient: addr_; _amount: amount } in one_msg m; send msg end;
+  Timestamp end
+
+procedure FetchServiceAddr( id: String )
+  current_init <-& init.dApp; initDApp = "init";
+  get_did <-& current_init.did_dns[initDApp]; match get_did with
+    | None => e = { _exception : ".defi-DidIsNull" }; throw e
+    | Some did_ =>
+      get_service <-& did_.services[id]; addr = option_bystr20_value get_service;
+      services[id] := addr end end
+
+transition Transfer(
+  username: String,
+  addrName: String,
+  beneficiary: Beneficiary,
+  amount: Uint128,
+  tyron: Option Uint128
+  ) 
+  IsNotPaused; VerifyController username tyron; FetchServiceAddr addrName;
+  get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr;
+  match beneficiary with
+  | NftUsername username_ domain_ =>
+    current_init <-& init.dApp;
+    is_null = builtin eq domain_ null; match is_null with
+      | True =>
+        get_addr <-& current_init.dns[username_]; addr = option_bystr20_value get_addr; ThrowIfSameAddr _this_address addr;
+        msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+          to: addr;
+          amount: amount } in one_msg m ; send msg
+      | False =>
+        get_did <-& current_init.did_dns[username_]; match get_did with
+          | None => e = { _exception : ".defi-DidIsNull" }; throw e
+          | Some did_ =>
+            is_did = builtin eq domain_ did; match is_did with
+              | True =>
+                msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+                  to: did_;
+                  amount: amount } in one_msg m ; send msg
+              | False =>
+                get_domain_addr <-& did_.did_domain_dns[domain_]; domain_addr = option_bystr20_value get_domain_addr;
+                msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+                  to: domain_addr;
+                  amount: amount } in one_msg m ; send msg end end end
+  | Recipient addr_ =>
+    ThrowIfSameAddr _this_address addr_;
+    msg = let m = { _tag: "Transfer"; _recipient: token_addr; _amount: zero;
+      to: addr_;
+      amount: amount } in one_msg m ; send msg end;
+  Timestamp end
+
+transition RecipientAcceptTransfer( sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsNotPaused; Timestamp end
+
+transition RecipientAcceptTransferFrom( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsNotPaused; Timestamp end
+
+transition TransferSuccessCallBack( sender: ByStr20, recipient: ByStr20, amount : Uint128 ) IsNotPaused end
+
+transition TransferFromSuccessCallBack( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsNotPaused end
+
+transition UpdateDeadline(
+  val: Uint128,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyController tyron; deadline := val;
+  Timestamp end
+
+procedure IncreaseAllowanceDApp(
+  dApp: String,
+  addrName: String,
+  amount: Uint128
+  )
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
+    spender: dApp_addr;
+    amount: amount } in one_msg m ; send msg end
+
+(* @todo review to replace Increase & Decrease Allowance transition
+transition UpdateAllowance(
+  action: Action,
+  addrName: String,
+  spender: ByStr20,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsOperational; VerifyController tyron; FetchServiceAddr addrName;
+  get_addr <- services[addrName]; coin_addr = option_bystr20_value get_addr;
+  match action with
+    | Add => IncreaseAllowance coin_addr spender amount
+    | Remove => DecreaseAllowance coin_addr spender amount end; Timestamp end
+*)
+
+transition IncreaseAllowance(
+  username: String,
+  addrName: String,
+  spender: ByStr20,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
+    spender: spender;
+    amount: amount } in one_msg m ; send msg;
+  Timestamp end
+
+transition DecreaseAllowance(
+  username: String,
+  addrName: String,
+  spender: ByStr20,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  msg = let m = { _tag: "DecreaseAllowance"; _recipient: addr; _amount: zero;
+    spender: spender;
+    amount: amount } in one_msg m ; send msg;
+  Timestamp end
+
+transition AddLiquidity(
+  username: String,
+  dApp: String,
+  addrName: String,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  IncreaseAllowanceDApp dApp addrName amount;
+  get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[username]; match get_did with
+  | None => e = { _exception : ".defi-DidIsNull" }; throw e
+  | Some did_ =>
+      current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
+      accept; msg = let m = { _tag: "AddLiquidity"; _recipient: dApp_addr; _amount: _amount;
+        token_address: addr;
+        min_contribution_amount: amount;
+        max_token_amount: amount;
+        deadline_block: this_deadline } in one_msg m ; send msg end;
+  Timestamp end
+
+transition JoinTYRONCommunity(
+  username: String,
+  amount: Uint128,
+  amountTyron: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  IncreaseAllowanceDApp community ssi_id amount; IncreaseAllowanceDApp community tyron_id amountTyron;
+  get_dApp <- services[community]; dApp_addr = option_bystr20_value get_dApp;
+  current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[username]; match get_did with
+  | None => e = { _exception : ".defi-DidIsNull" }; throw e
+  | Some did_ =>
+      current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
+      msg = let m = { _tag: "JoinTYRONCommunity"; _recipient: dApp_addr; _amount: zero;
+        min_contribution_amount: amount;
+        max_token_amount: amount;
+        deadline_block: this_deadline } in one_msg m ; send msg end;
+  Timestamp end
+
+transition RemoveLiquidity(
+  username: String,
+  dApp: String,
+  addrName: String,
+  amount: Uint128,
+  minZilAmount: Uint128,
+  minTokenAmount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[username]; match get_did with
+  | None => e = { _exception : ".defi-DidIsNull" }; throw e
+  | Some did_ =>
+      current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
+      msg = let m = { _tag: "RemoveLiquidity"; _recipient: dApp_addr; _amount: zero;
+        token_address: addr;
+        contribution_amount: amount;
+        min_zil_amount: minZilAmount;
+        min_token_amount: minTokenAmount;
+        deadline_block: this_deadline } in one_msg m ; send msg end;
+  Timestamp end
+
+transition SwapExactZILForTokens(
+  username: String,
+  dApp: String,
+  addrName: String,
+  amount: Uint128,
+  minTokenAmount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[username]; match get_did with
+  | None => e = { _exception : ".defi-DidIsNull" }; throw e
+  | Some did_ =>
+      current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
+      accept; msg = let m = { _tag: "SwapExactZILForTokens"; _recipient: dApp_addr; _amount: amount;
+        token_address: addr;
+        min_token_amount: minTokenAmount;
+        deadline_block: this_deadline;
+        recipient_address: _this_address } in one_msg m; send msg end;
+  Timestamp end
+
+transition SwapExactTokensForZIL(
+  username: String,
+  dApp: String,
+  addrName: String,
+  amount: Uint128,
+  minZilAmount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  IncreaseAllowanceDApp dApp addrName amount;
+  get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[username]; match get_did with
+  | None => e = { _exception : ".defi-DidIsNull" }; throw e
+  | Some did_ =>
+      current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
+      msg = let m = { _tag: "SwapExactTokensForZIL"; _recipient: dApp_addr; _amount: zero;
+        token_address: addr;
+        token_amount: amount;
+        min_zil_amount: minZilAmount;
+        deadline_block: this_deadline;
+        recipient_address: _this_address } in one_msg m ; send msg end;
+  Timestamp end
+
+transition SwapExactTokensForTokens(
+  username: String,
+  dApp: String,
+  addrName: String,
+  toaddrName: String,
+  amount: Uint128,
+  minTokenAmount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  IncreaseAllowanceDApp dApp addrName amount;
+  get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+  FetchServiceAddr toaddrName; get_toAddr <- services[toaddrName]; toAddr = option_bystr20_value get_toAddr;
+  current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[username]; match get_did with
+  | None => e = { _exception : ".defi-DidIsNull" }; throw e
+  | Some did_ =>
+      current_block <- &BLOCKNUMBER; current_deadline <-& did_.deadline; this_deadline = builtin badd current_block current_deadline;
+      msg = let m = { _tag: "SwapExactTokensForTokens"; _recipient: dApp_addr; _amount: zero;
+        token0_address: addr;
+        token1_address: toAddr;
+        token0_amount: amount;
+        min_token1_amount: minTokenAmount;
+        deadline_block: this_deadline;
+        recipient_address: _this_address } in one_msg m ; send msg end;
+  Timestamp end
+
+transition Mint(
+  username: String,
+  dApp: String,
+  addrName: String,
+  beneficiary: ByStr20,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  IncreaseAllowanceDApp dApp addrName amount;
+  get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  msg = let m = { _tag: "Mint"; _recipient: dApp_addr; _amount: zero;
+    addrName: addrName;
+    beneficiary: beneficiary;
+    amount: amount } in one_msg m ; send msg;
+  Timestamp end
+
+transition Burn(
+  username: String,
+  dApp: String,
+  addrName: String,
+  beneficiary: ByStr20,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController username tyron;
+  get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  msg = let m = { _tag: "Burn"; _recipient: dApp_addr; _amount: zero;
+    addrName: addrName;
+    beneficiary: beneficiary;
+    amount: amount } in one_msg m ; send msg;
+  Timestamp end
+
+transition RecipientAcceptBurn( minter: ByStr20, beneficiary: ByStr20, amount: Uint128 ) IsNotPaused end
+
+transition MintSuccessCallBack( minter: ByStr20, beneficiary: ByStr20, amount: Uint128 ) IsNotPaused end
+
+transition RecipientAcceptMint( minter: ByStr20, beneficiary: ByStr20, amount: Uint128 ) IsNotPaused end
+
+transition BurnSuccessCallBack( minter: ByStr20, beneficiary: ByStr20, amount: Uint128 ) IsNotPaused end
