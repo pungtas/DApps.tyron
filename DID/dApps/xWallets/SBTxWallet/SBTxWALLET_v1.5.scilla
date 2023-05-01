@@ -1,5 +1,5 @@
 (* v1.5
-SBTxWALLET: Soulbound Smart Contract Wallet <> SSI DNS
+SBTxWALLET: Soulbound Smart Contract Wallet DIDxSSI
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2023. All rights reserved.
 You acknowledge and agree that Tyron Mapu Community Interest Company (Tyron) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the Program), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
@@ -21,9 +21,9 @@ library SBTxWALLET
     fun( msg: Message ) =>
     let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
 
-  let null = ""
   let zero = Uint128 0
   let zeroByStr20 = 0x0000000000000000000000000000000000000000
+  let zeroByStr32 = 0x0000000000000000000000000000000000000000000000000000000000000000
   let zeroByStr33 = 0x000000000000000000000000000000000000000000000000000000000000000000
   let zeroByStr64 = 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
   
@@ -41,7 +41,6 @@ library SBTxWALLET
 
 contract SBTxWALLET(
   init_nft: ByStr32,
-  domain: String,
   init: ByStr20 with contract field dApp: ByStr20 with contract
     field dns: Map String ByStr20,
     field did_dns: Map String ByStr20 with contract
@@ -49,7 +48,7 @@ contract SBTxWALLET(
       field verification_methods: Map String ByStr33 end end end
   )
   field nft_domain: ByStr32 = init_nft
-  field pending_domain: String = empty_string
+  field pending_domain: ByStr32 = zeroByStr32
   field paused: Bool = false
   
   (* The block number when the last transaction occurred @todo add to all txn *)
@@ -70,16 +69,18 @@ procedure SupportTyron( tyron: Option Uint128 )
     donateDomain = "donate"; get_addr <-& current_init.dns[donateDomain]; addr = option_bystr20_value get_addr;
     accept; msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: donation } in one_msg m; send msg end end
 
+procedure VerifyOrigin( addr: ByStr20 )
+  verified = builtin eq _origin addr; match verified with
+    | True => | False => ver <- version; e = { _exception: "xWALLET-WrongCaller"; version: ver }; throw e end end
+
 procedure VerifyController( tyron: Option Uint128 )
   id <- nft_domain; current_init <-& init.dApp;
   domain = builtin to_string id;
   get_did <-& current_init.did_dns[domain]; match get_did with
-  | None => e = { _exception : "SBTxWALLET-DidIsNull" }; throw e
+  | None => ver <- version; e = { _exception: "xWALLET-DidIsNull"; version: ver }; throw e
   | Some did_ =>
-      current_controller <-& did_.controller;
-      verified = builtin eq _origin current_controller; match verified with
-      | True => SupportTyron tyron
-      | False => e = { _exception : "SBTxWALLET-WrongCaller" }; throw e end end end
+      controller <-& did_.controller; VerifyOrigin controller;
+      SupportTyron tyron end end
 
 procedure Timestamp()
   current_block <- &BLOCKNUMBER; ledger_time := current_block;
@@ -88,55 +89,56 @@ procedure Timestamp()
 
 procedure IsNotPaused()
   is_paused <- paused; match is_paused with
-    | False => | True => e = { _exception: "SBTxWallet-WrongStatus" }; throw e end end
+    | False => | True => ver <- version; e = { _exception: "xWALLET-WrongStatus"; version: ver }; throw e end end
   
 procedure IsPaused()
   is_paused <- paused; match is_paused with
-    | True => | False => e = { _exception: "SBTxWallet-WrongStatus" }; throw e end end
+    | True => | False => ver <- version; e = { _exception: "xWALLET-WrongStatus"; version: ver }; throw e end end
 
-procedure ThrowIfSameName(
-  a: String,
-  b: String
+procedure ThrowIfSameDomain(
+  a: ByStr32,
+  b: ByStr32
   )
   is_same = builtin eq a b; match is_same with
-    | False => | True => e = { _exception: "SBTxWallet-SameUsername" }; throw e end end
+    | False => | True => ver <- version; e = { _exception: "xWALLET-SameDomain"; version: ver }; throw e end end
 
-transition UpdateUsername(
-  username: String,
+transition UpdateDomain(
+  domain: ByStr32,
   tyron: Option Uint128
   )
-  IsNotPaused; VerifyController tyron;
-  current_domain <- nft_username; ThrowIfSameName current_domain username;
-  current_init <-& init.dApp;
-  get_did <-& current_init.did_dns[username]; match get_did with
-    | Some did_ => pending_username := username
-    | None => e = { _exception: "SBTxWallet-DidIsNull" }; throw e end;
+  IsNotPaused; VerifyController tyron; id <- nft_domain;
+  ThrowIfSameDomain id domain;
+  current_init <-& init.dApp; domain_ = builtin to_string domain;
+  get_did <-& current_init.did_dns[domain_]; match get_did with
+    | Some did_ => pending_domain := domain
+    | None => ver <- version; e = { _exception: "xWALLET-DidIsNull"; version: ver }; throw e end;
   Timestamp end
 
-transition AcceptPendingUsername()
-  IsNotPaused; current_pending <- pending_username;
-  current_init <-& init.dApp;
-  get_did <-& current_init.did_dns[current_pending]; match get_did with
-    | None => e = { _exception: "SBTxWallet-DidIsNull" }; throw e
+transition AcceptPendingDomain()
+  IsNotPaused; domain <- pending_domain;
+  current_init <-& init.dApp; domain_ = builtin to_string domain;
+  get_did <-& current_init.did_dns[domain_]; match get_did with
+    | None => ver <- version; e = { _exception: "xWALLET-DidIsNull"; version: ver }; throw e
     | Some did_ =>
-      current_controller <-& did_.controller;
-      verified = builtin eq _origin current_controller; match verified with
-        | True => | False => e = { _exception: "SBTxWallet-WrongCaller" }; throw e end;
-      nft_username := current_pending; pending_username := null end;
+      controller <-& did_.controller; VerifyOrigin controller;
+      nft_domain := domain; pending_domain := zeroByStr32 end;
   Timestamp end
 
 transition Pause( tyron: Option Uint128 )
   IsNotPaused; VerifyController tyron; paused := true;
-  e = { _eventname: "DidDomainPaused";
+  ver <- version; e = { _eventname: "xWALLET-Paused";
+    version: ver;
     pauser: _sender }; event e;
   Timestamp end
 
 transition Unpause( tyron: Option Uint128 )
   IsPaused; VerifyController tyron; paused := false;
-  e = { _eventname: "DidDomainUnpaused";
+  ver <- version; e = { _eventname: "xWALLET-Unpaused";
+    version: ver;
     pauser: _sender }; event e;
   Timestamp end
 
+(* Config transaction *)
 transition UpdatePublicEncryption(
   new: String,
   tyron: Option Uint128
@@ -151,8 +153,9 @@ transition Ivms101(
   tyron: Option Uint128
   )
   IsNotPaused;
-  current_domain <- nft_username;
-  current_init <-& init.dApp; get_did <-& current_init.did_dns[current_domain]; match get_did with
+  id <- nft_domain;
+  current_init <-& init.dApp; domain = builtin to_string id;
+  get_did <-& current_init.did_dns[domain]; match get_did with
     | None => e = { _exception: "SBTxWallet-DidIsNull" }; throw e
     | Some did_ =>
         current_controller <-& did_.controller;
@@ -160,7 +163,7 @@ transition Ivms101(
         | True => SupportTyron tyron
         | False =>
           get_didkey <-& did_.verification_methods[domain]; did_key = option_bystr33_value get_didkey;
-          signed_data = let hash = builtin sha256hash message in builtin to_bystr hash;
+          signed_data = let hash = builtin sha256hash (* @todo concat nft_domain to message *) message in builtin to_bystr hash;
           signature = option_bystr64_value userSignature;
           is_right_signature = builtin schnorr_verify did_key signed_data signature; match is_right_signature with
             | True => | False => e = { _exception: "SBTxWallet-WrongSignature" }; throw e end end end;

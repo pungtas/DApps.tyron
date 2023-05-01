@@ -468,9 +468,9 @@ transition UpdateNftDns(
   new_status = Updated; did_status := new_status;
   Timestamp end
 
-(* xWALLET backbone 476-927 *)
+(* xWALLET backbone 476-924 *)
 
-(* -> Fungible tokens backbone 476-626 <- *)
+(* -> Fungible tokens backbone 476-623 <- *)
 
 procedure FetchServiceAddr( id: String )
   current_init <-& init.dApp;
@@ -481,22 +481,22 @@ procedure FetchServiceAddr( id: String )
       services[id] := addr end end
 
 procedure IncreaseAllowance(
-  coinAddr: ByStr20,
+  addr: ByStr20,
   spender: ByStr20,
   amount: Uint128
   )
-  ThrowIfNullAddr coinAddr;
-  msg = let m = { _tag: "IncreaseAllowance"; _recipient: coinAddr; _amount: zero;
+  ThrowIfNullAddr addr;
+  msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
     spender: spender;
     amount: amount } in one_msg m ; send msg end
 
 procedure DecreaseAllowance(
-  coinAddr: ByStr20,
+  addr: ByStr20,
   spender: ByStr20,
   amount: Uint128
   )
-  ThrowIfNullAddr coinAddr;
-  msg = let m = { _tag: "DecreaseAllowance"; _recipient: coinAddr; _amount: zero;
+  ThrowIfNullAddr addr;
+  msg = let m = { _tag: "DecreaseAllowance"; _recipient: addr; _amount: zero;
     spender: spender;
     amount: amount } in one_msg m ; send msg end
 
@@ -590,17 +590,14 @@ transition RecipientAcceptTransferFrom(
   is_valid = builtin eq recipient _this_address; match is_valid with
     | True => | False => e = { _exception: "DIDxWALLET-WrongRecipientForAcceptTransferFrom" }; throw e end end
 
-transition TransferSuccessCallBack( sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsOperational end
-
-transition TransferFromSuccessCallBack(
-  initiator: ByStr20,
+transition TransferSuccessCallBack(
   sender: ByStr20,
   recipient: ByStr20,
   amount: Uint128
   )
   IsOperational;
-  is_valid = builtin eq initiator _this_address; match is_valid with
-    | True => | False => e = { _exception: "DIDxWALLET-WrongInitiator" }; throw e end end 
+  is_valid = builtin eq sender _this_address; match is_valid with
+    | True => | False => e = { _exception: "DIDxWALLET-WrongSender" }; throw e end end
 
 procedure ZRC2_TransferTokens( input: Pair String Uint128 )
   addr_name = let fst_element = @fst String Uint128 in fst_element input;
@@ -624,9 +621,9 @@ transition ZRC2_BatchTransfer(
   batch_beneficiary := addr; forall tokens ZRC2_TransferTokens; batch_beneficiary := zeroByStr20;
   Timestamp end
 
-(* -> Non-fungible tokens backbone 632-927 <- *)
+(* -> Non-fungible tokens backbone 629-924 <- *)
 
-(* -->> SSI DNS backbone 632-781 <<-- *)
+(* -->> SSI DNS backbone 629-778 <<-- *)
 
 transition BuyNftUsername(
   id: String,
@@ -779,7 +776,7 @@ transition SSIDNS_UpdateDomainCallback(
   is_valid = builtin eq token_owner _this_address; match is_valid with
     | True => | False => e = { _exception: "DIDxWALLET_UpdateDomainCallback-NotOwner" }; throw e end end
 
-(* -->> ZRC6 backbone 785-927 <<-- *)
+(* -->> ZRC6 backbone 782-924 <<-- *)
 
 transition ZRC6_Mint(
   addrName: String,
