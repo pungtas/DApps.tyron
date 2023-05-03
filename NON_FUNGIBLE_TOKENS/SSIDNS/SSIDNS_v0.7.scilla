@@ -302,6 +302,7 @@ procedure RequireNotSelf(address_a: ByStr20, address_b: ByStr20)
   end
 end
 
+(* ZRC6 'RequireExistingToken' is declared but never used
 procedure RequireExistingToken(token_id: Uint256)
   has_token <- exists token_owners[token_id];
   match has_token with
@@ -311,6 +312,7 @@ procedure RequireExistingToken(token_id: Uint256)
     Throw error
   end
 end
+*)
 
 procedure RequireValidDestination(to: ByStr20)
   (* Reference: https://github.com/ConsenSys/smart-contract-best-practices/blob/master/docs/tokens.md *)
