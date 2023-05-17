@@ -10,7 +10,7 @@ An xWALLET is a decentralised application that integrates the tyronZIL DID metho
 
 - [DIDx](./DID/dApps/xWallets/DIDxWallet): This is the main digital wallet of your SSI account. Its open-source code goes by the name W3C Decentralized Identifier Smart Contract Wallet.
 
-- [ZILx](./DID/dApps/xWallets/ZILxWallet): The $ZIL staking wallet of your SSI account.
+- [DEFIx](./DID/dApps/xWallets/DEFIxWallet/README.md): Decentralised Finance Smart Contract Wallet.
 
 - [SBTx](./DID/dApps/xWallets/SBTxWallet): The Soulbound tokens wallet of your SSI account.
 
