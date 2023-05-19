@@ -1,5 +1,5 @@
 (* v0.2.0
-TYRON Governing & Profit-Sharing Community DApp
+Community.ssi dApp: Governing & Profit-Sharing Community Decentralised Application <> SSI Account
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2023. All rights reserved.
 You acknowledge and agree that Tyron Mapu Community Interest Company (Tyron) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the Program), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
@@ -124,6 +124,9 @@ contract Community(
   (* The block number when the last transaction occurred *)
   field ledger_time: BNum = BNum 0
 
+  (* The smart contract @version *)
+  field version: String = "Community.ssiDApp_0.2.0"
+
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
   | None => | Some donation =>
@@ -211,7 +214,7 @@ transition UpdateUsername(
   current_domain <- nft_domain; ThrowIfSameDomain current_domain username;
   current_init <-& init.dApp; get_did <-& current_init.did_dns[username]; match get_did with
     | None => err = CodeIsNull; ThrowError err
-    | Some did_ => pending_domain := domain end;
+    | Some did_ => pending_domain := username end;
   Timestamp end
 
 transition AcceptPendingUsername()
@@ -222,7 +225,7 @@ transition AcceptPendingUsername()
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
         | True => | False => err = CodeWrongCaller; ThrowError err end;
-      nft_domain := current_pending; pending_domain = empty_string end;
+      nft_domain := current_pending; pending_domain := empty_string end;
   Timestamp end
 
 transition UpdatePauser(

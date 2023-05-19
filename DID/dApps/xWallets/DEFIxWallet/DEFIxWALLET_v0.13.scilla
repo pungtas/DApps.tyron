@@ -1,4 +1,4 @@
-(* v0.12
+(* v0.13
 DEFIxWALLET: Decentralised Finance Smart Contract Wallet <> SSI Account
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2023. All rights reserved.
@@ -88,15 +88,17 @@ contract DEFIxWALLET(
   field pending_domain: ByStr32 = zeroByStr32
   field paused: Bool = false
 
-  (* The block number when the last transaction occurred *)
+  (* The block number when the last Transition occurred *)
   field ledger_time: BNum = BNum 0
   
-  (* A monotonically increasing number representing the amount of transactions that have taken place *)
+  (* A monotonically increasing number representing the amount of transitions that have taken place *)
   field tx_number: Uint128 = zero
   
   field services: Map String ByStr20 = Emp String ByStr20
   field deadline: Uint128 = Uint128 10
-  field version: String = "DEFIxWALLET_0.12.0" (* @xalkan *)
+
+  (* The smart contract @version *)
+  field version: String = "DEFIxWALLET_0.13.0"
 
 procedure ThrowError( err: Error, code: Int32 )
   ver <- version; e = make_error err ver code; throw e end
@@ -129,10 +131,10 @@ procedure RequireContractOwner(
   id <- nft_domain; current_init <-& init.dApp;
   domain_ = builtin to_string id;
   get_did <-& current_init.did_dns[domain_]; match get_did with
-  | None => err = CodeDidIsNull; code = Int32 -3; ThrowError err code
-  | Some did_ =>
-      controller <-& did_.controller; VerifyOrigin controller;
-      SupportTyron tyron; CommunityPayment tx end end
+    | None => err = CodeDidIsNull; code = Int32 -3; ThrowError err code
+    | Some did_ =>
+        controller <-& did_.controller; VerifyOrigin controller;
+        SupportTyron tyron; CommunityPayment tx end end
 
 procedure Timestamp()
   current_block <- &BLOCKNUMBER; ledger_time := current_block;
@@ -228,7 +230,7 @@ transition Pause( tyron: Option Uint128 )
   RequireNotPaused;
   tag = "Pause"; RequireContractOwner tyron tag;
   paused := true;
-  ver <- version; e = { _eventname: "xWALLET-Paused";
+  ver <- version; e = { _eventname: "SSIDApp-Paused";
     version: ver;
     pauser: _sender }; event e;
   Timestamp end
@@ -237,7 +239,7 @@ transition Unpause( tyron: Option Uint128 )
   RequirePaused;
   tag = "Unpause"; RequireContractOwner tyron tag;
   paused := false;
-  ver <- version; e = { _eventname: "xWALLET-Unpaused";
+  ver <- version; e = { _eventname: "SSIDApp-Unpaused";
     version: ver;
     pauser: _sender }; event e;
   Timestamp end
@@ -253,7 +255,8 @@ transition UpdateDeadline(
 
 (* Receive $ZIL native funds *)
 transition AddFunds()
-  RequireNotPaused; ThrowIfZero _amount; accept; Timestamp end
+  RequireNotPaused; ThrowIfZero _amount; accept;
+  Timestamp end
 
 (* Send $ZIL to any recipient that implements the tag, e.g. "AddFunds", "", etc. *)
 transition SendFunds(
@@ -293,7 +296,8 @@ transition RecipientAcceptTransfer(
   RequireNotPaused; ThrowIfZero amount;
   is_valid = builtin eq recipient _this_address; match is_valid with
     | True => Timestamp
-    | False => err = CodeWrongRecipient; code = Int32 -15; ThrowError err code end end 
+    | False => err = CodeWrongRecipient; code = Int32 -15; ThrowError err code end;
+  Timestamp end 
 
 transition RecipientAcceptTransferFrom(
   initiator: ByStr20,
@@ -304,7 +308,8 @@ transition RecipientAcceptTransferFrom(
   RequireNotPaused; ThrowIfZero amount;
   is_valid = builtin eq recipient _this_address; match is_valid with
     | True => Timestamp
-    | False => err = CodeWrongRecipient; code = Int32 -16; ThrowError err code end end
+    | False => err = CodeWrongRecipient; code = Int32 -16; ThrowError err code end;
+  Timestamp end
 
 transition Transfer(
   addrName: String,
@@ -352,7 +357,8 @@ transition TransferSuccessCallBack(
   )
   RequireNotPaused; ThrowIfZero amount;
   is_valid = builtin eq sender _this_address; match is_valid with
-    | True => | False => err = CodeWrongSender; code = Int32 -18; ThrowError err code end end
+    | True => | False => err = CodeWrongSender; code = Int32 -18; ThrowError err code end;
+  Timestamp end
 
 transition UpdateAllowance(
   dApp: String,
@@ -507,7 +513,8 @@ transition DelegateLiquidStake(
     referral: ref } in one_msg m; send msg end;
   Timestamp end
 
-transition DelegateStakeSuccessCallBack( ssnaddr: ByStr20, amount: Uint128 ) RequireNotPaused; ThrowIfZero amount end
+transition DelegateStakeSuccessCallBack( ssnaddr: ByStr20, amount: Uint128 ) RequireNotPaused; ThrowIfZero amount;
+  Timestamp end
 
 transition WithdrawStakeRewards(
   dApp: String,
@@ -522,7 +529,8 @@ transition WithdrawStakeRewards(
     ssnaddr: ssnaddr } in one_msg m; send msg;
   Timestamp end
 
-transition WithdrawStakeRewardsSuccessCallBack( ssnaddr: ByStr20, rewards: Uint128 ) RequireNotPaused; ThrowIfZero rewards end  
+transition WithdrawStakeRewardsSuccessCallBack( ssnaddr: ByStr20, rewards: Uint128 ) RequireNotPaused; ThrowIfZero rewards;
+  Timestamp end  
 
 transition WithdrawStakeAmt(
   dApp: String,
@@ -539,7 +547,8 @@ transition WithdrawStakeAmt(
     amt: amount } in one_msg m; send msg;
   Timestamp end
 
-transition WithdrawStakeAmtSuccessCallBack( ssnaddr: ByStr20, amount: Uint128 ) RequireNotPaused; ThrowIfZero amount end
+transition WithdrawStakeAmtSuccessCallBack( ssnaddr: ByStr20, amount: Uint128 ) RequireNotPaused; ThrowIfZero amount;
+  Timestamp end
 
 (* Liquid staking *)
 transition WithdrawTokensAmt(
@@ -555,7 +564,8 @@ transition WithdrawTokensAmt(
   Timestamp end
 
 (* Liquid staking *)
-transition WithdrawTokensAmtSuccessCallBack( ssnaddr: ByStr20, amount: Uint128 ) RequireNotPaused; ThrowIfZero amount end
+transition WithdrawTokensAmtSuccessCallBack( ssnaddr: ByStr20, amount: Uint128 ) RequireNotPaused; ThrowIfZero amount;
+  Timestamp end
 
 transition CompleteWithdrawal(
   dApp: String,
@@ -567,8 +577,11 @@ transition CompleteWithdrawal(
   msg = let m = { _tag: tag; _recipient: dApp_addr; _amount: zero } in one_msg m; send msg;
   Timestamp end
 
-transition CompleteWithdrawalSuccessCallBack( amount: Uint128 ) RequireNotPaused; ThrowIfZero amount end
-transition CompleteWithdrawalNoUnbondedStakeCallBack( amount: Uint128 ) RequireNotPaused end
+transition CompleteWithdrawalSuccessCallBack( amount: Uint128 ) RequireNotPaused; ThrowIfZero amount;
+  Timestamp end
+
+transition CompleteWithdrawalNoUnbondedStakeCallBack( amount: Uint128 ) RequireNotPaused;
+  Timestamp end
 
 transition ReDelegateStake(
   dApp: String,
@@ -589,7 +602,8 @@ transition ReDelegateStake(
     amount: amount } in one_msg m; send msg;
   Timestamp end
 
-transition ReDelegateStakeSuccessCallBack( ssnaddr: ByStr20, tossn: ByStr20, amount: Uint128 ) RequireNotPaused; ThrowIfZero amount end
+transition ReDelegateStakeSuccessCallBack( ssnaddr: ByStr20, tossn: ByStr20, amount: Uint128 ) RequireNotPaused; ThrowIfZero amount;
+  Timestamp end
 
 transition RequestDelegatorSwap(
   dApp: String,
@@ -653,4 +667,5 @@ transition RejectDelegatorSwap(
   FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
   ThrowIfNullAddr requestor;
   msg = let m = { _tag: tag ; _recipient: dApp_addr; _amount: zero;
-    requestor: requestor } in one_msg m; send msg end
+    requestor: requestor } in one_msg m; send msg;
+    Timestamp end

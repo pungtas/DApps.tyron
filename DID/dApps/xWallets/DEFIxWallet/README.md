@@ -2,7 +2,7 @@
 
 DEFIxWALLET is a Decentralised Finance Smart Contract Wallet designed to provide secure and convenient management of your SSI (Self-Sovereign Identity) account in the world of DeFi.
 
-The open-source code is available here: [DEFIxWALLET v0.12](./DEFIxWALLET_v0.12.scilla)
+The open-source code is available here: [DEFIxWALLET v0.13](./DEFIxWALLET_v0.13.scilla)
 
 ## Features
 
