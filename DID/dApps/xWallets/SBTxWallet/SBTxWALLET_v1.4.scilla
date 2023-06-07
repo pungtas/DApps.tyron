@@ -1,6 +1,6 @@
-(* v1.4.1
+(* v1
 SBTxWALLET: Soulbound Smart Contract Wallet <> SSI DNS
-Self-Sovereign Identity Protocol
+Tyron SSI: Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2023. All rights reserved.
 You acknowledge and agree that Tyron Mapu Community Interest Company (Tyron) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the Program), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
 Subject to the limited license below, you may not (and you may not permit anyone else to) distribute, publish, copy, modify, merge, combine with another program, create derivative works of, reverse engineer, decompile or otherwise attempt to extract the source code of, the Program or any part thereof, except that you may contribute to this repository.
@@ -50,19 +50,22 @@ contract SBT(
   field nft_username: String = init_username
   field pending_username: String = null
   field paused: Bool = false
-  
+
   field tx_number: Uint128 = zero
   field public_encryption: String = "bYACKEqduFtw5iZQVra42h1UAINo4ujJRYNNGNxVlCL-Fs46bBdo_S4EJRrgMJRhiqeUPKHRuu_daZFRHBWCjILdC5cc5mjSkQVIu30jJiaA_7G9FCYqVQnnKa0ZKn52DsT2f8bYSNHpDLpcmqcKqdW4Z8tgCtd9zhzZ4TchO9_-xPQ7T7v4Y-AIB0-Al8HwU2cvA_N17f7VHps2ZfMG88qVxOUlBJTlb6n60vZX_4laKavvyLz3zvbOUVhnI4L0VURiM_Z_1rF5rna7QNK9wU-40FqK8VMNW3DJFAVCVMvsMCUwqXnVZo35gKcG1LW8A7TBdTPlJ7ICtTRaS45QZ7fIz1pLiEg0R4n0NPP5N12YJQCnrZyLfsRPPjUZXfHdaKSxsYDDsiDOhWxkBCx3ScvIKYJDLK1jh0YhmQiATiCMMrM0mBFZ6cfNifCXDGV97dpKxnFfLNUMlV1sIUiSoryf8cK2DV15fbBWw8UqO254yqO4Eczf1LvDd4sXIUR9x9DhRAi_MYb4owiY8xBdRmggrlHrH2cducqX8znKOfQ_o6u7H3wU_f7qjzVfOFUsKnZC4mPp6dPTKyqK9fCAXGKIgxzL3Cd22v6zxo54-eovWHbESaj9h6PZ64duumrq3HAzHdn20XtynFJxwo9bNxXx0WxgVkrc-Hak64iazWVjQbGK6J-NJ996qpPZt-71YIbFqMI-fgZvt3eZZxfOsvtE7R8sbeThrZmWC42j94pvbmik3jcYsaAoSD_ct2b9qKWzSKqj-o_ZQAPvblpT9YeKY7tgygJgll_p75eQe38A8fpKDAMtTW1rOagzBGA2I1lYe_wu_BB6SuT2Mdq_Hh5_C5zDQRXs6klKxft2NB3siM4C4B6VH0hE2bZXl7KdnNdCAEdyPuRpXP5_XkYmWGBI6ZJvf6iP1wpTjQfpz54dGK-GQGo0FEH0zDtzbUUHs7oq5a7KiUeQEPmrzluphfcUIv7vMROn-UYoMsz38nd3W5VPKVVofe756p_MsjGu"
   field ivms101: Map String String = Emp String String
   field sbt: Map String ByStr64 = Emp String ByStr64
-  field version: String = "SBTxWallet-1.4.1" (* @todo *)
+
+  (* The smart contract @version *)
+  field version: String = "SBTxWallet-1.4.1"
 
 procedure SupportTyron( tyron: Option Uint128 )
   match tyron with
   | None => | Some donation =>
       current_init <-& init.dApp; donateDApp = "donate";
       get_addr <-& current_init.dns[donateDApp]; addr = option_bystr20_value get_addr;
-      accept; msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: donation } in one_msg m; send msg end end
+      accept; msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: donation } in one_msg m; send msg end
+end
 
 procedure VerifyController( tyron: Option Uint128 )
   current_username <- nft_username; current_init <-& init.dApp;
@@ -72,26 +75,31 @@ procedure VerifyController( tyron: Option Uint128 )
       current_controller <-& did_.controller;
       verified = builtin eq _origin current_controller; match verified with
       | True => SupportTyron tyron
-      | False => e = { _exception : "SBTxWallet-WrongCaller" }; throw e end end end
+      | False => e = { _exception : "SBTxWallet-WrongCaller" }; throw e end end
+end
 
 procedure Timestamp()
   latest_tx_number <- tx_number; new_tx_number = let incrementor = Uint128 1 in builtin add latest_tx_number incrementor;
-  tx_number := new_tx_number end
+  tx_number := new_tx_number
+end
 
 procedure IsNotPaused()
   is_paused <- paused; match is_paused with
-    | False => | True => e = { _exception: "SBTxWallet-WrongStatus" }; throw e end end
-  
+    | False => | True => e = { _exception: "SBTxWallet-WrongStatus" }; throw e end
+end
+
 procedure IsPaused()
   is_paused <- paused; match is_paused with
-    | True => | False => e = { _exception: "SBTxWallet-WrongStatus" }; throw e end end
+    | True => | False => e = { _exception: "SBTxWallet-WrongStatus" }; throw e end
+end
 
 procedure ThrowIfSameName(
   a: String,
   b: String
   )
   is_same = builtin eq a b; match is_same with
-    | False => | True => e = { _exception: "SBTxWallet-SameUsername" }; throw e end end
+    | False => | True => e = { _exception: "SBTxWallet-SameUsername" }; throw e end
+end
 
 transition UpdateUsername(
   username: String,
@@ -103,7 +111,8 @@ transition UpdateUsername(
   get_did <-& current_init.did_dns[username]; match get_did with
     | Some did_ => pending_username := username
     | None => e = { _exception: "SBTxWallet-DidIsNull" }; throw e end;
-  Timestamp end
+  Timestamp
+end
 
 transition AcceptPendingUsername()
   IsNotPaused; current_pending <- pending_username;
@@ -115,26 +124,30 @@ transition AcceptPendingUsername()
       verified = builtin eq _origin current_controller; match verified with
         | True => | False => e = { _exception: "SBTxWallet-WrongCaller" }; throw e end;
       nft_username := current_pending; pending_username := null end;
-  Timestamp end
+  Timestamp
+end
 
 transition Pause( tyron: Option Uint128 )
   IsNotPaused; VerifyController tyron; paused := true;
   e = { _eventname: "DidDomainPaused";
     pauser: _sender }; event e;
-  Timestamp end
+  Timestamp
+end
 
 transition Unpause( tyron: Option Uint128 )
   IsPaused; VerifyController tyron; paused := false;
   e = { _eventname: "DidDomainUnpaused";
     pauser: _sender }; event e;
-  Timestamp end
+  Timestamp
+end
 
 transition UpdatePublicEncryption(
   new: String,
   tyron: Option Uint128
   )
   VerifyController tyron;
-  IsNotPaused; public_encryption := new end
+  IsNotPaused; public_encryption := new
+end
 
 transition Ivms101(
   issuerName: String,
@@ -159,7 +172,8 @@ transition Ivms101(
   ivms101[issuerName] := message;
   e = { _eventname: "NewIvms101";
     issuerName: issuerName }; event e;
-  Timestamp end
+  Timestamp
+end
 
 transition Verifiable_Credential(
   issuerName: String,
@@ -178,4 +192,5 @@ transition Verifiable_Credential(
             is_right_signature = builtin schnorr_verify did_key signed_data issuerSignature; match is_right_signature with
             | False => e = { _exception: "SBTxWallet-WrongSignature" }; throw e
             | True => sbt[issuerName] := issuerSignature end end end;
-  Timestamp end
+  Timestamp
+end
