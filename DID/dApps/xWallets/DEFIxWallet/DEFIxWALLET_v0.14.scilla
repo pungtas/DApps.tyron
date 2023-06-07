@@ -1,0 +1,833 @@
+(* v0.14
+DEFIxWALLET: Decentralised Finance Smart Contract Wallet <> SSI Account
+Tyron SSI: Self-Sovereign Identity Protocol
+Copyright Tyron Mapu Community Interest Company 2023. All rights reserved.
+You acknowledge and agree that Tyron Mapu Community Interest Company (Tyron) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the Program), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
+Subject to the limited license below, you may not (and you may not permit anyone else to) distribute, publish, copy, modify, merge, combine with another program, create derivative works of, reverse engineer, decompile or otherwise attempt to extract the source code of, the Program or any part thereof, except that you may contribute to this repository.
+You are granted a non-exclusive, non-transferable, non-sublicensable license to distribute, publish, copy, modify, merge, combine with another program or create derivative works of the Program (such resulting program, collectively, the Resulting Program) solely for Non-Commercial Use as long as you:
+1. give prominent notice (Notice) with each copy of the Resulting Program that the Program is used in the Resulting Program and that the Program is the copyright of Tyron; and
+2. subject the Resulting Program and any distribution, publication, copy, modification, merger therewith, combination with another program or derivative works thereof to the same Notice requirement and Non-Commercial Use restriction set forth herein.
+Non-Commercial Use means each use as described in clauses (1)-(3) below, as reasonably determined by Tyron in its sole discretion:
+1. personal use for research, personal study, private entertainment, hobby projects or amateur pursuits, in each case without any anticipated commercial application;
+2. use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization or government institution; or
+3. the number of monthly active users of the Resulting Program across all versions thereof and platforms globally do not exceed 10,000 at any time.
+You will not use any trade mark, service mark, trade name, logo of Tyron or any other company or organization in a way that is likely or intended to cause confusion about the owner or authorized user of such marks, names or logos.
+If you have any questions, comments or interest in pursuing any other use cases, please reach out to us at mapu@ssiprotocol.com.*)
+
+scilla_version 0
+
+import BoolUtils
+
+library DEFIxWALLET
+  type Error =
+    | CodeWrongSender
+    | CodeDidIsNull
+    | CodeWrongStatus
+    | CodeIsNull
+    | CodeSameValue
+    | CodeWrongRecipient
+
+  type Action =
+    | Add
+    | Remove
+
+  type Beneficiary =
+    | NftUsername of String String (* NFT Domain Name & Subdomain *)
+    | Recipient of ByStr20
+  
+  let add = Add
+  let remove = Remove
+  
+  let one_msg = fun( msg: Message ) =>
+    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+
+  let true = True
+  let false = False
+  let zero = Uint128 0
+  let zeroByStr20 = 0x0000000000000000000000000000000000000000
+  let zero_hash = 0x0000000000000000000000000000000000000000000000000000000000000000
+  let one = Uint128 1
+  let empty_string = ""
+  let did = "did"
+  let defixId = "0x3a5835deb3efed4526a007f9a9b013d695c2baba4909e5950c8360935a30b8f9"
+
+  let option_value = tfun 'A => fun( default: 'A ) => fun( input: Option 'A) =>
+    match input with
+    | Some v => v
+    | None => default end
+  let option_uint128_value = let f = @option_value Uint128 in f zero
+  let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
+  
+  let make_error = fun (error: Error) => fun (version: String) => fun (code: Int32) =>
+    let exception = match error with
+    | CodeWrongSender    => "WrongSender"
+    | CodeDidIsNull      => "DidIsNull"
+    | CodeWrongStatus    => "WrongStatus"
+    | CodeIsNull         => "ZeroValueOrNull"
+    | CodeSameValue      => "SameValue"
+    | CodeWrongRecipient => "WrongRecipientForTransfer"
+    end in { _exception: exception; contractVersion: version; errorCode: code }
+
+contract DEFIxWALLET(
+  init_nft: ByStr32,
+  init: ByStr20 with contract field dApp: ByStr20 with contract
+    field implementation: ByStr20 with contract
+      field utility: Map String Map String Uint128 end,
+    field dns: Map String ByStr20,
+    field did_dns: Map String ByStr20 with contract
+      field controller: ByStr20,
+      field services: Map String ByStr20,
+      field did_domain_dns: Map String ByStr20 end end end
+  )
+  with (* Contract constraints *)
+    (* @req: Initial domain name must not be the zero hash *)
+    let is_invalid = builtin eq init_nft zero_hash in
+    negb is_invalid
+  =>
+
+  (***************************************************)
+  (*               Mutable parameters                *)
+  (***************************************************)
+
+  (* Contract owner.
+     @field nft_domain:
+      Contract owner's .did domain.
+     @field pending_domain:
+      New owner's .did domain for ownership transfer. *)
+  field nft_domain: ByStr32 = init_nft
+  field pending_domain: ByStr32 = zero_hash
+
+  (* Emergency stop mechanism. Defaults to False. *)
+  field is_paused: Bool = false
+
+  (* DID Services *)
+  field services: Map String ByStr20 = Emp String ByStr20
+
+  (* The block number when the last Transition occurred *)
+  field ledger_time: BNum = BNum 0
+
+  (* A monotonically increasing number representing the amount of transitions that have taken place *)
+  field tx_number: Uint128 = zero
+
+  field deadline: Uint128 = Uint128 10
+
+  (* The smart contract @version *)
+  field version: String = "DEFIxWALLET_0.14.0emits "
+
+(***************************************************)
+(*               Contract procedures               *)
+(***************************************************)
+
+(* Emits an error & cancels the transaction.
+     @param err: The Error data type.
+     @param code: A signed integer type of 32 bits. *)
+procedure ThrowError(err: Error, code: Int32)
+  ver <- version; e = make_error err ver code; throw e
+end
+
+(* Verifies that the contract is active (unpaused). *) 
+procedure RequireNotPaused()
+  paused <- is_paused; match paused with
+    | False => | True => err = CodeWrongStatus; code = Int32 -1; ThrowError err code end
+end
+
+(* Verifies the origin of the call.
+   It must match the input address.
+     @param addr: A 20-byte string. *) 
+procedure VerifyOrigin(addr: ByStr20)
+  verified = builtin eq _origin addr; match verified with
+    | True => | False => err = CodeWrongSender; code = Int32 -6; ThrowError err code end
+end
+
+procedure ThrowIfZero(val: Uint128)
+  is_null = builtin eq zero val; match is_null with
+    | False => | True => err = CodeIsNull; code = Int32 -8; ThrowError err code end
+end
+
+procedure ThrowIfNullAddr(addr: ByStr20)
+  is_null = builtin eq addr zeroByStr20; match is_null with
+    | False => | True => err = CodeIsNull; code = Int32 -9; ThrowError err code end
+end
+
+procedure ThrowIfNullHash(input: ByStr32)
+  is_null = builtin eq input zero_hash; match is_null with
+    | False => | True => err = CodeIsNull; code = Int32 -6; ThrowError err code end
+end
+
+procedure SupportTyron(
+  ssi_init: ByStr20 with contract field dns: Map String ByStr20 end,
+  tyron: Option Uint128
+  )
+  match tyron with
+  | None => | Some donation =>
+    donateDomain = "donate"; get_addr <-& ssi_init.dns[donateDomain];
+    addr = option_bystr20_value get_addr; ThrowIfNullAddr addr;
+    accept; msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: donation } in one_msg m; send msg end
+end
+
+procedure TyronCommunityFund(
+  ssi_init: ByStr20 with contract
+    field implementation: ByStr20 with contract
+      field utility: Map String Map String Uint128 end,
+    field did_dns: Map String ByStr20 with contract
+      field controller: ByStr20 end end,
+  id: String
+  )
+  init_did <-& ssi_init.implementation; ver <- version;
+  get_fee <-& init_did.utility[ver][id]; fee = option_uint128_value get_fee;
+
+  is_zero = builtin eq fee zero; match is_zero with
+    | True => | False =>
+      get_did <-& ssi_init.did_dns[defixId]; match get_did with
+        | Some did_ => msg = let m = { _tag: "AddFunds"; _recipient: did_; _amount: fee } in one_msg m; send msg
+        | None => err = CodeDidIsNull; code = Int32 -3; ThrowError err code end end
+end
+
+procedure RequireContractOwner(
+  tyron: Option Uint128,
+  tx: String
+  )
+  ssi_init <-& init.dApp;
+  id <- nft_domain; domain_ = builtin to_string id;
+
+  get_did <-& ssi_init.did_dns[domain_]; match get_did with
+    | None => err = CodeDidIsNull; code = Int32 -3; ThrowError err code
+    | Some did_ =>
+        controller <-& did_.controller; VerifyOrigin controller;
+        SupportTyron ssi_init tyron; TyronCommunityFund ssi_init tx end
+end
+
+procedure Timestamp()
+  current_block <- &BLOCKNUMBER; ledger_time := current_block;
+  latest_tx_number <- tx_number; new_tx_number = builtin add latest_tx_number one;
+  tx_number := new_tx_number
+end
+
+procedure ThrowIfSameDomain(
+  a: ByStr32,
+  b: ByStr32
+  )
+  is_same = builtin eq a b; match is_same with
+    | False => | True => err = CodeSameValue; code = Int32 -7; ThrowError err code end
+end
+
+procedure ThrowIfSameAddr(
+  a: ByStr20,
+  b: ByStr20
+  )
+  is_self = builtin eq a b; match is_self with
+    | False => | True => err = CodeSameValue; code = Int32 -10; ThrowError err code end
+end
+
+procedure FetchServiceAddr(id: String)
+  ssi_init <-& init.dApp;
+  
+  initId = "init"; get_did <-& ssi_init.did_dns[initId]; match get_did with
+    | None => err = CodeDidIsNull; code = Int32 -11; ThrowError err code
+    | Some did_ =>
+      get_service <-& did_.services[id]; addr = option_bystr20_value get_service;
+      services[id] := addr end
+end
+
+procedure IncreaseAllowance(
+  addr: ByStr20,
+  spender: ByStr20,
+  amount: Uint128
+  )
+  ThrowIfNullAddr addr; ThrowIfZero amount;
+  ThrowIfNullAddr spender; ThrowIfSameAddr _this_address spender;
+  
+  msg = let m = { _tag: "IncreaseAllowance"; _recipient: addr; _amount: zero;
+    spender: spender;
+    amount: amount } in one_msg m ; send msg
+end
+
+procedure DecreaseAllowance(
+  addr: ByStr20,
+  spender: ByStr20,
+  amount: Uint128
+  )
+  ThrowIfNullAddr addr; ThrowIfZero amount;
+  ThrowIfNullAddr spender; ThrowIfSameAddr _this_address spender;
+
+  msg = let m = { _tag: "DecreaseAllowance"; _recipient: addr; _amount: zero;
+    spender: spender;
+    amount: amount } in one_msg m ; send msg
+end
+
+transition UpdateDomain(
+  domain: ByStr32,
+  tyron: Option Uint128
+  )
+  RequireNotPaused; ThrowIfNullHash domain;
+  tag = "UpdateDomain"; RequireContractOwner tyron tag;
+  
+  id <- nft_domain; ThrowIfSameDomain id domain;
+  ssi_init <-& init.dApp; domain_ = builtin to_string domain;
+  
+  get_did <-& ssi_init.did_dns[domain_]; match get_did with
+    | Some did_ => pending_domain := domain
+    | None => err = CodeDidIsNull; code = Int32 -12; ThrowError err code end;
+  Timestamp
+end
+
+transition AcceptPendingDomain()
+  RequireNotPaused; ssi_init <-& init.dApp;
+  domain <- pending_domain; domain_ = builtin to_string domain;
+  
+  get_did <-& ssi_init.did_dns[domain_]; match get_did with
+    | None => err = CodeDidIsNull; code = Int32 -13; ThrowError err code
+    | Some did_ =>
+      controller <-& did_.controller; VerifyOrigin controller;
+      nft_domain := domain; pending_domain := zero_hash end;
+  Timestamp
+end
+
+transition Pause(tyron: Option Uint128)
+  RequireNotPaused;
+  tag = "Pause"; RequireContractOwner tyron tag;
+
+  is_paused := true;
+  ver <- version; e = { _eventname: "SSIDApp-Paused"; version: ver;
+    pauser: _sender }; event e;
+  Timestamp
+end
+
+transition Unpause(tyron: Option Uint128)
+  paused <- is_paused; match paused with
+    | True => | False => (* Not Paused Error *)
+      err = CodeWrongStatus; code = Int32 -24; ThrowError err code end;
+  tag = "Unpause"; RequireContractOwner tyron tag;
+  
+  is_paused := false;
+  ver <- version; e = { _eventname: "SSIDApp-Unpaused"; version: ver;
+    pauser: _sender }; event e;
+  Timestamp
+end
+
+(* @review: could have the deadline as input for the transitions where is required. *)
+transition UpdateDeadline(
+  val: Uint128,
+  tyron: Option Uint128
+  )
+  RequireNotPaused; ThrowIfZero val;
+  tag = "UpdateDeadline"; RequireContractOwner tyron tag;
+  deadline := val;
+  Timestamp
+end
+
+(* Receives $ZIL native funds *)
+transition AddFunds()
+  RequireNotPaused; ThrowIfZero _amount; accept;
+  Timestamp
+end
+
+(* Sends $ZIL to any recipient that implements the tag, e.g. "AddFunds", "", etc. *)
+transition SendFunds(
+  tag: String,
+  beneficiary: Beneficiary,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  RequireNotPaused; ThrowIfZero amount;
+  tag_ = "SendFunds"; RequireContractOwner tyron tag_;
+
+  match beneficiary with
+  | NftUsername domain_ subdomain_ =>
+    ssi_init <-& init.dApp;
+    is_ssi = builtin eq subdomain_ empty_string; match is_ssi with
+      | True =>
+        get_addr <-& ssi_init.dns[domain_];
+        addr = option_bystr20_value get_addr; ThrowIfSameAddr addr _this_address;
+        
+        msg = let m = { _tag: tag; _recipient: addr; _amount: amount } in one_msg m; send msg
+      | False =>
+        get_did <-& ssi_init.did_dns[domain_]; match get_did with
+          | None => err = CodeDidIsNull; code = Int32 -14; ThrowError err code
+          | Some did_ =>
+            is_did = builtin eq subdomain_ did; match is_did with
+              | True =>
+                msg = let m = { _tag: tag; _recipient: did_; _amount: amount } in one_msg m; send msg
+              | False =>
+                get_subdomain_addr <-& did_.did_domain_dns[subdomain_];
+                subdomain_addr = option_bystr20_value get_subdomain_addr; ThrowIfSameAddr subdomain_addr _this_address;
+                
+                msg = let m = { _tag: tag; _recipient: subdomain_addr; _amount: amount } in one_msg m; send msg end end end
+  | Recipient addr_ =>
+    ThrowIfSameAddr addr_ _this_address;
+
+    msg = let m = { _tag: tag; _recipient: addr_; _amount: amount } in one_msg m; send msg end;
+  Timestamp
+end
+
+transition RecipientAcceptTransfer(
+  sender: ByStr20,
+  recipient: ByStr20,
+  amount: Uint128
+  ) 
+  RequireNotPaused; ThrowIfZero amount;
+  is_valid = builtin eq recipient _this_address; match is_valid with
+    | True => | False => err = CodeWrongRecipient; code = Int32 -15; ThrowError err code end;
+  Timestamp
+end 
+
+transition RecipientAcceptTransferFrom(
+  initiator: ByStr20,
+  sender: ByStr20,
+  recipient: ByStr20,
+  amount: Uint128
+  )
+  RequireNotPaused; ThrowIfZero amount;
+  is_valid = builtin eq recipient _this_address; match is_valid with
+    | True => | False => err = CodeWrongRecipient; code = Int32 -16; ThrowError err code end;
+  Timestamp
+end
+
+transition Transfer(
+  addrName: String,
+  beneficiary: Beneficiary,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  RequireNotPaused; ThrowIfZero amount;
+  tag = "Transfer"; RequireContractOwner tyron tag;
+  FetchServiceAddr addrName; get_token_addr <- services[addrName]; token_addr = option_bystr20_value get_token_addr; ThrowIfNullAddr token_addr;
+  
+  match beneficiary with
+  | NftUsername domain_ subdomain_ =>
+    ssi_init <-& init.dApp;
+    is_ssi = builtin eq subdomain_ empty_string; match is_ssi with
+      | True =>
+        get_addr <-& ssi_init.dns[domain_];
+        addr = option_bystr20_value get_addr; ThrowIfSameAddr addr _this_address;
+        
+        msg = let m = { _tag: tag; _recipient: token_addr; _amount: zero;
+          to: addr;
+          amount: amount } in one_msg m ; send msg
+      | False =>
+        get_did <-& ssi_init.did_dns[domain_]; match get_did with
+          | None => err = CodeDidIsNull; code = Int32 -17; ThrowError err code
+          | Some did_ =>
+            is_did = builtin eq subdomain_ did; match is_did with
+              | True =>
+                msg = let m = { _tag: tag; _recipient: token_addr; _amount: zero;
+                to: did_;
+                amount: amount } in one_msg m ; send msg
+              | False =>
+                get_subdomain_addr <-& did_.did_domain_dns[subdomain_];
+                subdomain_addr = option_bystr20_value get_subdomain_addr; ThrowIfSameAddr subdomain_addr _this_address;
+                
+                msg = let m = { _tag: tag; _recipient: token_addr; _amount: zero;
+                  to: subdomain_addr;
+                  amount: amount } in one_msg m ; send msg end end end
+  | Recipient addr_ =>
+    ThrowIfSameAddr addr_ _this_address;
+    
+    msg = let m = { _tag: tag; _recipient: token_addr; _amount: zero;
+      to: addr_;
+      amount: amount } in one_msg m ; send msg end;
+  Timestamp
+end
+
+transition TransferSuccessCallBack(
+  sender: ByStr20,
+  recipient: ByStr20,
+  amount: Uint128
+  )
+  RequireNotPaused; ThrowIfZero amount;
+  is_valid = builtin eq sender _this_address; match is_valid with
+    | True => | False => err = CodeWrongSender; code = Int32 -18; ThrowError err code end;
+  Timestamp
+end
+
+transition UpdateAllowance(
+  dApp: String,
+  spender: ByStr20,
+  action: Action,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  RequireNotPaused;
+  tag = "UpdateAllowance"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp;
+  
+  match action with
+    | Add => IncreaseAllowance dApp_addr spender amount
+    | Remove => DecreaseAllowance dApp_addr spender amount end;
+  Timestamp
+end
+
+transition AddLiquidity(
+  dApp: String,
+  addrName: String,
+  minContributionAmount: Uint128,
+  maxTokenAmount: Uint128,
+  tyron: Option Uint128
+  )
+  RequireNotPaused; ThrowIfZero minContributionAmount; ThrowIfZero maxTokenAmount;
+  tag = "AddLiquidity"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr; ThrowIfNullAddr addr;
+  IncreaseAllowance addr dApp_addr maxTokenAmount;
+  current_block <- &BLOCKNUMBER; current_deadline <- deadline; this_deadline = builtin badd current_block current_deadline;
+  
+  accept; msg = let m = { _tag: tag; _recipient: dApp_addr; _amount: _amount;
+    token_address: addr;
+    min_contribution_amount: minContributionAmount;
+    max_token_amount: maxTokenAmount;
+    deadline_block: this_deadline } in one_msg m ; send msg;
+  Timestamp
+end
+
+transition RemoveLiquidity(
+  dApp: String,
+  addrName: String,
+  amount: Uint128,
+  minZilAmount: Uint128,
+  minTokenAmount: Uint128,
+  tyron: Option Uint128
+  )
+  RequireNotPaused; ThrowIfZero amount;
+  tag = "RemoveLiquidity"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr; ThrowIfNullAddr addr;
+  current_block <- &BLOCKNUMBER; current_deadline <- deadline; this_deadline = builtin badd current_block current_deadline;
+  
+  msg = let m = { _tag: tag; _recipient: dApp_addr; _amount: zero;
+    token_address: addr;
+    contribution_amount: amount;
+    min_zil_amount: minZilAmount;
+    min_token_amount: minTokenAmount;
+    deadline_block: this_deadline } in one_msg m ; send msg;
+  Timestamp
+end
+
+transition SwapExactZILForTokens(
+  dApp: String,
+  addrName: String,
+  amount: Uint128,
+  minTokenAmount: Uint128,
+  tyron: Option Uint128
+  )
+  RequireNotPaused; ThrowIfZero amount; ThrowIfZero minTokenAmount;
+  tag = "SwapExactZILForTokens"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr; ThrowIfNullAddr addr;
+  current_block <- &BLOCKNUMBER; current_deadline <- deadline; this_deadline = builtin badd current_block current_deadline;
+  
+  accept; msg = let m = { _tag: tag; _recipient: dApp_addr; _amount: amount;
+    token_address: addr;
+    min_token_amount: minTokenAmount;
+    deadline_block: this_deadline;
+    recipient_address: _this_address } in one_msg m; send msg;
+  Timestamp
+end
+
+transition SwapExactTokensForZIL(
+  dApp: String,
+  addrName: String,
+  amount: Uint128,
+  minZilAmount: Uint128,
+  tyron: Option Uint128
+  )
+  RequireNotPaused; ThrowIfZero amount; ThrowIfZero minZilAmount;
+  tag = "SwapExactTokensForZIL"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr; ThrowIfNullAddr addr;
+  IncreaseAllowance addr dApp_addr amount;
+  current_block <- &BLOCKNUMBER; current_deadline <- deadline; this_deadline = builtin badd current_block current_deadline;
+  
+  msg = let m = { _tag: tag; _recipient: dApp_addr; _amount: zero;
+    token_address: addr;
+    token_amount: amount;
+    min_zil_amount: minZilAmount;
+    deadline_block: this_deadline;
+    recipient_address: _this_address } in one_msg m ; send msg;
+  Timestamp
+end
+
+transition SwapExactTokensForTokens(
+  dApp: String,
+  addrName: String,
+  toAddrName: String,
+  amount: Uint128,
+  minTokenAmount: Uint128,
+  tyron: Option Uint128
+  )
+  RequireNotPaused; ThrowIfZero amount; ThrowIfZero minTokenAmount;
+  tag = "SwapExactTokensForTokens"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr; ThrowIfNullAddr addr;
+  IncreaseAllowance addr dApp_addr amount;
+  FetchServiceAddr toAddrName; get_toAddr <- services[toAddrName]; toAddr = option_bystr20_value get_toAddr; ThrowIfNullAddr toAddr;
+  current_block <- &BLOCKNUMBER; current_deadline <- deadline; this_deadline = builtin badd current_block current_deadline;
+  
+  msg = let m = { _tag: tag; _recipient: dApp_addr; _amount: zero;
+    token0_address: addr;
+    token1_address: toAddr;
+    token0_amount: amount;
+    min_token1_amount: minTokenAmount;
+    deadline_block: this_deadline;
+    recipient_address: _this_address } in one_msg m ; send msg;
+  Timestamp
+end
+
+(* -> Staking backbone <- *)
+transition DelegateStake(
+  dApp: String,
+  ssnID: String,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  RequireNotPaused; ThrowIfZero amount;
+  tag = "DelegateStake"; RequireContractOwner tyron tag;
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  FetchServiceAddr ssnID; get_ssnaddr <- services[ssnID]; ssnaddr = option_bystr20_value get_ssnaddr; ThrowIfNullAddr ssnaddr;
+  accept; msg = let m = { _tag: tag; _recipient: dApp_addr; _amount: amount;
+    ssnaddr: ssnaddr } in one_msg m; send msg;
+  Timestamp end
+
+transition DelegateStakeSuccessCallBack(
+  ssnaddr: ByStr20,
+  amount: Uint128
+  )
+  RequireNotPaused; ThrowIfZero amount;
+  Timestamp
+end
+
+transition WithdrawStakeRewards(
+  dApp: String,
+  ssnID: String,
+  tyron: Option Uint128
+  )
+  RequireNotPaused;
+  tag = "WithdrawStakeRewards"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  FetchServiceAddr ssnID; get_ssnaddr <- services[ssnID]; ssnaddr = option_bystr20_value get_ssnaddr; ThrowIfNullAddr ssnaddr;
+  
+  msg = let m = { _tag: tag; _recipient: dApp_addr; _amount: zero;
+    ssnaddr: ssnaddr } in one_msg m; send msg;
+  Timestamp
+end
+
+transition WithdrawStakeRewardsSuccessCallBack(
+  ssnaddr: ByStr20,
+  rewards: Uint128
+  )
+  RequireNotPaused; ThrowIfZero rewards;
+  Timestamp
+end  
+
+transition WithdrawStakeAmt(
+  dApp: String,
+  ssnID: String,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  RequireNotPaused; ThrowIfZero amount;
+  tag = "WithdrawStakeAmt"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  FetchServiceAddr ssnID; get_ssnaddr <- services[ssnID]; ssnaddr = option_bystr20_value get_ssnaddr; ThrowIfNullAddr ssnaddr;
+  
+  msg = let m = { _tag: tag; _recipient: dApp_addr; _amount: zero;
+    ssnaddr: ssnaddr;
+    amt: amount } in one_msg m; send msg;
+  Timestamp
+end
+
+transition WithdrawStakeAmtSuccessCallBack(
+  ssnaddr: ByStr20,
+  amount: Uint128
+  )
+  RequireNotPaused; ThrowIfZero amount;
+  Timestamp
+end
+
+transition CompleteWithdrawal(
+  dApp: String,
+  tyron: Option Uint128
+  )
+  RequireNotPaused;
+  tag = "CompleteWithdrawal"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  
+  msg = let m = { _tag: tag; _recipient: dApp_addr; _amount: zero } in one_msg m; send msg;
+  Timestamp
+end
+
+transition CompleteWithdrawalSuccessCallBack(amount: Uint128)
+  RequireNotPaused; ThrowIfZero amount;
+  Timestamp
+end
+
+transition CompleteWithdrawalNoUnbondedStakeCallBack(
+  amount: Uint128
+  )
+  RequireNotPaused;
+  Timestamp
+end
+
+(* Change certain staking amount (amount) from current SSN (ssnID) to a different SSN (tossnID) *)
+transition ReDelegateStake(
+  dApp: String,
+  ssnID: String,
+  tossnID: String,
+  amount: Uint128,
+  tyron: Option Uint128
+  )
+  RequireNotPaused; ThrowIfZero amount;
+  tag = "ReDelegateStake"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  FetchServiceAddr ssnID; get_ssnaddr <- services[ssnID]; ssnaddr = option_bystr20_value get_ssnaddr; ThrowIfNullAddr ssnaddr;
+  FetchServiceAddr tossnID; get_tossnaddr <- services[tossnID]; to_ssnaddr = option_bystr20_value get_tossnaddr; ThrowIfNullAddr to_ssnaddr;
+  ThrowIfSameAddr ssnaddr to_ssnaddr;
+  
+  msg = let m = { _tag: tag; _recipient: dApp_addr; _amount: zero;
+    ssnaddr: ssnaddr;
+    to_ssn: to_ssnaddr;
+    amount: amount } in one_msg m; send msg;
+  Timestamp
+end
+
+transition ReDelegateStakeSuccessCallBack(
+  ssnaddr: ByStr20,
+  tossn: ByStr20,
+  amount: Uint128
+  )
+  RequireNotPaused; ThrowIfZero amount;
+  Timestamp
+end
+
+transition RequestDelegatorSwap(
+  dApp: String,
+  newDelegAddr: ByStr20,
+  tyron: Option Uint128
+  )
+  RequireNotPaused;
+  tag = "RequestDelegatorSwap"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  ThrowIfNullAddr newDelegAddr;
+  
+  msg = let m = { _tag: tag; _recipient: dApp_addr; _amount: zero;
+    new_deleg_addr: newDelegAddr } in one_msg m; send msg;
+  Timestamp 
+end
+
+(* Sent by the new delegator *)
+transition ConfirmDelegatorSwap(
+  dApp: String,
+  requestor: ByStr20, (* The previous delegator *)
+  tyron: Option Uint128
+  )
+  RequireNotPaused;
+  tag = "ConfirmDelegatorSwap"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  ThrowIfNullAddr requestor;
+  
+  msg = let m = { _tag: tag; _recipient: dApp_addr; _amount: zero;
+    requestor: requestor } in one_msg m; send msg;
+  Timestamp
+end
+
+transition RevokeDelegatorSwap(
+  dApp: String,
+  tyron: Option Uint128
+  )
+  RequireNotPaused;
+  tag = "RevokeDelegatorSwap"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  
+  msg = let m = { _tag: tag; _recipient: dApp_addr; _amount: zero } in one_msg m; send msg;
+  Timestamp
+end
+
+(* Sent by the new delegator *)
+transition RejectDelegatorSwap(
+  dApp: String,
+  requestor: ByStr20, (* The previous delegator *)
+  tyron: Option Uint128
+  )
+  RequireNotPaused;
+  tag = "RejectDelegatorSwap"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  ThrowIfNullAddr requestor;
+  
+  msg = let m = { _tag: tag ; _recipient: dApp_addr; _amount: zero;
+    requestor: requestor } in one_msg m; send msg;
+  Timestamp
+end
+
+transition MintAuth(
+  dApp: String,
+  beneficiary: Option ByStr20,
+  amount: Uint128,
+  auth: Bool,
+  subdomain: Option String,
+  tyron: Option Uint128
+  )
+  RequireNotPaused;
+  tag = "Mint"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  ThrowIfZero amount;
+  
+  beneficiary_ = match beneficiary with
+  | None => _this_address
+  | Some addr => addr end;
+  
+  id <- nft_domain;
+  match auth with
+  | True =>
+    msg = let m = { _tag: "MintSSI" ; _recipient: dApp_addr; _amount: zero;
+      domain: id;
+      subdomain: subdomain;
+      recipient: beneficiary_;
+      amount: amount } in one_msg m; send msg
+  | False =>
+    msg = let m = { _tag: tag ; _recipient: dApp_addr; _amount: zero;
+      recipient: beneficiary_;
+      amount: amount } in one_msg m; send msg;
+    Timestamp end
+end
+
+transition BurnAuth(
+  dApp: String,
+  amount: Uint128,
+  auth: Bool,
+  subdomain: Option String,
+  tyron: Option Uint128
+  )
+  RequireNotPaused;
+  tag = "Burn"; RequireContractOwner tyron tag;
+  
+  FetchServiceAddr dApp; get_dApp <- services[dApp]; dApp_addr = option_bystr20_value get_dApp; ThrowIfNullAddr dApp_addr;
+  ThrowIfZero amount;
+  
+  id <- nft_domain;
+  match auth with
+  | True =>
+    msg = let m = { _tag: "BurnSSI" ; _recipient: dApp_addr; _amount: zero;
+      domain: id;
+      subdomain: subdomain;
+      burn_account: _this_address;
+      amount: amount } in one_msg m; send msg
+  | False =>
+    msg = let m = { _tag: tag ; _recipient: dApp_addr; _amount: zero;
+      burn_account: _this_address;
+      amount: amount } in one_msg m; send msg;
+    Timestamp end
+end
