@@ -1397,9 +1397,10 @@ end
 transition JoinCommunity(
   domain: ByStr32,
   subdomain: Option String,
-  amount: Uint128
+  amount: Uint128,
+  deadline_block: BNum
   )
-  RequireNotPaused;
+  RequireNotPaused; ThrowIfExpired deadline_block;
   
   (* Verify & register NFT domain *)
   ssi_init <-& init.dApp;
@@ -1454,8 +1455,11 @@ transition JoinCommunity(
 end
 
 (* The caller (_sender) must control the NFT domain name *)
-transition LeaveCommunity(amount: Uint128 )
-  RequireNotPaused;
+transition LeaveCommunity(
+  amount: Uint128,
+  deadline_block: BNum
+  )
+  RequireNotPaused; ThrowIfExpired deadline_block;
   UpdateShares remove _sender amount;
 
   (* Update balance *)
