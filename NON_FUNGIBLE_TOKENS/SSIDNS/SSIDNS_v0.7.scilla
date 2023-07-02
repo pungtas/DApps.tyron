@@ -1,5 +1,5 @@
 (* SSI DNS v0.7
-SSI Domain Name System that includes the Zilliqa-Reference-Contract #6 standard (which has an SPDX-License-Identifier: MIT)
+SSI Domain Name System that incorporates the Zilliqa-Reference-Contract #6 standard (which has an SPDX-License-Identifier: MIT)
 Self-Sovereign Identity Protocol
 Copyright Tyron Mapu Community Interest Company 2023. All rights reserved.
 You acknowledge and agree that Tyron Mapu Community Interest Company (Tyron) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the Program), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
@@ -222,7 +222,8 @@ field spenders: Map Uint256 ByStr20 = Emp Uint256 ByStr20
 (* Mapping from token owner to operators authorized by the token owner *)
 field operators: Map ByStr20 (Map ByStr20 Bool) = Emp ByStr20 (Map ByStr20 Bool)
 
-field version: String = "SSIDNS_0.7.1" (* @xalkan *)
+(* The smart contract @version *)
+field version: String = "SSIDNS_0.7.1"
 
 (* Emit Errors *)
 procedure Throw(error: Error)
