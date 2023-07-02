@@ -1,4 +1,4 @@
-# TYRON fungible token
+# Fungible Token
 
 ## I. Summary
 
