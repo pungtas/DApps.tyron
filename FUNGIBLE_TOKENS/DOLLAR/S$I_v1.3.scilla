@@ -126,7 +126,7 @@ contract Dollar(
   field tx_number: Uint128 = zero
 
   (* The smart contract @version *)
-  field version: String = "DollarDApp_1.3.0"
+  field version: String = "DollarDApp_1.3.1"
 
 (***************************************************)
 (*               Contract procedures               *)
@@ -220,7 +220,9 @@ procedure TyronCommunityFund(
   is_zero = builtin eq fee zero; match is_zero with
     | True => | False =>
       get_did <-& ssi_init.did_dns[fund]; match get_did with
-        | Some did_ => msg = let m = { _tag: "AddFunds"; _recipient: did_; _amount: fee } in one_msg m; send msg
+        | Some did_ => 
+          accept;
+          msg = let m = { _tag: "AddFunds"; _recipient: did_; _amount: fee } in one_msg m; send msg
         | None => err = CodeDidIsNull; code = Int32 -8; ThrowError err code
         end
     end
