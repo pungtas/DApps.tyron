@@ -157,7 +157,7 @@ contract DEFIxWALLET(
   field sbt: Map String ByStr64 = Emp String ByStr64
 
   (* The smart contract @version *)
-  field version: String = "DEFIxWALLET_0.15.0"
+  field version: String = "DEFIxWALLET_0.15.1"
 
 (***************************************************)
 (*               Contract procedures               *)
@@ -242,7 +242,9 @@ procedure TyronCommunityFund(
   is_zero = builtin eq fee zero; match is_zero with
     | True => | False =>
       get_did <-& ssi_init.did_dns[defixwallet_ssi]; match get_did with
-        | Some did_ => msg = let m = { _tag: "AddFunds"; _recipient: did_; _amount: fee } in one_msg m; send msg
+        | Some did_ =>
+          accept;
+          msg = let m = { _tag: "AddFunds"; _recipient: did_; _amount: fee } in one_msg m; send msg
         | None => err = CodeDidIsNull; code = Int32 -8; ThrowError err code
         end
     end
