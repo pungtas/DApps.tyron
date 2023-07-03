@@ -1,7 +1,8 @@
-(* community.ssi DApp v0.8
-S$I - Self-Sovereign Identity Dollar - Decentralised Exchange & Liquidity Pool Token
+(* community.ssi DApp v0
+Self-Sovereign Identity Dollar (S$I) Decentralised Exchange & Liquidity Pool Token
 Tyron SSI: Self-Sovereign Identity (SSI) Protocol
-Copyright (c) 2023 by Tyron SSI DAO: Tyron Mapu Community Interest Company (CIC). All rights reserved.
+Copyright (c) 2023 Tyron SSI DAO: Tyron Mapu Community Interest Company (CIC) and its affiliates.
+All rights reserved.
 You acknowledge and agree that Tyron Mapu Community Interest Company (Tyron SSI) own all legal right, title and interest in and to the work, software, application, source code, documentation and any other documents in this repository (collectively, the Program), including any intellectual property rights which subsist in the Program (whether those rights happen to be registered or not, and wherever in the world those rights may exist), whether in source code or any other form.
 Subject to the limited license below, you may not (and you may not permit anyone else to) distribute, publish, copy, modify, merge, combine with another program, create derivative works of, reverse engineer, decompile or otherwise attempt to extract the source code of, the Program or any part thereof, except that you may contribute to this repository.
 You are granted a non-exclusive, non-transferable, non-sublicensable license to distribute, publish, copy, modify, merge, combine with another program or create derivative works of the Program (such resulting program, collectively, the Resulting Program) solely for Non-Commercial Use as long as you:
@@ -172,8 +173,7 @@ contract Community(
   name : String,
   symbol: String,
   decimals: Uint32,
-  init_sbt_issuer: String,
-  init_issuer_subdomain: String
+  init_sbt_issuer: String
   )
   with (* Contract constraints *)
     let requirements =
@@ -230,7 +230,7 @@ contract Community(
   field ml: Uint256 = Uint256 1 (* multiplier *)
   field x: Uint128 = Uint128 1000000000000 (* 1 S$S div 10^12 = 1 XSGD *)
 
-  field transmuter: String = "tyrons$i" (* @review enable updates *)
+  field transmuter: String = "tyrons$i_transmuter" (* @review enable updates *)
 
   (* Liquidity Pool Token *)
   field total_supply: Uint128 = init_supply
@@ -264,7 +264,7 @@ contract Community(
   field tx_number: Uint128 = zero
 
   (* The smart contract @version *)
-  field version: String = "Community.ssiDApp_0.8.0"
+  field version: String = "Community.ssiDApp_0.9.0"
 
 (***************************************************)
 (*               Contract procedures               *)
@@ -365,13 +365,14 @@ procedure TyronCommunityFund(
   id: String
   )
   fund <- profit_fund;
-  txID = builtin concat fund id;
   init_did <-& ssi_init.implementation; ver <- version;
-  get_fee <-& init_did.utility[ver][txID]; fee = option_uint128_value get_fee;
+  get_fee <-& init_did.utility[ver][id]; fee = option_uint128_value get_fee;
   is_zero = builtin eq fee zero; match is_zero with
     | True => | False =>
       get_did <-& ssi_init.did_dns[fund]; match get_did with
-        | Some did_ => msg = let m = { _tag: "AddFunds"; _recipient: did_; _amount: fee } in one_msg m; send msg
+        | Some did_ =>
+          accept;
+          msg = let m = { _tag: "AddFunds"; _recipient: did_; _amount: fee } in one_msg m; send msg
         | None => err = CodeDidIsNull; code = Int32 -10; ThrowError err code
         end
     end
