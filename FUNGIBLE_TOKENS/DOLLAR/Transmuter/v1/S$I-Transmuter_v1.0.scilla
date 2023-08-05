@@ -1,4 +1,4 @@
-(* transmuter.ssi DApp v0
+(* transmuter.ssi DApp v1
 Self-Sovereign Identity Dollar (S$I) Transmuter
 Tyron SSI: Self-Sovereign Identity (SSI) Protocol
 Copyright (c) 2023 Tyron SSI DAO: Tyron Mapu Community Interest Company (CIC) and its affiliates.
@@ -46,7 +46,6 @@ library Transmuter
   let empty_string = ""
   let did = "did"
   let ssi_id = "s$i"
-  let none_byStr20 = None{ ByStr20 with contract field did_domain_dns: Map String ByStr20 end }
 
   let option_value = tfun 'A => fun(default: 'A) => fun(input: Option 'A) =>
     match input with
@@ -82,17 +81,28 @@ library Transmuter
         | Some r => r
         end
 
+  let compute_token: Uint128 -> Uint256 -> Uint256 -> Uint128 =
+    fun(amount: Uint128) => fun(price: Uint256) => fun(m: Uint256) =>
+      let amount_u256 = grow amount in
+      let numerator = builtin mul amount_u256 m in
+      let result = builtin div numerator price in
+      let result_uint128 = builtin to_uint128 result in match result_uint128 with
+        | None => builtin sub zero one (* @error throws an integer overflow by computing -1 in uint *)
+        | Some r => r
+        end
+
   let one_msg = fun(msg: Message) => let nil_msg = Nil{Message} in Cons{Message} msg nil_msg
 
-  let make_error = fun (error: Error) => fun (version: String) => fun (code: Int32) =>
-    let exception = match error with
-    | CodeWrongSender    => "WrongSender"
-    | CodeDidIsNull      => "DidIsNull"
-    | CodeWrongStatus    => "WrongStatus"
-    | CodeIsNull         => "ZeroValueOrNull"
-    | CodeSameValue      => "SameValue"
-    | CodeNotValid       => "InvalidValue"
-    end in { _exception: exception; contractVersion: version; errorCode: code }
+  let make_error =
+    fun(error: Error) => fun(version: String) => fun(code: Int32) => fun(addr: ByStr20)  =>
+      let exception = match error with
+      | CodeWrongSender    => "WrongSender"
+      | CodeDidIsNull      => "DidIsNull"
+      | CodeWrongStatus    => "WrongStatus"
+      | CodeIsNull         => "ZeroValueOrNull"
+      | CodeSameValue      => "SameValue"
+      | CodeNotValid       => "InvalidValue"
+      end in { _exception: exception; contractVersion: version; errorCode: code; contractAddress: addr }
 
 contract Trasmuter(
   token_id: String,
@@ -141,10 +151,6 @@ contract Trasmuter(
 
   field community: String = init_community
   field token_amount: Uint128 = zero
-  field sbt: Map ByStr32 ByStr64 = Emp ByStr32 ByStr64
-  field didxwallet: Option ByStr20 with contract
-    field did_domain_dns: Map String ByStr20 end = none_byStr20
-  field xwallet: ByStr20 = zero_addr
 
   (* DID Services *)
   field services: Map String ByStr20 = Emp String ByStr20
@@ -161,7 +167,7 @@ contract Trasmuter(
   field sbt_user_subdomain: String = "defi"
 
   (* The smart contract @version *)
-  field version: String = "S$ITransmuterDApp_0.4.0"
+  field version: String = "S$ITransmuterDApp_1.0.0"
 
 (***************************************************)
 (*               Contract procedures               *)
@@ -171,7 +177,7 @@ contract Trasmuter(
      @param err: The Error data type.
      @param code: A signed integer type of 32 bits. *)
 procedure ThrowError(err: Error, code: Int32)
-  ver <- version; e = make_error err ver code; throw e
+  ver <- version; e = make_error err ver code _this_address; throw e
 end
 
 (* Verifies that the contract is active (unpaused). *) 
@@ -332,25 +338,6 @@ procedure IsSender(id: String)
     end
 end
 
-procedure VerifyController(
-  domain: ByStr32,
-  ssi_init: ByStr20 with contract
-    field did_dns: Map String ByStr20 with contract
-      field controller: ByStr20,
-      field did_domain_dns: Map String ByStr20 end end
-  )
-  ThrowIfNullHash domain; domain_ = builtin to_string domain;
-  get_did <-& ssi_init.did_dns[domain_]; match get_did with
-    | None => err = CodeDidIsNull; code = Int32 -15; ThrowError err code
-    | Some did_ =>
-      controller <-& did_.controller; VerifyOrigin controller;
-
-      xwallet := did_;
-      some_did = Some{ ByStr20 with contract field did_domain_dns: Map String ByStr20 end } did_;
-      didxwallet := some_did
-    end
-end
-
 procedure VerifySBT(
   domain: ByStr32,
   ssi_init: ByStr20 with contract
@@ -361,13 +348,13 @@ procedure VerifySBT(
     field sbt: Map String ByStr64 end
   )
   match get_xwallet with
-  | None => err = CodeNotValid; code = Int32 -16; ThrowError err code
+  | None => err = CodeNotValid; code = Int32 -15; ThrowError err code
   | Some xwallet_ => (* Access the caller's SBT *)
     issuer <- sbt_issuer;
     get_ivms101 <-& xwallet_.ivms101[issuer]; msg = option_string_value get_ivms101; ThrowIfNullString msg;
     
     get_did <-& ssi_init.did_dns[issuer]; match get_did with
-    | None => err = CodeDidIsNull; code = Int32 -17; ThrowError err code
+    | None => err = CodeDidIsNull; code = Int32 -16; ThrowError err code
     | Some did_ =>
       issuer_subdomain <- sbt_issuer_subdomain;
       get_didkey <-& did_.verification_methods[issuer_subdomain]; did_key = option_bystr33_value get_didkey;
@@ -375,9 +362,8 @@ procedure VerifySBT(
       (* The issuer's signature *)
       get_sig <-& xwallet_.sbt[issuer]; sig = option_bystr64_value get_sig;
       is_right_signature = builtin schnorr_verify did_key signed_data sig; match is_right_signature with
-      | False => err = CodeNotValid; code = Int32 -18; ThrowError err code
-      | True => sbt[domain] := sig
-      end
+        | True => | False => err = CodeNotValid; code = Int32 -17; ThrowError err code
+        end
     end
   end
 end
@@ -387,33 +373,26 @@ procedure Auth(
   subdomain: Option String
   )
   ssi_init <-& init.dApp;
-  VerifyController domain ssi_init;
-
   user_subdomain <- sbt_user_subdomain;
   subdomain_ = match subdomain with
   | Some subd => subd
   | None => user_subdomain
   end;
-  
-  (* Get SBT *)
-  is_did = builtin eq subdomain_ did; match is_did with (* Defaults to true: DIDxWALLET saved in VerifyController *)
-  | True => | False =>
-    ssi_did <- didxwallet; match ssi_did with
+
+  ThrowIfNullHash domain; domain_ = builtin to_string domain;
+  get_did <-& ssi_init.did_dns[domain_]; match get_did with
     | None => err = CodeDidIsNull; code = Int32 -18; ThrowError err code
     | Some did_ =>
+      controller <-& did_.controller; VerifyOrigin controller;
+
       get_addr <-& did_.did_domain_dns[subdomain_];
       addr = option_bystr20_value get_addr; ThrowIfNullAddr addr;
-      xwallet := addr
+      get_xwallet <-& addr as ByStr20 with contract
+      field ivms101: Map String String,
+      field sbt: Map String ByStr64 end;
+      VerifySBT domain ssi_init get_xwallet
     end
-  end;
-  
-  xwallet_ <- xwallet;
-  get_xwallet <-& xwallet_ as ByStr20 with contract
-    field ivms101: Map String String,
-    field sbt: Map String ByStr64 end;
-  VerifySBT domain ssi_init get_xwallet;
-  xwallet := zero_addr; didxwallet := none_byStr20
-  end
+end
 
 procedure FetchCommunity(amount: Uint128)
   ssi_community <- community;
@@ -421,17 +400,25 @@ procedure FetchCommunity(amount: Uint128)
   get_comm_addr <- services[ssi_community]; comm_address = option_bystr20_value get_comm_addr; ThrowIfNullAddr comm_address;
   
   get_community <-& comm_address as ByStr20 with contract
-    field reserves: Pair Uint128 Uint128 end;
+    field reserves: Pair Uint128 Uint128,
+    field price: Uint256,
+    field ml: Uint256 end;
   
   match get_community with
   | None => err = CodeNotValid; code = Int32 -20; ThrowError err code
   | Some comm => 
-      reserves <-& comm.reserves;
-      ssi_reserve = let fst_element = @fst Uint128 Uint128 in fst_element reserves; ThrowIfZero ssi_reserve;
-      token_reserve = let snd_element = @snd Uint128 Uint128 in snd_element reserves; ThrowIfZero token_reserve;
-
-      token_amt = get_output amount ssi_reserve token_reserve fee_denom; (* after_fee = fee_denom means 0% fee *)
-      token_amount := token_amt
+    reserves <-& comm.reserves;
+    ssi_reserve = let fst_element = @fst Uint128 Uint128 in fst_element reserves;
+    is_zero = builtin eq zero ssi_reserve; match is_zero with
+      | True =>
+        current_price <-& comm.price; current_mul <-& comm.ml;
+        token_amt = compute_token amount current_price current_mul;
+        token_amount := token_amt
+      | False =>
+        token_reserve = let snd_element = @snd Uint128 Uint128 in snd_element reserves; ThrowIfZero token_reserve;
+        token_amt = get_output amount ssi_reserve token_reserve fee_denom; (* after_fee = fee_denom means 0% fee *)
+        token_amount := token_amt
+      end
   end
 end
 
